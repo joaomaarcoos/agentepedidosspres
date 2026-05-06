@@ -1,0 +1,32 @@
+# Credenciais e segredos
+.env
+.mcp.json
+credentials.json
+token.json
+
+# Configuracoes locais de agentes
+.claude/settings.local.json
+.claude/worktrees/
+
+# Arquivos intermediarios e artefatos gerados
+.tmp/
+.next/
+node_modules/
+frontend/node_modules/
+frontend/.next/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

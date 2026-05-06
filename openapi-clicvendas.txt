@@ -1,0 +1,274 @@
+openapi: "3.0.3"
+info:
+  title: "Documentação API sucosspres"
+  version: "1.0.0"
+  description: "Esqueleto da API extraído da documentação visível. URLs dos servidores foram omitidas."
+
+# Servidores: apenas nomes/descritivos; URLs omitidos por segurança
+x-servers:
+  - name: "Servidor Produção (URL omitido)"
+  - name: "Servidor Autenticação (URL omitido)"
+
+tags:
+  - name: "Autenticação"
+    description: "Endpoints de login e refresh token"
+  - name: "Externo"
+    description: "Endpoints para integração externa: pessoas, produtos, pedidos, estoques"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - username
+        - password
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required:
+        - refreshToken
+    GenericSuccess:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+    Pessoa:
+      type: object
+      description: "Modelo genérico para criação/retorno de pessoa (preencher conforme API real)"
+      properties:
+        id:
+          type: string
+        nome:
+          type: string
+        email:
+          type: string
+    Produto:
+      type: object
+      description: "Modelo genérico para produto"
+      properties:
+        id:
+          type: string
+        nome:
+          type: string
+        preco:
+          type: number
+    Pedido:
+      type: object
+      description: "Modelo genérico para pedido"
+      properties:
+        id:
+          type: string
+        itens:
+          type: array
+          items:
+            $ref: '#/components/schemas/Produto'
+    EstoqueProdutosRequest:
+      type: object
+      properties:
+        produtoIds:
+          type: array
+          items:
+            type: string
+
+paths:
+  /login:
+    post:
+      tags:
+        - "Autenticação"
+      summary: "Autenticação Login"
+      description: "Endpoint de login. Observação na UI: 'authorization button unlocked'."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: "Login bem-sucedido"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: "Credenciais inválidas"
+
+  /refresh:
+    post:
+      tags:
+        - "Autenticação"
+      summary: "Autenticação RefreshToken"
+      description: "Renovação de token. Observação na UI: 'authorization button unlocked'."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: "Novo accessToken/refreshToken"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: "Refresh token inválido"
+
+  /extpessoas:
+    get:
+      tags:
+        - "Externo"
+      summary: "Pessoas GET"
+      description: "Listar pessoas. Observação na UI: 'authorization button unlocked'."
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: "Lista de pessoas"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pessoa'
+    post:
+      tags:
+        - "Externo"
+      summary: "Pessoas POST"
+      description: "Criar pessoa. Observação na UI: 'authorization button unlocked'."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pessoa'
+      responses:
+        '201':
+          description: "Pessoa criada"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pessoa'
+
+  /extprodutos:
+    get:
+      tags:
+        - "Externo"
+      summary: "Produtos GET"
+      description: "Listar produtos. Observação na UI: 'authorization button unlocked'."
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: "Lista de produtos"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Produto'
+    post:
+      tags:
+        - "Externo"
+      summary: "Produtos POST"
+      description: "Criar produto. Observação na UI: 'authorization button unlocked'."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Produto'
+      responses:
+        '201':
+          description: "Produto criado"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Produto'
+
+  /extpedidos:
+    get:
+      tags:
+        - "Externo"
+      summary: "Pedidos GET"
+      description: "Listar pedidos. Observação na UI: 'authorization button unlocked'."
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: "Lista de pedidos"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Pedido'
+    post:
+      tags:
+        - "Externo"
+      summary: "Pedidos POST"
+      description: "Criar pedido. Observação na UI: 'authorization button unlocked'."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Pedido'
+      responses:
+        '201':
+          description: "Pedido criado"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pedido'
+
+  /extestoquesprodutos:
+    post:
+      tags:
+        - "Externo"
+      summary: "Estoque por produtos POST"
+      description: "Consultar/atualizar estoque por produtos. Observação na UI: 'authorization button unlocked'."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EstoqueProdutosRequest'
+      responses:
+        '200':
+          description: "Informação de estoque retornada"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
