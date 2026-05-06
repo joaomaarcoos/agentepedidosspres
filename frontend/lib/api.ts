@@ -89,18 +89,28 @@ export const clientesApi = {
 };
 
 export const recorrenciaApi = {
-  list: (params?: { dias?: number; minPedidos?: number; page?: number; pageSize?: number }) => {
+  list: (params?: { status?: string; page?: number; pageSize?: number }) => {
     const q = new URLSearchParams();
-    if (params?.dias) q.set("dias", String(params.dias));
-    if (params?.minPedidos) q.set("min_pedidos", String(params.minPedidos));
+    if (params?.status) q.set("status", params.status);
     if (params?.page) q.set("page", String(params.page));
     if (params?.pageSize) q.set("page_size", String(params.pageSize));
     return api.get<import("./types").RecorrenciaOverview>(
       `/api/recorrencia${q.size ? `?${q}` : ""}`
     );
   },
-  detail: (codCli: number, dias = 180) =>
-    api.get<import("./types").RecorrenciaCliente>(
-      `/api/recorrencia/${codCli}?dias=${dias}`
-    ),
+  detail: (id: string) =>
+    api.get<import("./types").RecorrenciaTarget>(`/api/recorrencia/${id}`),
+  runScript: () =>
+    api.post<{
+      inserted_or_updated: number;
+      skipped: number;
+      errors: { cpf_cnpj: string; error: string }[];
+    }>("/api/recorrencia/run"),
+  validate: (params?: { limit?: number; id?: string }) =>
+    api.post<{
+      processed: number;
+      approved: number;
+      rejected: number;
+      errors: { id: string; nome: string; error: string }[];
+    }>("/api/recorrencia/validate", params),
 };

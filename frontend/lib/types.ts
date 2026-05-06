@@ -147,21 +147,60 @@ export interface ClientesSyncResponse {
   duration_ms: number;
 }
 
-export interface RecorrenciaCliente {
-  cod_cli: number;
-  cliente_nome: string;
-  pedido_count: number;
-  first_order_at?: string | null;
-  last_order_at?: string | null;
-  avg_interval_days?: number | null;
-  days_since_last?: number | null;
-  expected_next_order_at?: string | null;
-  overdue_days: number;
-  confidence: number;
-  status: "critico" | "atrasado" | "em_janela" | "cedo" | "novo";
-  total_value: number;
-  avg_order_value: number;
-  recent_orders: Pedido[];
+export interface RecorrenciaItem {
+  codPro: string;
+  desPro: string;
+  qtdPed: number;
+  vlrTotal: number;
+}
+
+export interface RecorrenciaOrderDetail {
+  numero: number | null;
+  data: string;
+  valor_total: number;
+  situacao: string | null;
+  itens: RecorrenciaItem[];
+}
+
+export interface RecorrenciaTopItem {
+  codPro: string;
+  desPro: string;
+  total_qtd: number;
+  aparicoes: number;
+}
+
+export type RecorrenciaStatus =
+  | "candidate"
+  | "ai_approved"
+  | "ai_rejected"
+  | "dispatched"
+  | "responded"
+  | "converted"
+  | "opted_out";
+
+export interface RecorrenciaTarget {
+  id: string;
+  cpf_cnpj: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  cod_rep: number | null;
+  recurrence_interval_days: number | null;
+  recurrence_tier: "media" | "alta" | "semanal_forte" | null;
+  last_order_date: string | null;
+  predicted_next_order_date: string | null;
+  days_until_predicted: number | null;
+  orders_count_30d: number | null;
+  last_3_orders_json: RecorrenciaOrderDetail[] | null;
+  top_items_json: RecorrenciaTopItem[] | null;
+  status: RecorrenciaStatus;
+  ai_validated: boolean;
+  ai_decision: string | null;
+  ai_reasoning: string | null;
+  dispatched_at: string | null;
+  cooldown_until: string | null;
+  last_contact_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface RecorrenciaOverview {
@@ -169,14 +208,14 @@ export interface RecorrenciaOverview {
   page: number;
   page_size: number;
   pages: number;
-  dias: number;
-  min_pedidos: number;
   stats: {
-    criticos: number;
-    atrasados: number;
-    em_janela: number;
-    cedo: number;
-    novos: number;
+    candidate: number;
+    ai_approved: number;
+    ai_rejected: number;
+    dispatched: number;
+    responded: number;
+    converted: number;
+    opted_out: number;
   };
-  clientes: RecorrenciaCliente[];
+  targets: RecorrenciaTarget[];
 }

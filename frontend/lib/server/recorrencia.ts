@@ -1,5 +1,5 @@
 import { runPythonJson } from "@/lib/server/python";
-import type { RecorrenciaCliente, RecorrenciaOverview } from "@/lib/types";
+import type { RecorrenciaOverview, RecorrenciaTarget } from "@/lib/types";
 
 type PythonEnvelope<T> =
   | { ok: true; data: T }
@@ -14,33 +14,31 @@ async function callRecorrencia<T>(args: string[]) {
 }
 
 export function listRecorrencia(params: {
-  dias?: number;
-  minPedidos?: number;
+  status?: string;
   page?: number;
   pageSize?: number;
 }) {
   const args = ["overview"];
-  if (params.dias !== undefined) {
-    args.push("--dias", String(params.dias));
-  }
-  if (params.minPedidos !== undefined) {
-    args.push("--min-pedidos", String(params.minPedidos));
-  }
-  if (params.page !== undefined) {
-    args.push("--page", String(params.page));
-  }
-  if (params.pageSize !== undefined) {
-    args.push("--page-size", String(params.pageSize));
-  }
+  if (params.status) args.push("--status", params.status);
+  if (params.page !== undefined) args.push("--page", String(params.page));
+  if (params.pageSize !== undefined) args.push("--page-size", String(params.pageSize));
   return callRecorrencia<RecorrenciaOverview>(args);
 }
 
-export function getRecorrenciaCliente(codCli: number, dias = 180) {
-  return callRecorrencia<RecorrenciaCliente>([
-    "detail",
-    "--cod-cli",
-    String(codCli),
-    "--dias",
-    String(dias),
-  ]);
+export function getRecorrenciaTarget(params: { cpf?: string; id?: string }) {
+  const args = ["detail"];
+  if (params.id) args.push("--id", params.id);
+  else if (params.cpf) args.push("--cpf", params.cpf);
+  return callRecorrencia<RecorrenciaTarget>(args);
+}
+
+export function runRecorrenciaScript(dryRun = false) {
+  const args = ["run"];
+  if (dryRun) args.push("--dry-run");
+  return callRecorrencia<{
+    inserted_or_updated: number;
+    skipped: number;
+    errors: { cpf_cnpj: string; error: string }[];
+    dry_run: boolean;
+  }>(args);
 }
