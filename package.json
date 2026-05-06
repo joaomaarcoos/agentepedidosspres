@@ -8,5 +8,8 @@
     "start": "npm --prefix frontend run start",
     "lint": "npm --prefix frontend run lint",
     "install:all": "npm install && cd frontend && npm install"
+  },
+  "devDependencies": {
+    "next": "14.2.3"
   }
 }
