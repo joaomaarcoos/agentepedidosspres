@@ -53,6 +53,9 @@ const STATUS_LABEL: Record<RecorrenciaStatus, string> = {
   responded: "Respondeu",
   converted: "Convertido",
   opted_out: "Opt-out",
+  activation_candidate: "Ativação Candidato",
+  activation_approved: "Ativação Aprovada",
+  activation_rejected: "Ativação Rejeitada",
 };
 
 const STATUS_COLOR: Record<RecorrenciaStatus, string> = {
@@ -64,6 +67,9 @@ const STATUS_COLOR: Record<RecorrenciaStatus, string> = {
   responded: "var(--success)",
   converted: "var(--success)",
   opted_out: "var(--muted)",
+  activation_candidate: "var(--muted)",
+  activation_approved: "var(--accent)",
+  activation_rejected: "var(--error)",
 };
 
 const STATUS_TABS: { key: string; label: string }[] = [
