@@ -29,7 +29,6 @@ RUN npm --prefix frontend ci --omit=dev
 
 # Artefatos do build Next.js
 COPY --from=builder /app/frontend/.next ./frontend/.next
-COPY --from=builder /app/frontend/public ./frontend/public
 
 # Scripts Python
 COPY execution/ ./execution/
