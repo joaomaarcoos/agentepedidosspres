@@ -162,7 +162,7 @@ export default function ResultadosPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
-      <Header title="Resultados" subtitle="Impacto dos disparos da IA" />
+      <Header title="Resultados" />
 
       <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
 
