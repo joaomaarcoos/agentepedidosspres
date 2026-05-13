@@ -1,8 +1,9 @@
 """
-disparos_recompra.py
-====================
-Envia mensagens WhatsApp para candidatos aprovados pela IA (status='ai_approved').
-Registra em message_events e atualiza recurrence_targets para 'dispatched'.
+disparos_recorrencia.py
+=======================
+Envia mensagens WhatsApp para candidatos aprovados pela IA (status='ai_approved',
+target_type='recorrencia'). Registra em message_events e atualiza recurrence_targets
+para 'dispatched'.
 
 Subcomandos:
   run  [--dry-run] [--limit N] [--id UUID]
@@ -85,7 +86,6 @@ def _extract_mensagem(ai_reasoning: str | None) -> str:
 
 
 def _build_mensagem_fallback(target: dict) -> str:
-    nome = target.get("customer_name") or "cliente"
     top_items = target.get("top_items_json") or []
     produtos = ", ".join(
         it.get("desPro") or it.get("codPro", "")
@@ -125,18 +125,41 @@ def _send_whatsapp(api_url: str, api_key: str, instance: str, phone: str, text: 
     return {}
 
 
-def cmd_run(dry_run: bool, limit: int, target_id: str | None) -> dict:
+def _log_disparo(db, log_id: str, patch: dict) -> None:
+    try:
+        db.table("disparo_logs").update(patch).eq("id", log_id).execute()
+    except Exception as exc:
+        logger.warning("Falha ao atualizar disparo_log %s: %s", log_id, exc)
+
+
+def cmd_run(dry_run: bool, limit: int, target_id: str | None, triggered_by: str = "manual") -> dict:
     db = _db()
     now = datetime.now(timezone.utc)
+    started_at = now
+
+    # Abrir log entry
+    log_id: str | None = None
+    try:
+        row = db.table("disparo_logs").insert({
+            "flow": "recorrencia",
+            "triggered_by": triggered_by,
+            "dry_run": dry_run,
+            "status": "success",
+            "started_at": now.isoformat(),
+        }).execute()
+        log_id = (row.data or [{}])[0].get("id")
+    except Exception as exc:
+        logger.warning("Não foi possível criar disparo_log: %s", exc)
 
     if not dry_run:
         api_url, api_key, instance = _evolution_config()
 
-    # Buscar candidatos aprovados
+    # Buscar candidatos aprovados do pipeline de recorrência
     query = (
         db.table("recurrence_targets")
         .select("*")
         .eq("status", "ai_approved")
+        .eq("target_type", "recorrencia")
         .is_("dispatched_at", "null")
     )
     if target_id:
@@ -213,7 +236,7 @@ def cmd_run(dry_run: bool, limit: int, target_id: str | None) -> dict:
                 "message_type": "text",
                 "payload_json": {
                     "canal": "whatsapp",
-                    "funil": "recompra",
+                    "funil": "recorrencia",
                     "mensagem": mensagem,
                     "evolution_response": result,
                 },
@@ -240,6 +263,28 @@ def cmd_run(dry_run: bool, limit: int, target_id: str | None) -> dict:
 
         processed += 1
 
+    finished_at = datetime.now(timezone.utc)
+    duration_ms = int((finished_at - started_at).total_seconds() * 1000)
+
+    if dry_run:
+        final_status = "dry_run"
+    elif errors:
+        final_status = "partial" if dispatched > 0 else "error"
+    else:
+        final_status = "success"
+
+    if log_id:
+        _log_disparo(db, log_id, {
+            "processed": processed,
+            "dispatched": dispatched,
+            "skipped": skipped,
+            "errors_count": len(errors),
+            "errors_json": errors,
+            "status": final_status,
+            "finished_at": finished_at.isoformat(),
+            "duration_ms": duration_ms,
+        })
+
     return {
         "processed": processed,
         "dispatched": dispatched,
@@ -250,13 +295,14 @@ def cmd_run(dry_run: bool, limit: int, target_id: str | None) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Disparos de recompra via WhatsApp")
+    parser = argparse.ArgumentParser(description="Disparos de recorrência via WhatsApp")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     p_run = subparsers.add_parser("run")
     p_run.add_argument("--dry-run", action="store_true")
     p_run.add_argument("--limit", type=int, default=50)
     p_run.add_argument("--id", dest="target_id", default=None)
+    p_run.add_argument("--triggered-by", dest="triggered_by", default="manual")
 
     args = parser.parse_args()
 
@@ -266,6 +312,7 @@ def main() -> int:
                 dry_run=args.dry_run,
                 limit=args.limit,
                 target_id=args.target_id,
+                triggered_by=args.triggered_by,
             ))
         return failure("Comando não suportado")
     except Exception as exc:

@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       approved: number;
       rejected: number;
       errors: { id: string; nome: string; error: string }[];
-    }>>("execution/agent_validacao_recompra.py", args);
+    }>>("execution/agent_validacao_recorrencia.py", args);
 
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 500 });

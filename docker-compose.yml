@@ -1,0 +1,30 @@
+services:
+  agente-pedidos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: agente-pedidos:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PYTHON_EXECUTABLE: /app/.venv/bin/python3
+      APP_URL: "https://agentess.sucosspres.com.br"
+    volumes:
+      - app-tmp:/app/.tmp
+    networks:
+      - SucosSpresNet
+    labels:
+      - "traefik.enable=true"
+      # Substitua pelo seu domínio real
+      - "traefik.http.routers.agente-pedidos.rule=Host(`agentess.sucosspres.com.br`)"
+      - "traefik.http.routers.agente-pedidos.entrypoints=websecure"
+      - "traefik.http.routers.agente-pedidos.tls.certresolver=letsencrypt"
+      - "traefik.http.services.agente-pedidos.loadbalancer.server.port=3000"
+
+volumes:
+  app-tmp:
+
+networks:
+  SucosSpresNet:
+    external: true

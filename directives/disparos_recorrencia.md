@@ -1,8 +1,8 @@
-# Módulo de Disparos — Recompra
+# Módulo de Disparos — Recorrência
 
 ## Objetivo
 
-Executar o disparo de mensagens WhatsApp para os candidatos de recompra que foram
+Executar o disparo de mensagens WhatsApp para os candidatos de recorrência que foram
 aprovados pela IA (`status = 'ai_approved'` na tabela `recurrence_targets`).
 
 O módulo NÃO decide quem deve receber mensagem. Ele apenas executa o envio dos
@@ -13,7 +13,7 @@ candidatos que já passaram pelo funil (script → validação IA).
 ## Posição no Funil
 
 ```
-[Script Recompra]       → recurrence_targets (candidate)
+[Script Recorrência]       → recurrence_targets (candidate)
 [Agente Validação IA]   → recurrence_targets (ai_approved | ai_rejected)
 [Módulo de Disparos]    → executa envio → recurrence_targets (dispatched)
                         → registra em message_events
@@ -33,7 +33,7 @@ Lê da tabela `recurrence_targets`:
 
 ## Ferramentas e Scripts
 
-- `execution/disparos_recompra.py`
+- `execution/disparos_recorrencia.py`
 - Subcomando: `run [--dry-run] [--limit N] [--target-id UUID]`
 - Integração: Evolution API (WhatsApp) via variáveis em `.env`
 
@@ -97,7 +97,7 @@ Authorization: {EVOLUTION_API_KEY}
   "message_type": "text",
   "payload_json": {
     "canal": "whatsapp",
-    "funil": "recompra",
+    "funil de recorrência",
     "ai_decision": "{ai_decision resumido}"
   }
 }

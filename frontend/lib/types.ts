@@ -173,10 +173,14 @@ export type RecorrenciaStatus =
   | "candidate"
   | "ai_approved"
   | "ai_rejected"
+  | "needs_review"
   | "dispatched"
   | "responded"
   | "converted"
-  | "opted_out";
+  | "opted_out"
+  | "activation_candidate"
+  | "activation_approved"
+  | "activation_rejected";
 
 export interface RecorrenciaTarget {
   id: string;
@@ -184,6 +188,7 @@ export interface RecorrenciaTarget {
   customer_name: string | null;
   customer_phone: string | null;
   cod_rep: number | null;
+  target_type: "recorrencia" | "ativacao";
   recurrence_interval_days: number | null;
   recurrence_tier: "media" | "alta" | "semanal_forte" | null;
   last_order_date: string | null;
@@ -203,6 +208,60 @@ export interface RecorrenciaTarget {
   updated_at: string;
 }
 
+export interface ResultadosPipelineStats {
+  dispatched: number;
+  converted: number;
+  revenue: number;
+}
+
+export interface ResultadosStats {
+  dispatched_total: number;
+  converted_total: number;
+  conversion_rate: number;
+  revenue_total: number;
+  by_pipeline: {
+    recorrencia: ResultadosPipelineStats;
+    ativacao: ResultadosPipelineStats;
+  };
+}
+
+export interface ResultadosTarget extends RecorrenciaTarget {
+  converted_at: string | null;
+  converted_order_num: string | null;
+  converted_order_value: number | null;
+}
+
+export interface ResultadosOverview {
+  stats: ResultadosStats;
+  targets: ResultadosTarget[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export interface AtivacaoAiData {
+  decisao?: string;
+  tipo_abordagem?: string;
+  nivel_confianca?: string;
+  motivo?: string;
+  mensagem?: string;
+}
+
+export interface AtivacaoOverview {
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+  stats: {
+    activation_candidate: number;
+    activation_approved: number;
+    activation_rejected: number;
+    dispatched: number;
+  };
+  targets: RecorrenciaTarget[];
+}
+
 export interface RecorrenciaOverview {
   total: number;
   page: number;
@@ -212,10 +271,42 @@ export interface RecorrenciaOverview {
     candidate: number;
     ai_approved: number;
     ai_rejected: number;
+    needs_review: number;
     dispatched: number;
     responded: number;
     converted: number;
     opted_out: number;
   };
   targets: RecorrenciaTarget[];
+}
+
+export type DisparoLogStatus = "success" | "partial" | "error" | "dry_run";
+
+export interface DisparoLogError {
+  id: string;
+  nome: string;
+  error: string;
+}
+
+export interface DisparoLog {
+  id: string;
+  flow: "recorrencia" | "ativacao";
+  triggered_by: string;
+  dry_run: boolean;
+  processed: number;
+  dispatched: number;
+  skipped: number;
+  errors_count: number;
+  errors_json: DisparoLogError[];
+  status: DisparoLogStatus;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+}
+
+export interface DisparoLogsOverview {
+  logs: DisparoLog[];
+  total: number;
+  page: number;
+  pages: number;
 }

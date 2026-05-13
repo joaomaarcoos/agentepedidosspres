@@ -1,7 +1,15 @@
 """
-recorrencia_cli.py  (v2)
+recorrencia_cli.py  (v3)
 ========================
 Pipeline diário de recompra com persistência em recurrence_targets.
+
+Mudanças v3:
+- Histórico por ciclo: 1 registro por (cpf_cnpj + ciclo previsto), preserva histórico
+- Filtro de pedidos inválidos (cancelados, devolvidos, reprovados, teste)
+- Bônus de consistência apenas com >= 2 intervalos (não com 1)
+- Janela controlada: -30 <= days_until <= 2 (evita clientes eternamente elegíveis)
+- Cooldown de 7 dias após rejeição pela IA
+- Filtro de outliers de valor no cálculo de estabilidade de preço
 
 Subcomandos:
   run       [--dry-run]                              Job diário: calcula e persiste candidatos
@@ -17,7 +25,7 @@ import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
 
 from dotenv import load_dotenv
 
@@ -30,6 +38,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ─── Constantes configuráveis ────────────────────────────────────────────────
+
+COOLDOWN_DAYS = 7
+DAYS_OVERDUE_LIMIT = 30
+CYCLE_MATCH_TOLERANCE_DAYS = 3
+TERMINAL_STATUSES = frozenset({"converted", "opted_out"})
+
+# Situação_id (uppercase) que representa pedido inválido para análise de recorrência
+SITUACOES_INVALIDAS = frozenset({
+    "C", "CA", "CAN", "CANC", "CANCELADO",
+    "D", "DEV", "DEVO", "DEVOLVIDO",
+    "R", "REP", "REPROVADO",
+    "T", "TST", "TESTE",
+    "I", "INATIVO",
+})
+
+
+# ─── Helpers de I/O ──────────────────────────────────────────────────────────
 
 def emit(payload: dict) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=False, default=str))
@@ -74,6 +100,8 @@ def _parse_date(value: str | None) -> datetime | None:
     return None
 
 
+# ─── Extratores de raw_json ───────────────────────────────────────────────────
+
 def _extract_name(raw_json: dict) -> str:
     c = (raw_json or {}).get("cliente") or {}
     return c.get("fantasia") or c.get("razaoSocial") or c.get("nome") or ""
@@ -98,6 +126,32 @@ def _extract_cod_cli(raw_json: dict) -> int | None:
         return None
 
 
+# ─── Validação de pedidos ─────────────────────────────────────────────────────
+
+def _is_valid_order(order: dict) -> bool:
+    """Exclui pedidos cancelados, devolvidos, reprovados e de teste da análise."""
+    sit = str(order.get("situacao_id") or "").strip().upper()
+    return sit not in SITUACOES_INVALIDAS
+
+
+# ─── Filtro de outliers ───────────────────────────────────────────────────────
+
+def _filter_value_outliers(values: list[float], multiplier: float = 4.0) -> list[float]:
+    """
+    Remove valores extremamente fora do padrão usando mediana como referência.
+    Requer >= 4 valores para aplicar; abaixo disso retorna a lista original.
+    Isso evita que uma compra excepcional distorça métricas de consistência.
+    """
+    if len(values) < 4:
+        return values
+    med = median(values)
+    if med <= 0:
+        return values
+    return [v for v in values if v <= med * multiplier]
+
+
+# ─── Score e classificação ────────────────────────────────────────────────────
+
 def _classify_tier(pedidos_30d: int) -> str:
     if pedidos_30d >= 4:
         return "semanal_forte"
@@ -112,15 +166,15 @@ def _calc_score(pedidos_30d: int, intervals: list[float], orders: list[dict]) ->
     if pedidos_30d >= 3:
         score += 30
 
+    # Consistência de intervalo: exige >= 2 intervalos (>= 3 pedidos).
+    # Com apenas 1 intervalo (2 pedidos) não há como avaliar consistência.
     if len(intervals) >= 2:
         avg = mean(intervals)
         sd = pstdev(intervals)
         if avg > 0 and (sd / avg) < 0.30:
             score += 25
-    elif len(intervals) == 1:
-        score += 25
 
-    # +20 se codPro se repete entre pedidos
+    # +20 se mesmo produto aparece em múltiplos pedidos
     item_sets = []
     for o in orders:
         items = o.get("itens_json") or []
@@ -137,18 +191,21 @@ def _calc_score(pedidos_30d: int, intervals: list[float], orders: list[dict]) ->
     # +15 sempre (passou pelo filtro de janela)
     score += 15
 
-    # +10 se valor dos pedidos é estável (cv < 30%)
-    values = [float(o.get("valor_total") or 0) for o in orders if o.get("valor_total")]
+    # +10 se valor dos pedidos é estável (cv < 30%).
+    # Outliers de valor são filtrados antes do cálculo.
+    # Exige >= 2 valores com dados reais; 1 valor não prova estabilidade.
+    raw_values = [float(o.get("valor_total") or 0) for o in orders if o.get("valor_total")]
+    values = _filter_value_outliers(raw_values)
     if len(values) >= 2:
         avg_val = mean(values)
         sd_val = pstdev(values)
         if avg_val > 0 and (sd_val / avg_val) < 0.30:
             score += 10
-    elif len(values) == 1:
-        score += 10
 
     return score
 
+
+# ─── Construtores de JSON para armazenamento ─────────────────────────────────
 
 def _build_last3(orders: list[dict]) -> list[dict]:
     recent = sorted(orders, key=lambda o: o.get("criado_em") or "", reverse=True)[:3]
@@ -174,6 +231,8 @@ def _build_last3(orders: list[dict]) -> list[dict]:
 
 
 def _build_top_items(orders: list[dict]) -> list[dict]:
+    # Ordenado por aparições. Expansão futura: score composto por
+    # frequência + quantidade média + valor movimentado.
     counter: dict[str, dict] = {}
     for o in orders:
         for item in (o.get("itens_json") or []):
@@ -210,37 +269,49 @@ def cmd_run(dry_run: bool = False) -> dict:
         .limit(5000)
         .execute()
     )
-    orders = res.data or []
-    logger.info("Pedidos encontrados: %d", len(orders))
+    all_orders = res.data or []
+    logger.info("Pedidos encontrados: %d", len(all_orders))
 
-    # Agrupar por cpf_cnpj
+    # Agrupar por cpf_cnpj — apenas pedidos válidos entram na análise
     grouped: dict[str, list[dict]] = defaultdict(list)
-    for o in orders:
+    skipped_invalid = 0
+    for o in all_orders:
         cpf = (o.get("cpf_cnpj") or "").strip()
-        if cpf:
-            grouped[cpf].append(o)
+        if not cpf:
+            continue
+        if not _is_valid_order(o):
+            skipped_invalid += 1
+            continue
+        grouped[cpf].append(o)
 
-    # Buscar targets existentes para merge de status
-    existing: dict[str, dict] = {}
+    logger.info("Pedidos inválidos filtrados: %d", skipped_invalid)
+
+    # Buscar todos os targets existentes agrupados por cpf_cnpj para merge de ciclo
     cpf_list = list(grouped.keys())
+    existing_by_cpf: dict[str, list[dict]] = defaultdict(list)
     for i in range(0, len(cpf_list), 200):
         batch = cpf_list[i:i + 200]
         r = (
             db.table("recurrence_targets")
-            .select("id, cpf_cnpj, status")
+            .select("id, cpf_cnpj, status, predicted_next_order_date, updated_at, created_at")
             .in_("cpf_cnpj", batch)
             .execute()
         )
         for t in r.data or []:
-            existing[t["cpf_cnpj"]] = t
+            existing_by_cpf[t["cpf_cnpj"]].append(t)
+
+    # Ordenar ciclos por created_at desc (mais recente primeiro)
+    for v in existing_by_cpf.values():
+        v.sort(key=lambda x: x.get("created_at") or "", reverse=True)
 
     inserted = 0
+    updated = 0
     skipped = 0
     errors: list[dict] = []
 
     for cpf, cpf_orders in grouped.items():
         try:
-            # Contar pedidos nos últimos 30 dias
+            # Contar pedidos válidos nos últimos 30 dias
             orders_30d = [
                 o for o in cpf_orders
                 if (_parse_date(o.get("criado_em")) or now) >= from_30d
@@ -275,12 +346,44 @@ def cmd_run(dry_run: bool = False) -> dict:
             next_expected_date = (last_order_dt + timedelta(days=round(avg_interval))).date()
             days_until = (next_expected_date - today).days
 
-            # Janela: today >= next_expected - 2 → days_until <= 2
-            if days_until > 2:
+            # Janela controlada: não entra quem ainda está longe (> 2 dias)
+            # nem quem está extremamente atrasado (< -DAYS_OVERDUE_LIMIT dias)
+            if days_until > 2 or days_until < -DAYS_OVERDUE_LIMIT:
                 skipped += 1
                 continue
 
-            # Extrair dados do cliente
+            # ── Lógica de ciclo histórico ──────────────────────────────────
+            cycles = existing_by_cpf.get(cpf, [])
+
+            # Cooldown: se a rejeição mais recente foi há menos de COOLDOWN_DAYS, pula
+            if cycles:
+                most_recent = cycles[0]
+                if most_recent.get("status") == "ai_rejected":
+                    rejection_dt = _parse_date(most_recent.get("updated_at"))
+                    if rejection_dt and (now - rejection_dt).days < COOLDOWN_DAYS:
+                        logger.debug("Cooldown ativo para %s (%d dias)", cpf, (now - rejection_dt).days)
+                        skipped += 1
+                        continue
+
+            # Procurar ciclo existente compatível (tolerância de ±CYCLE_MATCH_TOLERANCE_DAYS)
+            matching_cycle: dict | None = None
+            for cycle in cycles:
+                cycle_date_str = cycle.get("predicted_next_order_date") or ""
+                try:
+                    cd = datetime.fromisoformat(cycle_date_str).date() if "T" in cycle_date_str \
+                        else datetime.strptime(cycle_date_str[:10], "%Y-%m-%d").date()
+                    if abs((cd - next_expected_date).days) <= CYCLE_MATCH_TOLERANCE_DAYS:
+                        matching_cycle = cycle
+                        break
+                except (ValueError, TypeError):
+                    continue
+
+            # Se o ciclo encontrado é terminal (converted/opted_out), não recria
+            if matching_cycle and matching_cycle.get("status") in TERMINAL_STATUSES:
+                skipped += 1
+                continue
+
+            # Extrair dados do cliente do pedido mais recente disponível
             nome = ""
             phone = ""
             cod_cli = None
@@ -301,9 +404,10 @@ def cmd_run(dry_run: bool = False) -> dict:
             top_items = _build_top_items(sorted_orders)
 
             if dry_run:
+                action = "UPDATE" if matching_cycle else "INSERT"
                 logger.info(
-                    "[DRY-RUN] %s | tier=%s | score=%d | days_until=%d | phone=%s",
-                    nome or cpf, tier, score, days_until, phone or "—",
+                    "[DRY-RUN] %s | %s | tier=%s | score=%d | days_until=%d | phone=%s",
+                    nome or cpf, action, tier, score, days_until, phone or "—",
                 )
                 inserted += 1
                 continue
@@ -323,8 +427,18 @@ def cmd_run(dry_run: bool = False) -> dict:
                 "updated_at": now.isoformat(),
             }
 
-            ex = existing.get(cpf)
-            if not ex:
+            if matching_cycle:
+                # Ciclo existente e ainda ativo: atualiza métricas
+                current_status = matching_cycle.get("status", "candidate")
+                if current_status in ("candidate", "ai_rejected"):
+                    metrics_update["status"] = "candidate"
+                    metrics_update["ai_validated"] = False
+                    metrics_update["ai_decision"] = None
+                    metrics_update["ai_reasoning"] = None
+                db.table("recurrence_targets").update(metrics_update).eq("id", matching_cycle["id"]).execute()
+                updated += 1
+            else:
+                # Novo ciclo para este cliente
                 row = {
                     **metrics_update,
                     "cpf_cnpj": cpf,
@@ -333,24 +447,17 @@ def cmd_run(dry_run: bool = False) -> dict:
                     "created_at": now.isoformat(),
                 }
                 db.table("recurrence_targets").insert(row).execute()
-            else:
-                current_status = ex.get("status", "candidate")
-                if current_status in ("candidate", "ai_rejected"):
-                    metrics_update["status"] = "candidate"
-                    metrics_update["ai_validated"] = False
-                    metrics_update["ai_decision"] = None
-                    metrics_update["ai_reasoning"] = None
-                db.table("recurrence_targets").update(metrics_update).eq("id", ex["id"]).execute()
-
-            inserted += 1
+                inserted += 1
 
         except Exception as exc:
             logger.error("Erro ao processar %s: %s", cpf, exc)
             errors.append({"cpf_cnpj": cpf, "error": str(exc)})
 
     return {
-        "inserted_or_updated": inserted,
+        "inserted": inserted,
+        "updated": updated,
         "skipped": skipped,
+        "skipped_invalid_orders": skipped_invalid,
         "errors": errors,
         "dry_run": dry_run,
     }
@@ -359,7 +466,6 @@ def cmd_run(dry_run: bool = False) -> dict:
 def cmd_overview(status: str | None, page: int, page_size: int) -> dict:
     db = _db()
 
-    # Busca todos os status de uma vez para calcular stats em Python
     all_res = db.table("recurrence_targets").select("id, status").execute()
     all_items = all_res.data or []
 
@@ -387,6 +493,7 @@ def cmd_overview(status: str | None, page: int, page_size: int) -> dict:
             "candidate": status_counts.get("candidate", 0),
             "ai_approved": status_counts.get("ai_approved", 0),
             "ai_rejected": status_counts.get("ai_rejected", 0),
+            "needs_review": status_counts.get("needs_review", 0),
             "dispatched": status_counts.get("dispatched", 0),
             "responded": status_counts.get("responded", 0),
             "converted": status_counts.get("converted", 0),
@@ -401,7 +508,15 @@ def cmd_detail(cpf: str | None, target_id: str | None) -> dict:
     if target_id:
         res = db.table("recurrence_targets").select("*").eq("id", target_id).limit(1).execute()
     elif cpf:
-        res = db.table("recurrence_targets").select("*").eq("cpf_cnpj", cpf).limit(1).execute()
+        # Retorna o ciclo mais recente para o cpf
+        res = (
+            db.table("recurrence_targets")
+            .select("*")
+            .eq("cpf_cnpj", cpf)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
     else:
         raise ValueError("Informe --cpf ou --id")
 

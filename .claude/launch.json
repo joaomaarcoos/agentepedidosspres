@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Senior Agente HUB",
-      "runtimeExecutable": "py",
-      "runtimeArgs": ["hub.py"],
-      "port": 5002
+      "name": "AgentePedidos Next.js",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
     }
   ]
 }

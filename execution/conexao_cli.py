@@ -233,10 +233,20 @@ def cmd_list() -> int:
         return failure(str(exc))
 
 
+def _default_webhook_url() -> str:
+    app_url = os.getenv("APP_URL", "").rstrip("/")
+    if app_url:
+        return f"{app_url}/api/evolution/webhook"
+    return ""
+
+
 def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
     base_url, api_key, _, _ = _cfg()
     if not base_url or not api_key:
         return failure("EVOLUTION_API_URL / EVOLUTION_API_KEY não configurados")
+
+    if not webhook_url:
+        webhook_url = _default_webhook_url()
 
     DEFAULT_EVENTS = [
         "MESSAGES_UPSERT",

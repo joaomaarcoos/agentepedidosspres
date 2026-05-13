@@ -1,0 +1,15 @@
+.git
+.claude
+.tmp
+node_modules
+frontend/node_modules
+frontend/.next
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.env
+*.log
+.vscode
+directives
+openapi-clicvendas.txt
+REQUISICOES_CLICVENDAS.md

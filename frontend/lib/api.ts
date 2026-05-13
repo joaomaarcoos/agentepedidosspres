@@ -18,6 +18,8 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
@@ -102,15 +104,109 @@ export const recorrenciaApi = {
     api.get<import("./types").RecorrenciaTarget>(`/api/recorrencia/${id}`),
   runScript: () =>
     api.post<{
-      inserted_or_updated: number;
+      inserted: number;
+      updated: number;
       skipped: number;
+      skipped_invalid_orders: number;
       errors: { cpf_cnpj: string; error: string }[];
+      dry_run: boolean;
     }>("/api/recorrencia/run"),
   validate: (params?: { limit?: number; id?: string }) =>
     api.post<{
       processed: number;
       approved: number;
       rejected: number;
+      needs_review: number;
       errors: { id: string; nome: string; error: string }[];
     }>("/api/recorrencia/validate", params),
+  dispatch: (dryRun = false) =>
+    api.post<{
+      processed: number;
+      dispatched: number;
+      skipped: number;
+      errors: { id: string; nome: string; error: string }[];
+      dry_run: boolean;
+    }>("/api/recorrencia/dispatch", { dry_run: dryRun }),
+  pipeline: (triggeredBy: "manual" | "schedule" | "auto" = "manual", dryRun = false, skipDispatch = false) =>
+    api.post<{
+      triggered_by: string;
+      dry_run: boolean;
+      skip_dispatch: boolean;
+      script: { inserted: number; updated: number; skipped: number; errors: unknown[] };
+      validate: { processed: number; approved: number; rejected: number; needs_review: number; errors: unknown[] };
+      dispatch: { processed: number; dispatched: number; skipped: number; errors: unknown[]; dry_run: boolean };
+    }>("/api/recorrencia/pipeline", { triggered_by: triggeredBy, dry_run: dryRun, skip_dispatch: skipDispatch }),
+};
+
+export const resultadosApi = {
+  list: (params?: { targetType?: "all" | "recorrencia" | "ativacao"; page?: number; pageSize?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.targetType) q.set("target_type", params.targetType);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.pageSize) q.set("page_size", String(params.pageSize));
+    return api.get<import("./types").ResultadosOverview>(
+      `/api/resultados${q.size ? `?${q}` : ""}`
+    );
+  },
+};
+
+export const logsApi = {
+  listDisparo: (params?: { flow?: string; status?: string; page?: number; pageSize?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.flow) q.set("flow", params.flow);
+    if (params?.status) q.set("status", params.status);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.pageSize) q.set("page_size", String(params.pageSize));
+    return api.get<import("./types").DisparoLogsOverview>(
+      `/api/logs/disparo${q.size ? `?${q}` : ""}`
+    );
+  },
+  getDisparo: (id: string) =>
+    api.get<import("./types").DisparoLog>(`/api/logs/disparo/${id}`),
+};
+
+export const settingsApi = {
+  getDisparo: () =>
+    api.get<{ disparo_recorrencia: boolean; disparo_ativacao: boolean }>("/api/settings/disparo"),
+  setDisparo: (key: "disparo_recorrencia_enabled" | "disparo_ativacao_enabled", value: boolean) =>
+    api.patch<{ key: string; value: boolean }>("/api/settings/disparo", { key, value }),
+};
+
+export const ativacaoApi = {
+  list: (params?: { status?: string; page?: number; pageSize?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.pageSize) q.set("page_size", String(params.pageSize));
+    return api.get<import("./types").AtivacaoOverview>(
+      `/api/ativacao${q.size ? `?${q}` : ""}`
+    );
+  },
+  detail: (id: string) =>
+    api.get<import("./types").RecorrenciaTarget>(`/api/ativacao/${id}`),
+  runScript: (dryRun = false) =>
+    api.post<{
+      processed: number;
+      eligible: number;
+      skipped_cooldown: number;
+      skipped_no_data: number;
+      inserted: number;
+      updated: number;
+      errors: { cpf_cnpj: string; error: string }[];
+      dry_run: boolean;
+    }>("/api/ativacao/run", { dry_run: dryRun }),
+  validate: (params?: { limit?: number; id?: string }) =>
+    api.post<{
+      processed: number;
+      approved: number;
+      rejected: number;
+      errors: { id: string; nome: string; error: string }[];
+    }>("/api/ativacao/validate", params),
+  pipeline: (triggeredBy: "manual" | "schedule" | "auto" = "manual", dryRun = false) =>
+    api.post<{
+      triggered_by: string;
+      dry_run: boolean;
+      script: { processed: number; eligible: number; inserted: number; updated: number; errors: unknown[] };
+      validate: { processed: number; approved: number; rejected: number; errors: unknown[] };
+    }>("/api/ativacao/pipeline", { triggered_by: triggeredBy, dry_run: dryRun }),
 };

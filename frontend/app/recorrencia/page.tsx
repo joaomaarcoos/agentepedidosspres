@@ -3,32 +3,52 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle, Bot, CheckCircle2, ChevronLeft, ChevronRight,
-  MessageSquare, Play, RefreshCw, Repeat2, Send, X,
+  DollarSign, MessageSquare, Play, RefreshCw, Repeat2,
+  Send, ShieldCheck, X, Zap, BellOff, Bell,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
-import { recorrenciaApi } from "@/lib/api";
-import type {
-  RecorrenciaOverview, RecorrenciaTarget, RecorrenciaStatus,
-} from "@/lib/types";
+import { recorrenciaApi, settingsApi } from "@/lib/api";
+import type { RecorrenciaOverview, RecorrenciaTarget, RecorrenciaStatus } from "@/lib/types";
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
+// ─── AI data parser ───────────────────────────────────────────────────────────
+
+interface AiData {
+  decisao?: string;
+  nivel_confianca?: string;
+  motivo?: string;
+  pedido_sugerido?: Array<{ codPro: string; desPro: string; qtdPed: number }>;
+  valor_medio?: number;
+  mensagem?: string;
+}
+
+function parseAi(raw: string | null): AiData | null {
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+// ─── Constantes visuais ───────────────────────────────────────────────────────
 
 const TIER_LABEL: Record<string, string> = {
-  media: "Média",
-  alta: "Alta",
-  semanal_forte: "Semanal",
+  media: "Média", alta: "Alta", semanal_forte: "Semanal",
 };
 
 const TIER_COLOR: Record<string, string> = {
-  media: "var(--muted)",
-  alta: "var(--warn)",
-  semanal_forte: "var(--error)",
+  media: "var(--muted)", alta: "var(--warn)", semanal_forte: "var(--error)",
+};
+
+const CONFIANCA_COLOR: Record<string, string> = {
+  alto: "var(--success)", medio: "var(--warn)", baixo: "var(--error)",
+};
+
+const CONFIANCA_LABEL: Record<string, string> = {
+  alto: "Alta", medio: "Média", baixo: "Baixa",
 };
 
 const STATUS_LABEL: Record<RecorrenciaStatus, string> = {
   candidate: "Candidato",
   ai_approved: "IA Aprovado",
   ai_rejected: "IA Rejeitado",
+  needs_review: "Revisão",
   dispatched: "Disparado",
   responded: "Respondeu",
   converted: "Convertido",
@@ -39,6 +59,7 @@ const STATUS_COLOR: Record<RecorrenciaStatus, string> = {
   candidate: "var(--muted)",
   ai_approved: "var(--accent)",
   ai_rejected: "var(--error)",
+  needs_review: "var(--warn)",
   dispatched: "var(--warn)",
   responded: "var(--success)",
   converted: "var(--success)",
@@ -49,11 +70,39 @@ const STATUS_TABS: { key: string; label: string }[] = [
   { key: "", label: "Todos" },
   { key: "candidate", label: "Candidatos" },
   { key: "ai_approved", label: "IA Aprovados" },
-  { key: "ai_rejected", label: "IA Rejeitados" },
+  { key: "needs_review", label: "Revisão" },
+  { key: "ai_rejected", label: "Rejeitados" },
   { key: "dispatched", label: "Disparados" },
   { key: "responded", label: "Responderam" },
   { key: "converted", label: "Convertidos" },
 ];
+
+// ─── Helpers de janela ────────────────────────────────────────────────────────
+
+function janelaHeat(days: number | null): { color: string; label: string; hot: boolean } {
+  if (days === null) return { color: "var(--muted)", label: "—", hot: false };
+  const label = days === 0 ? "HOJE" : days > 0 ? `+${days}d` : `${days}d`;
+  if (days >= -2 && days <= 2) return { color: "var(--success)", label, hot: true };
+  if (days >= -7) return { color: "var(--warn)", label, hot: false };
+  return { color: "var(--muted)", label, hot: false };
+}
+
+function pedidoInline(ai: AiData | null): string {
+  const items = ai?.pedido_sugerido;
+  if (!items?.length) return ai?.decisao === "sim" ? "contato genérico" : "—";
+  const preview = items
+    .slice(0, 2)
+    .map(i => `${(i.desPro || i.codPro).split(" ").slice(0, 3).join(" ")} ×${i.qtdPed}`)
+    .join(", ");
+  return items.length > 2 ? `${preview} +${items.length - 2}` : preview;
+}
+
+function fmtBRL(value: number | null | undefined): string {
+  if (!value) return "—";
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0 });
+}
+
+// ─── Componentes menores ──────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: RecorrenciaStatus }) {
   const color = STATUS_COLOR[status] ?? "var(--muted)";
@@ -62,8 +111,7 @@ function StatusBadge({ status }: { status: RecorrenciaStatus }) {
       padding: "3px 9px", borderRadius: 999,
       background: `${color}18`, color,
       border: `1px solid ${color}44`,
-      fontSize: 11, fontWeight: 700, textTransform: "uppercase",
-      whiteSpace: "nowrap",
+      fontSize: 11, fontWeight: 700, textTransform: "uppercase", whiteSpace: "nowrap",
     }}>
       {STATUS_LABEL[status] ?? status}
     </span>
@@ -73,33 +121,63 @@ function StatusBadge({ status }: { status: RecorrenciaStatus }) {
 function TierBadge({ tier }: { tier: string | null }) {
   if (!tier) return <span style={{ color: "var(--muted)" }}>—</span>;
   const color = TIER_COLOR[tier] ?? "var(--muted)";
+  return <span style={{ color, fontWeight: 700, fontSize: 12 }}>{TIER_LABEL[tier] ?? tier}</span>;
+}
+
+function ConfiancaBadge({ value }: { value: string | null | undefined }) {
+  if (!value) return <span style={{ color: "var(--muted)", fontSize: 12 }}>—</span>;
+  const color = CONFIANCA_COLOR[value] ?? "var(--muted)";
   return (
-    <span style={{ color, fontWeight: 700, fontSize: 12 }}>
-      {TIER_LABEL[tier] ?? tier}
+    <span style={{
+      padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+      background: `${color}18`, color, border: `1px solid ${color}44`,
+    }}>
+      {CONFIANCA_LABEL[value] ?? value}
     </span>
   );
 }
 
-// ─── drawer de detalhe ───────────────────────────────────────────────────────
+function JanelaBadge({ days }: { days: number | null }) {
+  const { color, label, hot } = janelaHeat(days);
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "4px 10px", borderRadius: 8,
+      background: `${color}18`, color,
+      border: `1px solid ${color}44`,
+      fontSize: 13, fontWeight: 800, whiteSpace: "nowrap",
+      boxShadow: hot ? `0 0 0 2px ${color}33` : undefined,
+    }}>
+      {hot && (
+        <span style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: color, display: "inline-block",
+          animation: "pulse 1.5s ease-in-out infinite",
+        }} />
+      )}
+      {label}
+    </span>
+  );
+}
+
+// ─── Drawer de detalhe ────────────────────────────────────────────────────────
 
 function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () => void }) {
-  let aiData: Record<string, unknown> | null = null;
-  try {
-    if (data.ai_reasoning) aiData = JSON.parse(data.ai_reasoning);
-  } catch { /* ignore */ }
-
-  const mensagem = aiData?.mensagem as string | undefined;
-  const pedidoSugerido = aiData?.pedido_sugerido as { codPro: string; desPro: string; qtdPed: number }[] | undefined;
+  const ai = parseAi(data.ai_reasoning);
+  const { color: jColor, label: jLabel } = janelaHeat(data.days_until_predicted ?? null);
 
   return (
     <>
-      <div onClick={onClose} style={{
-        position: "fixed", inset: 0,
-        background: "rgba(0,0,0,0.45)", zIndex: 100, backdropFilter: "blur(2px)",
-      }} />
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed", inset: 0,
+          background: "rgba(0,0,0,0.45)", zIndex: 100, backdropFilter: "blur(2px)",
+        }}
+      />
       <div style={{
         position: "fixed", top: 0, right: 0, bottom: 0,
-        width: "min(680px, 94vw)",
+        width: "min(720px, 94vw)",
         background: "var(--surface)", borderLeft: "1px solid var(--border)",
         zIndex: 101, display: "flex", flexDirection: "column",
       }}>
@@ -109,20 +187,26 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
           display: "flex", alignItems: "flex-start", justifyContent: "space-between",
         }}>
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
               <span style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>
                 {data.customer_name || "—"}
               </span>
               <StatusBadge status={data.status} />
+              <JanelaBadge days={data.days_until_predicted ?? null} />
             </div>
-            <div style={{ color: "var(--muted)", fontSize: 12 }}>
-              {data.cpf_cnpj} · {data.customer_phone || "sem telefone"}
+            <div style={{ color: "var(--muted)", fontSize: 12, display: "flex", gap: 14, flexWrap: "wrap" }}>
+              <span>{data.cpf_cnpj}</span>
+              <span>{data.customer_phone || "sem telefone"}</span>
+              {data.cod_rep != null && <span>Rep. {data.cod_rep}</span>}
             </div>
           </div>
-          <button onClick={onClose} style={{
-            background: "transparent", border: "1px solid var(--border)",
-            borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "var(--muted)",
-          }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent", border: "1px solid var(--border)",
+              borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "var(--muted)",
+            }}
+          >
             <X size={15} />
           </button>
         </div>
@@ -130,14 +214,14 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
         <div style={{ padding: 24, overflow: "auto", display: "grid", gap: 16 }}>
           {/* métricas */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-            {[
-              ["Tier", data.recurrence_tier ? TIER_LABEL[data.recurrence_tier] : "—"],
-              ["Pedidos 30d", String(data.orders_count_30d ?? "—")],
-              ["Intervalo médio", data.recurrence_interval_days != null ? `${data.recurrence_interval_days}d` : "—"],
-              ["Último pedido", data.last_order_date || "—"],
-              ["Próximo previsto", data.predicted_next_order_date || "—"],
-              ["Dias p/ janela", data.days_until_predicted != null ? String(data.days_until_predicted) : "—"],
-            ].map(([label, value]) => (
+            {([
+              ["Tier", data.recurrence_tier ? TIER_LABEL[data.recurrence_tier] : "—", null],
+              ["Pedidos 30d", String(data.orders_count_30d ?? "—"), null],
+              ["Intervalo médio", data.recurrence_interval_days != null ? `${data.recurrence_interval_days}d` : "—", null],
+              ["Último pedido", data.last_order_date || "—", null],
+              ["Próximo previsto", data.predicted_next_order_date || "—", null],
+              ["Janela", jLabel, jColor],
+            ] as [string, string, string | null][]).map(([label, value, color]) => (
               <div key={label} style={{
                 background: "var(--surface2)", border: "1px solid var(--border)",
                 borderRadius: 10, padding: "12px 14px",
@@ -145,72 +229,59 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
                 <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>
                   {label}
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>{value}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: color ?? "var(--text)" }}>
+                  {value}
+                </div>
               </div>
             ))}
           </div>
 
           {/* decisão IA */}
-          {aiData && (
+          {ai && (
             <div style={{
               background: "var(--surface2)", border: "1px solid var(--border)",
               borderRadius: 12, padding: 16,
             }}>
-              <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 }}>
                 Decisão da IA
               </div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
                 <span style={{
                   padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700,
                   background: data.ai_decision === "sim" ? "var(--success)22" : "var(--error)22",
                   color: data.ai_decision === "sim" ? "var(--success)" : "var(--error)",
-                  border: `1px solid ${data.ai_decision === "sim" ? "var(--success)44" : "var(--error)44"}`,
+                  border: `1px solid ${data.ai_decision === "sim" ? "var(--success)" : "var(--error)"}44`,
                 }}>
                   {data.ai_decision === "sim" ? "✓ Aprovado" : "✗ Rejeitado"}
                 </span>
-                {(aiData.nivel_confianca as string) && (
-                  <span style={{ fontSize: 12, color: "var(--muted)", alignSelf: "center" }}>
-                    Confiança: {String(aiData.nivel_confianca)}
+                {ai.nivel_confianca && <ConfiancaBadge value={ai.nivel_confianca} />}
+                {ai.valor_medio != null && ai.valor_medio > 0 && (
+                  <span style={{
+                    padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+                    background: "var(--accent)18", color: "var(--accent)",
+                    border: "1px solid var(--accent)44",
+                  }}>
+                    {fmtBRL(ai.valor_medio)}
                   </span>
                 )}
               </div>
-              {(aiData.motivo as string) && (
-                <p style={{ fontSize: 13, color: "var(--text)", margin: 0 }}>
-                  {String(aiData.motivo)}
+              {ai.motivo && (
+                <p style={{ fontSize: 13, color: "var(--text)", margin: 0, lineHeight: 1.6 }}>
+                  {ai.motivo}
                 </p>
               )}
             </div>
           )}
 
-          {/* mensagem gerada */}
-          {mensagem && (
-            <div style={{
-              background: "var(--surface2)", border: "1px solid var(--border)",
-              borderRadius: 12, overflow: "hidden",
-            }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 6 }}>
-                <MessageSquare size={13} color="var(--accent)" />
-                <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
-                  Mensagem gerada
-                </span>
-              </div>
-              <div style={{ padding: 16 }}>
-                <pre style={{ margin: 0, fontFamily: "inherit", fontSize: 13, color: "var(--text)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
-                  {mensagem}
-                </pre>
-              </div>
-            </div>
-          )}
-
           {/* pedido sugerido */}
-          {pedidoSugerido && pedidoSugerido.length > 0 && (
+          {(ai?.pedido_sugerido ?? []).length > 0 && (
             <div style={{
               background: "var(--surface2)", border: "1px solid var(--border)",
               borderRadius: 12, overflow: "hidden",
             }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
                 <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
-                  Pedido sugerido
+                  Pedido Sugerido
                 </span>
               </div>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -224,11 +295,11 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
                   </tr>
                 </thead>
                 <tbody>
-                  {pedidoSugerido.map((item, i) => (
+                  {(ai!.pedido_sugerido!).map((item, i) => (
                     <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
                       <td style={{ padding: "8px 14px", color: "var(--accent)", fontWeight: 700, fontSize: 12 }}>{item.codPro}</td>
                       <td style={{ padding: "8px 14px", color: "var(--text)", fontSize: 13 }}>{item.desPro}</td>
-                      <td style={{ padding: "8px 14px", color: "var(--text)", fontSize: 13 }}>{item.qtdPed}</td>
+                      <td style={{ padding: "8px 14px", color: "var(--text)", fontWeight: 700, fontSize: 13 }}>{item.qtdPed}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -236,7 +307,64 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
             </div>
           )}
 
-          {/* últimos 3 pedidos */}
+          {/* mensagem pronta */}
+          {ai?.mensagem && (
+            <div style={{
+              background: "var(--surface2)", border: "1px solid var(--border)",
+              borderRadius: 12, overflow: "hidden",
+            }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 6 }}>
+                <MessageSquare size={13} color="var(--accent)" />
+                <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
+                  Mensagem Pronta
+                </span>
+              </div>
+              <div style={{ padding: 16 }}>
+                <pre style={{ margin: 0, fontFamily: "inherit", fontSize: 13, color: "var(--text)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                  {ai.mensagem}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {/* produtos recorrentes */}
+          {(data.top_items_json ?? []).length > 0 && (
+            <div style={{
+              background: "var(--surface2)", border: "1px solid var(--border)",
+              borderRadius: 12, overflow: "hidden",
+            }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
+                  Produtos Recorrentes
+                </span>
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    {["Produto", "Aparições", "Qtd Total"].map(h => (
+                      <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.top_items_json ?? []).map((item, i) => (
+                    <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
+                      <td style={{ padding: "8px 14px" }}>
+                        <div style={{ color: "var(--text)", fontSize: 13 }}>{item.desPro}</div>
+                        <div style={{ color: "var(--accent)", fontSize: 11 }}>{item.codPro}</div>
+                      </td>
+                      <td style={{ padding: "8px 14px", color: "var(--text)", fontWeight: 700, fontSize: 13 }}>{item.aparicoes}×</td>
+                      <td style={{ padding: "8px 14px", color: "var(--muted)", fontSize: 12 }}>{item.total_qtd}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* últimos pedidos */}
           {(data.last_3_orders_json ?? []).length > 0 && (
             <div style={{
               background: "var(--surface2)", border: "1px solid var(--border)",
@@ -244,18 +372,20 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
             }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
                 <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
-                  Últimos pedidos
+                  Últimos Pedidos
                 </span>
               </div>
               {(data.last_3_orders_json ?? []).map((p, i) => (
                 <div key={i} style={{ padding: "12px 16px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                     <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 13 }}>#{p.numero}</span>
-                    <span style={{ color: "var(--muted)", fontSize: 12 }}>{p.data} · R$ {p.valor_total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
+                    <span style={{ color: "var(--muted)", fontSize: 12 }}>
+                      {p.data} · {p.valor_total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </span>
                   </div>
                   {(p.itens ?? []).map((it, j) => (
                     <div key={j} style={{ fontSize: 12, color: "var(--muted)", paddingLeft: 8 }}>
-                      {it.desPro || it.codPro} — {it.qtdPed}un · R$ {it.vlrTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      {it.desPro || it.codPro} — {it.qtdPed}un · {it.vlrTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                     </div>
                   ))}
                 </div>
@@ -268,7 +398,7 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
   );
 }
 
-// ─── página principal ────────────────────────────────────────────────────────
+// ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function RecorrenciaPage() {
   const [activeStatus, setActiveStatus] = useState("");
@@ -278,16 +408,17 @@ export default function RecorrenciaPage() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [validating, setValidating] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+  const [pipelining, setPipelining] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: "error" | "success" } | null>(null);
+  const [disparoEnabled, setDisparoEnabled] = useState(true);
+  const [togglingDisparo, setTogglingDisparo] = useState(false);
 
   const load = useCallback(async (targetPage = 1, status = activeStatus) => {
     setLoading(true);
     setMessage(null);
     try {
-      const result = await recorrenciaApi.list({
-        status: status || undefined,
-        page: targetPage,
-      });
+      const result = await recorrenciaApi.list({ status: status || undefined, page: targetPage });
       setData(result);
       setPage(targetPage);
     } catch (err) {
@@ -299,13 +430,31 @@ export default function RecorrenciaPage() {
 
   useEffect(() => { load(1, activeStatus); }, [activeStatus]);
 
+  useEffect(() => {
+    settingsApi.getDisparo()
+      .then(s => setDisparoEnabled(s.disparo_recorrencia))
+      .catch(() => {});
+  }, []);
+
+  const handleToggleDisparo = async () => {
+    setTogglingDisparo(true);
+    try {
+      await settingsApi.setDisparo("disparo_recorrencia_enabled", !disparoEnabled);
+      setDisparoEnabled(prev => !prev);
+    } catch {
+      setMessage({ text: "Falha ao alterar configuração de disparo", type: "error" });
+    } finally {
+      setTogglingDisparo(false);
+    }
+  };
+
   const handleRunScript = async () => {
     setRunning(true);
     setMessage(null);
     try {
       const result = await recorrenciaApi.runScript();
       setMessage({
-        text: `Script concluído: ${result.inserted_or_updated} candidatos atualizados, ${result.errors.length} erros`,
+        text: `Script: ${result.inserted} inseridos, ${result.updated} atualizados, ${result.errors.length} erros`,
         type: result.errors.length > 0 ? "error" : "success",
       });
       await load(1, activeStatus);
@@ -321,8 +470,9 @@ export default function RecorrenciaPage() {
     setMessage(null);
     try {
       const result = await recorrenciaApi.validate({ limit: 20 });
+      const rev = result.needs_review ?? 0;
       setMessage({
-        text: `IA: ${result.approved} aprovados, ${result.rejected} rejeitados`,
+        text: `IA: ${result.approved} aprovados, ${result.rejected} rejeitados${rev > 0 ? `, ${rev} em revisão` : ""}`,
         type: "success",
       });
       await load(1, activeStatus);
@@ -330,6 +480,46 @@ export default function RecorrenciaPage() {
       setMessage({ text: err instanceof Error ? err.message : "Falha ao validar", type: "error" });
     } finally {
       setValidating(false);
+    }
+  };
+
+  const handleDispatch = async () => {
+    if (!disparoEnabled) {
+      setMessage({ text: "Disparo automático desativado. Ative o toggle para enviar mensagens.", type: "error" });
+      return;
+    }
+    setDispatching(true);
+    setMessage(null);
+    try {
+      const result = await recorrenciaApi.dispatch();
+      setMessage({
+        text: `Disparos: ${result.dispatched} enviados, ${result.skipped} pulados`,
+        type: result.errors.length > 0 ? "error" : "success",
+      });
+      await load(1, activeStatus);
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Falha ao disparar", type: "error" });
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  const handlePipeline = async () => {
+    setPipelining(true);
+    setMessage(null);
+    try {
+      const result = await recorrenciaApi.pipeline("manual", false, !disparoEnabled);
+      const d = result.dispatch;
+      const dispatchNote = result.skip_dispatch ? " (disparo desativado)" : `, ${d.dispatched} disparados`;
+      setMessage({
+        text: `Pipeline completo — ${result.script.inserted} novos, ${result.validate.approved} aprovados${dispatchNote}`,
+        type: "success",
+      });
+      await load(1, activeStatus);
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Falha no pipeline", type: "error" });
+    } finally {
+      setPipelining(false);
     }
   };
 
@@ -344,9 +534,14 @@ export default function RecorrenciaPage() {
 
   const stats = data?.stats;
 
+  // Receita prevista: soma valor_medio dos targets aprovados visíveis na página atual
+  const receitaPotencial = (data?.targets ?? [])
+    .filter(t => t.ai_decision === "sim")
+    .reduce((sum, t) => sum + (parseAi(t.ai_reasoning)?.valor_medio ?? 0), 0);
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <Header title="Recompra — Pipeline de Recorrência" />
+      <Header title="Pipeline de Recorrência" />
 
       <div style={{ flex: 1, overflow: "auto", padding: 28 }}>
 
@@ -383,6 +578,36 @@ export default function RecorrenciaPage() {
           </button>
 
           <button
+            onClick={handleDispatch}
+            disabled={dispatching || loading || pipelining}
+            style={{
+              display: "flex", alignItems: "center", gap: 7,
+              background: "var(--surface2)", color: "var(--text)",
+              border: "1px solid var(--border)", borderRadius: 8,
+              padding: "8px 16px", fontWeight: 600, fontSize: 13,
+              cursor: dispatching ? "not-allowed" : "pointer", opacity: dispatching ? 0.7 : 1,
+            }}
+          >
+            <Send size={13} style={{ animation: dispatching ? "spin 1s linear infinite" : undefined }} />
+            {dispatching ? "Disparando..." : "Disparar Recorrência"}
+          </button>
+
+          <button
+            onClick={handlePipeline}
+            disabled={pipelining || running || validating || dispatching}
+            style={{
+              display: "flex", alignItems: "center", gap: 7,
+              background: "var(--surface2)", color: "var(--text)",
+              border: "1px solid var(--border)", borderRadius: 8,
+              padding: "8px 16px", fontWeight: 600, fontSize: 13,
+              cursor: pipelining ? "not-allowed" : "pointer", opacity: pipelining ? 0.7 : 1,
+            }}
+          >
+            <Zap size={13} style={{ animation: pipelining ? "spin 1s linear infinite" : undefined }} />
+            {pipelining ? "Executando..." : "Executar Pipeline"}
+          </button>
+
+          <button
             onClick={() => load(1, activeStatus)}
             disabled={loading}
             style={{
@@ -395,6 +620,39 @@ export default function RecorrenciaPage() {
             <RefreshCw size={13} style={{ animation: loading ? "spin 1s linear infinite" : undefined }} />
           </button>
 
+          {/* Toggle disparo automático */}
+          <button
+            onClick={handleToggleDisparo}
+            disabled={togglingDisparo}
+            title={disparoEnabled ? "Clique para desativar disparos automáticos" : "Clique para ativar disparos automáticos"}
+            style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 14px", borderRadius: 8, cursor: togglingDisparo ? "not-allowed" : "pointer",
+              border: `1px solid ${disparoEnabled ? "var(--success)" : "var(--border)"}`,
+              background: disparoEnabled ? "var(--success)15" : "var(--surface2)",
+              color: disparoEnabled ? "var(--success)" : "var(--muted)",
+              fontWeight: 600, fontSize: 12,
+              transition: "all 0.2s", opacity: togglingDisparo ? 0.6 : 1,
+              marginLeft: "auto",
+            }}
+          >
+            {disparoEnabled ? <Bell size={13} /> : <BellOff size={13} />}
+            <span>Disparo Auto</span>
+            {/* track */}
+            <span style={{
+              display: "inline-flex", width: 34, height: 18, borderRadius: 9,
+              background: disparoEnabled ? "var(--success)" : "var(--border)",
+              alignItems: "center", padding: "0 2px",
+              transition: "background 0.2s",
+            }}>
+              <span style={{
+                width: 14, height: 14, borderRadius: "50%", background: "#fff",
+                transform: disparoEnabled ? "translateX(16px)" : "translateX(0)",
+                transition: "transform 0.2s",
+              }} />
+            </span>
+          </button>
+
           {message && (
             <span style={{ fontSize: 12, color: message.type === "error" ? "var(--error)" : "var(--success)" }}>
               {message.text}
@@ -402,33 +660,65 @@ export default function RecorrenciaPage() {
           )}
         </div>
 
-        {/* stats cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14, marginBottom: 24 }}>
-          {[
-            { label: "Candidatos", value: stats?.candidate ?? 0, icon: Repeat2, color: "var(--muted)" },
-            { label: "IA Aprovados", value: stats?.ai_approved ?? 0, icon: CheckCircle2, color: "var(--accent)" },
-            { label: "Disparados", value: stats?.dispatched ?? 0, icon: Send, color: "var(--warn)" },
-            { label: "Convertidos", value: stats?.converted ?? 0, icon: AlertTriangle, color: "var(--success)" },
-          ].map(({ label, value, icon: Icon, color }) => (
-            <div key={label} style={{
-              background: "var(--surface)", border: "1px solid var(--border)",
-              borderRadius: 12, padding: "16px 20px",
-            }}>
+        {/* cards de stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 14, marginBottom: 16 }}>
+          {([
+            { label: "Candidatos", key: "candidate", icon: Repeat2, color: "var(--muted)" },
+            { label: "IA Aprovados", key: "ai_approved", icon: CheckCircle2, color: "var(--accent)" },
+            { label: "Revisão", key: "needs_review", icon: ShieldCheck, color: "var(--warn)" },
+            { label: "Disparados", key: "dispatched", icon: Send, color: "var(--warn)" },
+            { label: "Convertidos", key: "converted", icon: AlertTriangle, color: "var(--success)" },
+          ] as const).map(({ label, key, icon: Icon, color }) => (
+            <div
+              key={label}
+              onClick={() => { setActiveStatus(key); setPage(1); }}
+              style={{
+                background: "var(--surface)", border: `1px solid ${activeStatus === key ? color : "var(--border)"}`,
+                borderRadius: 12, padding: "16px 20px", cursor: "pointer",
+                transition: "border-color 0.15s",
+              }}
+            >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>
                   {label}
                 </span>
                 <Icon size={15} color={color} />
               </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text)" }}>{value}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text)" }}>
+                {stats?.[key] ?? 0}
+              </div>
             </div>
           ))}
         </div>
 
-        {/* tabs de status */}
+        {/* card receita potencial */}
+        {receitaPotencial > 0 && (
+          <div style={{
+            background: "linear-gradient(135deg, var(--accent)12, transparent)",
+            border: "1px solid var(--accent)44",
+            borderRadius: 12, padding: "14px 20px", marginBottom: 24,
+            display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <DollarSign size={18} color="var(--accent)" />
+            <div>
+              <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>
+                Receita Prevista — aprovados visíveis
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "var(--accent)" }}>
+                {receitaPotencial.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0 })}
+              </div>
+            </div>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>
+              em recompra prevista
+            </span>
+          </div>
+        )}
+
+        {/* tabs */}
         <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
           {STATUS_TABS.map(({ key, label }) => {
             const isActive = activeStatus === key;
+            const count = key && stats ? (stats as Record<string, number>)[key] ?? 0 : null;
             return (
               <button
                 key={key}
@@ -442,10 +732,8 @@ export default function RecorrenciaPage() {
                 }}
               >
                 {label}
-                {key && stats && (
-                  <span style={{ marginLeft: 6, opacity: 0.75 }}>
-                    {stats[key as keyof typeof stats] ?? 0}
-                  </span>
+                {count !== null && (
+                  <span style={{ marginLeft: 6, opacity: 0.75 }}>{count}</span>
                 )}
               </button>
             );
@@ -462,75 +750,109 @@ export default function RecorrenciaPage() {
             display: "flex", alignItems: "center", justifyContent: "space-between",
           }}>
             <span style={{ fontWeight: 700, fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>
-              Mapa de Recompra
+              Central Operacional de Recorrência
             </span>
-            <span style={{ fontSize: 12, color: "var(--muted)" }}>
-              {data?.total ?? 0} registros
-            </span>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>{data?.total ?? 0} registros</span>
           </div>
 
           {loading ? (
             <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>Carregando...</div>
           ) : !data || data.targets.length === 0 ? (
             <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
-              Nenhum registro encontrado. Rode o script para gerar candidatos.
+              Nenhum registro. Rode o script para gerar candidatos.
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ background: "var(--surface2)" }}>
-                    {["Cliente", "Status", "Tier", "Pedidos 30d", "Último pedido", "Próximo previsto", "Dias janela"].map(h => (
+                    {["Cliente", "Status", "Janela", "Tier", "Confiança", "Pedido Sugerido", "Valor Médio", "Motivo IA"].map(h => (
                       <th key={h} style={{
                         padding: "10px 16px", textAlign: "left",
                         fontSize: 11, fontWeight: 700, color: "var(--muted)",
-                        textTransform: "uppercase", letterSpacing: 0.5,
-                      }}>{h}</th>
+                        textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap",
+                      }}>
+                        {h}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {data.targets.map(t => (
-                    <tr
-                      key={t.id}
-                      onClick={() => openDetail(t.id)}
-                      style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
-                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--surface2)"}
-                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-                    >
-                      <td style={{ padding: "10px 16px" }}>
-                        <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 13 }}>
-                          {t.customer_name || "—"}
-                        </div>
-                        <div style={{ color: "var(--muted)", fontSize: 11 }}>{t.cpf_cnpj}</div>
-                      </td>
-                      <td style={{ padding: "10px 16px" }}>
-                        <StatusBadge status={t.status} />
-                      </td>
-                      <td style={{ padding: "10px 16px" }}>
-                        <TierBadge tier={t.recurrence_tier} />
-                      </td>
-                      <td style={{ padding: "10px 16px", color: "var(--text)", fontWeight: 700 }}>
-                        {t.orders_count_30d ?? "—"}
-                      </td>
-                      <td style={{ padding: "10px 16px", color: "var(--text)" }}>
-                        {t.last_order_date || "—"}
-                      </td>
-                      <td style={{ padding: "10px 16px", color: "var(--text)" }}>
-                        {t.predicted_next_order_date || "—"}
-                      </td>
-                      <td style={{
-                        padding: "10px 16px", fontWeight: 700,
-                        color: t.days_until_predicted != null && t.days_until_predicted <= 0
-                          ? "var(--error)"
-                          : t.days_until_predicted != null && t.days_until_predicted <= 2
-                            ? "var(--warn)"
-                            : "var(--muted)",
-                      }}>
-                        {t.days_until_predicted != null ? `${t.days_until_predicted}d` : "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {data.targets.map(t => {
+                    const ai = parseAi(t.ai_reasoning);
+                    return (
+                      <tr
+                        key={t.id}
+                        onClick={() => openDetail(t.id)}
+                        style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "var(--surface2)"}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
+                      >
+                        {/* Cliente */}
+                        <td style={{ padding: "10px 16px", minWidth: 160 }}>
+                          <div style={{ color: "var(--text)", fontWeight: 700, fontSize: 13 }}>
+                            {t.customer_name || "—"}
+                          </div>
+                          <div style={{ color: "var(--muted)", fontSize: 11 }}>{t.cpf_cnpj}</div>
+                        </td>
+
+                        {/* Status */}
+                        <td style={{ padding: "10px 16px" }}>
+                          <StatusBadge status={t.status} />
+                        </td>
+
+                        {/* Janela — coluna mais importante, visualmente destacada */}
+                        <td style={{ padding: "10px 16px" }}>
+                          <JanelaBadge days={t.days_until_predicted ?? null} />
+                        </td>
+
+                        {/* Tier */}
+                        <td style={{ padding: "10px 16px" }}>
+                          <TierBadge tier={t.recurrence_tier} />
+                        </td>
+
+                        {/* Confiança */}
+                        <td style={{ padding: "10px 16px" }}>
+                          <ConfiancaBadge value={ai?.nivel_confianca} />
+                        </td>
+
+                        {/* Pedido Sugerido */}
+                        <td style={{ padding: "10px 16px", maxWidth: 200 }}>
+                          <span style={{
+                            color: ai?.pedido_sugerido?.length ? "var(--text)" : "var(--muted)",
+                            fontSize: 12,
+                            display: "block", overflow: "hidden",
+                            whiteSpace: "nowrap", textOverflow: "ellipsis",
+                          }}>
+                            {pedidoInline(ai)}
+                          </span>
+                        </td>
+
+                        {/* Valor Médio */}
+                        <td style={{ padding: "10px 16px", whiteSpace: "nowrap" }}>
+                          <span style={{
+                            color: ai?.valor_medio ? "var(--accent)" : "var(--muted)",
+                            fontWeight: 700, fontSize: 13,
+                          }}>
+                            {fmtBRL(ai?.valor_medio)}
+                          </span>
+                        </td>
+
+                        {/* Motivo IA */}
+                        <td style={{ padding: "10px 16px", maxWidth: 220 }}>
+                          <span style={{
+                            color: "var(--muted)", fontSize: 11,
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
+                          } as React.CSSProperties}>
+                            {ai?.motivo || "—"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -579,6 +901,7 @@ export default function RecorrenciaPage() {
 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
     </div>
   );

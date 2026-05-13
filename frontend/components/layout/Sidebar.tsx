@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, Repeat2, ShoppingCart, Users } from "lucide-react";
+import { Activity, BarChart2, FileText, Repeat2, ShoppingCart, Users, Zap } from "lucide-react";
 
 const nav = [
   { href: "/pedidos", label: "Pedidos", icon: ShoppingCart },
-  { href: "/conexao", label: "Conexao", icon: Activity },
+  { href: "/conexao", label: "Conexão", icon: Activity },
   { href: "/clientes", label: "Clientes", icon: Users },
-  { href: "/recorrencia", label: "Recorrencia", icon: Repeat2 },
+  { href: "/recorrencia", label: "Recorrência", icon: Repeat2 },
+  { href: "/ativacao", label: "Ativação", icon: Zap },
+  { href: "/resultados", label: "Resultados", icon: BarChart2 },
+  { href: "/logs", label: "Logs Disparos", icon: FileText },
 ];
 
 export default function Sidebar() {

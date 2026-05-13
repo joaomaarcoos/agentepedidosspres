@@ -1,0 +1,90 @@
+# Docker Stack para Swarm + Traefik + Portainer
+#
+# ANTES DE FAZER O DEPLOY:
+#   1. Build da imagem na VPS:
+#        docker build -t agente-pedidos:latest .
+#   2. Configure as variáveis de ambiente no Portainer (aba "Environment variables")
+#      ou exporte-as no shell antes de rodar:
+#        docker stack deploy -c docker-stack.yml agente-pedidos
+#
+# DOMÍNIO: altere "agente.SEU_DOMINIO.com" para o seu domínio real
+# CERTRESOLVER: confirme o nome do resolver no seu traefik.yml (ex: letsencrypt)
+
+version: "3.8"
+
+services:
+  app:
+    image: agente-pedidos:latest
+    environment:
+      NODE_ENV: production
+      PYTHON_EXECUTABLE: /app/.venv/bin/python3
+      APP_URL: "https://agentess.sucosspres.com.br"
+
+      # ── Supabase ──────────────────────────────────────────────────────────
+      SUPABASE_URL: "${SUPABASE_URL}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+      DATABASE_URL: "${DATABASE_URL}"
+
+      # ── OpenAI ────────────────────────────────────────────────────────────
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o-mini}"
+
+      # ── ClicVendas ────────────────────────────────────────────────────────
+      CLIC_VENDAS_URL: "${CLIC_VENDAS_URL}"
+      CLIC_VENDAS_AUTH_URL: "${CLIC_VENDAS_AUTH_URL}"
+      CLIC_VENDAS_USER: "${CLIC_VENDAS_USER}"
+      CLIC_VENDAS_PASSWORD: "${CLIC_VENDAS_PASSWORD}"
+      CLIC_VENDAS_SUBDOMAIN: "${CLIC_VENDAS_SUBDOMAIN:-sucosspres}"
+      CLIC_VENDAS_REP_DOCUMENT: "${CLIC_VENDAS_REP_DOCUMENT}"
+
+      # ── Evolution API (WhatsApp) ───────────────────────────────────────────
+      EVOLUTION_API_URL: "${EVOLUTION_API_URL}"
+      EVOLUTION_API_KEY: "${EVOLUTION_API_KEY}"
+      EVOLUTION_INSTANCE: "${EVOLUTION_INSTANCE}"
+
+    volumes:
+      - app-tmp:/app/.tmp
+
+    networks:
+      - SucosSpresNet
+
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+      # Em Swarm, labels do Traefik DEVEM ficar aqui dentro de deploy.labels
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.agente-pedidos.rule=Host(`agentess.sucosspres.com.br`)"
+        - "traefik.http.routers.agente-pedidos.entrypoints=websecure"
+        - "traefik.http.routers.agente-pedidos.tls.certresolver=letsencrypt"
+        - "traefik.http.services.agente-pedidos.loadbalancer.server.port=3000"
+        # Redirect HTTP → HTTPS
+        - "traefik.http.routers.agente-pedidos-http.rule=Host(`agentess.sucosspres.com.br`)"
+        - "traefik.http.routers.agente-pedidos-http.entrypoints=web"
+        - "traefik.http.routers.agente-pedidos-http.middlewares=redirect-https"
+        - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
+        - "traefik.http.middlewares.redirect-https.redirectscheme.permanent=true"
+        # Necessário para Swarm: informa em qual rede o Traefik deve procurar o serviço
+        - "traefik.docker.network=SucosSpresNet"
+
+volumes:
+  app-tmp:
+    driver: local
+
+networks:
+  SucosSpresNet:
+    external: true
+    name: SucosSpresNet
+
