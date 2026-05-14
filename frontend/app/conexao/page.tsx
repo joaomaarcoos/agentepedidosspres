@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Bot,
   CheckCircle2,
   Loader2,
   PhoneOff,
@@ -350,12 +351,61 @@ function CreateModal({
 // Instance Card
 // ---------------------------------------------------------------------------
 
+function AgentToggle({
+  enabled,
+  loading,
+  onClick,
+}: {
+  enabled: boolean;
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      title={enabled ? "Agente ativo — clique para desligar" : "Agente desligado — clique para ligar"}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "5px 12px",
+        borderRadius: 7,
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: loading ? "not-allowed" : "pointer",
+        opacity: loading ? 0.6 : 1,
+        border: enabled ? "1px solid var(--success)" : "1px solid var(--muted)",
+        background: enabled ? "rgba(34,197,94,0.10)" : "var(--surface2)",
+        color: enabled ? "var(--success)" : "var(--muted)",
+        transition: "all 0.15s",
+      }}
+    >
+      <Bot size={13} />
+      {loading ? "..." : enabled ? "Agente ON" : "Agente OFF"}
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: enabled ? "var(--success)" : "var(--muted)",
+          display: "inline-block",
+          marginLeft: 2,
+        }}
+      />
+    </button>
+  );
+}
+
 function InstanceCard({
   instance,
   onQrCode,
   onRestart,
   onDisconnect,
   onDelete,
+  onAgentToggle,
+  agentEnabled,
+  agentLoading,
   busy,
 }: {
   instance: EvolutionInstance;
@@ -363,6 +413,9 @@ function InstanceCard({
   onRestart: () => void;
   onDisconnect: () => void;
   onDelete: () => void;
+  onAgentToggle: () => void;
+  agentEnabled: boolean;
+  agentLoading: boolean;
   busy: boolean;
 }) {
   const isConnected = ["open", "connected"].includes(instance.status.toLowerCase());
@@ -418,6 +471,33 @@ function InstanceCard({
           {stateLabel(instance.status)}
         </span>
       </div>
+
+      {isConnected && (
+        <div
+          style={{
+            padding: "10px 18px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            background: agentEnabled ? "rgba(34,197,94,0.04)" : "var(--surface2)",
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Agente Marcela
+            </span>
+            <span style={{ fontSize: 11, color: agentEnabled ? "var(--success)" : "var(--muted)" }}>
+              {agentEnabled ? "Respondendo automaticamente" : "Silenciada"}
+            </span>
+          </div>
+          <AgentToggle
+            enabled={agentEnabled}
+            loading={agentLoading}
+            onClick={onAgentToggle}
+          />
+        </div>
+      )}
 
       <div style={{ padding: "12px 18px", display: "flex", flexWrap: "wrap", gap: 8 }}>
         {!isConnected && (
@@ -538,6 +618,8 @@ export default function ConexaoPage() {
   const [qrInstance, setQrInstance] = useState<EvolutionInstance | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [busyMap, setBusyMap] = useState<Record<string, boolean>>({});
+  const [agentMap, setAgentMap] = useState<Record<string, boolean>>({});
+  const [agentLoadingMap, setAgentLoadingMap] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   const showToast = (msg: string, type: "success" | "error" = "success") =>
@@ -555,7 +637,20 @@ export default function ConexaoPage() {
         conexaoApi.listInstances().catch(() => null),
       ]);
       setApiStatus(status);
-      if (instances) setData(instances);
+      if (instances) {
+        setData(instances);
+        const connected = (instances.instances ?? []).filter(
+          (i) => ["open", "connected"].includes(i.status.toLowerCase())
+        );
+        const agentStatuses = await Promise.all(
+          connected.map((i) =>
+            conexaoApi.getAgentStatus(i.instanceName).catch(() => ({ instanceName: i.instanceName, agent_enabled: true }))
+          )
+        );
+        setAgentMap(
+          Object.fromEntries(agentStatuses.map((s) => [s.instanceName, s.agent_enabled]))
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar dados");
     } finally {
@@ -604,6 +699,21 @@ export default function ConexaoPage() {
       showToast(err instanceof Error ? err.message : "Erro ao reiniciar", "error");
     } finally {
       setBusy(name, false);
+    }
+  }
+
+  async function handleAgentToggle(name: string) {
+    const current = agentMap[name] ?? true;
+    const next = !current;
+    setAgentLoadingMap((p) => ({ ...p, [name]: true }));
+    try {
+      const result = await conexaoApi.toggleAgent(name, next);
+      setAgentMap((p) => ({ ...p, [name]: result.agent_enabled }));
+      showToast(`Agente ${result.agent_enabled ? "ligado" : "desligado"} para "${name}"`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Erro ao atualizar agente", "error");
+    } finally {
+      setAgentLoadingMap((p) => ({ ...p, [name]: false }));
     }
   }
 
@@ -759,10 +869,13 @@ export default function ConexaoPage() {
                   key={inst.instanceName}
                   instance={inst}
                   busy={busyMap[inst.instanceName] ?? false}
+                  agentEnabled={agentMap[inst.instanceName] ?? true}
+                  agentLoading={agentLoadingMap[inst.instanceName] ?? false}
                   onQrCode={() => setQrInstance(inst)}
                   onRestart={() => handleRestart(inst.instanceName)}
                   onDisconnect={() => handleDisconnect(inst.instanceName)}
                   onDelete={() => handleDelete(inst.instanceName)}
+                  onAgentToggle={() => handleAgentToggle(inst.instanceName)}
                 />
               ))}
             </div>

@@ -70,6 +70,10 @@ export const conexaoApi = {
     api.post<import("./types").InstanceActionResult>(`/api/conexao/instances/${encodeURIComponent(name)}/disconnect`),
   restartInstance: (name: string) =>
     api.post<import("./types").InstanceActionResult>(`/api/conexao/instances/${encodeURIComponent(name)}/restart`),
+  getAgentStatus: (name: string) =>
+    api.get<{ instanceName: string; agent_enabled: boolean }>(`/api/conexao/instances/${encodeURIComponent(name)}/agent`),
+  toggleAgent: (name: string, enabled: boolean) =>
+    api.post<{ instanceName: string; agent_enabled: boolean }>(`/api/conexao/instances/${encodeURIComponent(name)}/agent`, { enabled }),
 };
 
 export const clientesApi = {
@@ -226,4 +230,16 @@ export const ativacaoApi = {
       script: { processed: number; eligible: number; inserted: number; updated: number; errors: unknown[] };
       validate: { processed: number; approved: number; rejected: number; errors: unknown[] };
     }>("/api/ativacao/pipeline", { triggered_by: triggeredBy, dry_run: dryRun }),
+};
+
+export const revisaoPedidoApi = {
+  list: (status?: string, page = 1, pageSize = 50) => {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (status) params.set("status", status);
+    return api.get<import("./types").PedidoRevisaoListResponse>(`/api/revisaopedido?${params}`);
+  },
+  detail: (id: string) =>
+    api.get<import("./types").PedidoRevisao>(`/api/revisaopedido/${id}`),
+  setStatus: (id: string, status: import("./types").PedidoRevisaoStatus) =>
+    api.post<import("./types").PedidoRevisao>(`/api/revisaopedido/${id}/status`, { status }),
 };

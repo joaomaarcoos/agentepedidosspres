@@ -117,6 +117,44 @@ def send_whatsapp(phone: str, text: str) -> dict:
         return {"status_code": response.status_code, "text": response.text[:500]}
 
 
+def _is_agent_enabled() -> bool:
+    instance = (
+        os.getenv("EVOLUTION_INSTANCE")
+        or os.getenv("EVOLUTION_INSTANCE_NAME")
+        or os.getenv("EVOLUTION_INSTANCE_ID")
+        or ""
+    )
+    if not instance:
+        return True
+
+    key = f"agent_instance__{instance}"
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+
+    if supabase_url and supabase_key:
+        try:
+            from supabase import create_client
+            sb = create_client(supabase_url, supabase_key)
+            res = sb.table("system_settings").select("value").eq("key", key).limit(1).execute()
+            rows = res.data or []
+            if rows:
+                return bool(rows[0]["value"])
+        except Exception as exc:
+            logger.warning("Falha ao checar agent_enabled no Supabase: %s", exc)
+
+    fallback_path = Path(__file__).resolve().parent.parent / ".tmp" / "data" / "agent_settings.json"
+    if fallback_path.exists():
+        try:
+            import json as _json
+            data = _json.loads(fallback_path.read_text(encoding="utf-8"))
+            if key in data:
+                return bool(data[key])
+        except Exception:
+            pass
+
+    return True
+
+
 def handle_payload(payload: dict, send_reply: bool = True) -> dict:
     incoming = extract_message(payload)
 
@@ -124,6 +162,9 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
         return {"action": "ignored_from_me", "should_reply": False}
     if not incoming["phone"] or not incoming["text"]:
         return {"action": "ignored_empty", "should_reply": False}
+
+    if not _is_agent_enabled():
+        return {"action": "agent_disabled", "should_reply": False}
 
     result = process_inbound_message(
         phone=incoming["phone"],

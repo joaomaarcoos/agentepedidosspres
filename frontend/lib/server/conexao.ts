@@ -49,3 +49,13 @@ export function disconnectInstance(name: string) {
 export function restartInstance(name: string) {
   return call<InstanceActionResult>(["restart", "--name", name]);
 }
+
+export function getAgentStatus(name: string) {
+  return call<{ instanceName: string; agent_enabled: boolean }>(["agent-status", "--name", name]);
+}
+
+export function toggleAgent(name: string, enabled: boolean) {
+  return call<{ instanceName: string; agent_enabled: boolean }>(
+    ["agent-toggle", "--name", name, "--enabled", enabled ? "true" : "false"]
+  );
+}

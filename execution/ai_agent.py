@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,7 +24,11 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_ROOT / ".env")
+
+sys.path.insert(0, str(_ROOT))
+from prompts.builder import build_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +213,113 @@ class AgentStore:
             self._local_append(MESSAGES_TABLE, payload)
             return payload
 
+    def get_module_context(self, phone: str) -> dict | None:
+        """
+        Busca o contexto de módulo para um telefone consultando message_events.
+        Retorna dict com module, customer_name, top_items, etc. — ou None se não houver.
+        Janela de busca: últimas 72 horas (disparo recente que gerou esta conversa).
+        """
+        if self.use_local:
+            return None
+
+        try:
+            cutoff = iso_z(utc_now() - timedelta(hours=72))
+            result = (
+                self.client.table("message_events")
+                .select("entity_id, payload_json, created_at")
+                .eq("to_number", phone)
+                .eq("direction", "outbound")
+                .gte("created_at", cutoff)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            if not rows:
+                return None
+
+            row = rows[0]
+            payload = row.get("payload_json") or {}
+            funil = payload.get("funil")
+            if funil not in ("recorrencia", "ativacao"):
+                return None
+
+            entity_id = row.get("entity_id")
+            target_data: dict = {}
+            if entity_id:
+                t_res = (
+                    self.client.table("recurrence_targets")
+                    .select(
+                        "customer_name, top_items_json, last_3_orders_json, "
+                        "predicted_next_order_date, ai_reasoning"
+                    )
+                    .eq("id", entity_id)
+                    .limit(1)
+                    .execute()
+                )
+                target_data = (t_res.data or [{}])[0]
+
+            tipo = ""
+            mensagem_inicial = payload.get("mensagem", "")
+            raw_reasoning = target_data.get("ai_reasoning")
+            if raw_reasoning:
+                try:
+                    reasoning = json.loads(raw_reasoning)
+                    tipo = reasoning.get("tipo_abordagem", "")
+                    mensagem_inicial = reasoning.get("mensagem") or mensagem_inicial
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            return {
+                "module": funil,
+                "customer_name": target_data.get("customer_name"),
+                "top_items": target_data.get("top_items_json") or [],
+                "last_3_orders": target_data.get("last_3_orders_json") or [],
+                "predicted_next_order_date": target_data.get("predicted_next_order_date"),
+                "tipo_abordagem": tipo,
+                "ai_mensagem_inicial": mensagem_inicial,
+            }
+        except Exception as exc:
+            logger.warning("Falha ao buscar contexto de módulo para %s: %s", phone, exc)
+            return None
+
+    def save_order_for_review(
+        self,
+        phone: str,
+        conversation_id: str | None,
+        itens: list[dict],
+        observacoes: str,
+        customer_name: str | None,
+        mensagem_cliente: str,
+    ) -> str:
+        order_id = str(uuid.uuid4())
+        now = iso_z(utc_now())
+        payload = {
+            "id": order_id,
+            "cliente_telefone": phone,
+            "cliente_nome": customer_name,
+            "conversation_id": conversation_id,
+            "itens_json": itens,
+            "observacoes": observacoes or "",
+            "mensagem_cliente": mensagem_cliente or "",
+            "status": "pendente",
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        if self.use_local:
+            self._local_append("pedidos_revisao", payload)
+            return order_id
+
+        try:
+            result = self.client.table("pedidos_revisao").insert(payload).execute()
+            return (result.data or [payload])[0].get("id", order_id)
+        except Exception as exc:
+            logger.warning("Falha ao salvar pedido_revisao; usando local: %s", exc)
+            self.use_local = True
+            self._local_append("pedidos_revisao", payload)
+            return order_id
+
     def recent_messages(self, conversation_id: str, limit: int = CONTEXT_MESSAGE_LIMIT) -> list[dict]:
         safe_limit = max(1, min(limit, 50))
         if self.use_local:
@@ -319,15 +431,42 @@ def apply_pause_command(store: AgentStore, conversation: dict, text: str) -> dic
     return None
 
 
-def build_ai_messages(history: list[dict]) -> list[dict]:
-    system_prompt = os.getenv(
-        "AI_AGENT_SYSTEM_PROMPT",
-        (
-            "Voce e um atendente comercial por WhatsApp. Responda em portugues do Brasil, "
-            "com foco em vender, processar pedidos e tirar duvidas. Seja direto, cordial e "
-            "nunca invente disponibilidade, preco ou prazo quando nao houver dado suficiente."
+REGISTRAR_PEDIDO_TOOL: dict = {
+    "type": "function",
+    "function": {
+        "name": "registrar_pedido",
+        "description": (
+            "Registra o pedido confirmado do cliente para revisão do representante antes de enviar ao sistema. "
+            "Use assim que o cliente confirmar os produtos e quantidades desejados."
         ),
-    )
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "itens": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "nome": {"type": "string", "description": "Nome do produto"},
+                            "quantidade": {"type": "string", "description": "Quantidade (ex: 2 caixas, 10 unidades)"},
+                        },
+                        "required": ["nome", "quantidade"],
+                    },
+                    "description": "Lista de produtos e quantidades do pedido",
+                },
+                "observacoes": {
+                    "type": "string",
+                    "description": "Observações extras do cliente: prazo, entrega, forma de pagamento, etc.",
+                },
+            },
+            "required": ["itens"],
+        },
+    },
+}
+
+
+def build_ai_messages(history: list[dict], module_context: dict | None = None) -> list[dict]:
+    system_prompt = build_prompt(context=module_context)
     messages = [{"role": "system", "content": system_prompt}]
     for item in history[-CONTEXT_MESSAGE_LIMIT:]:
         role = item.get("role")
@@ -339,7 +478,15 @@ def build_ai_messages(history: list[dict]) -> list[dict]:
     return messages
 
 
-def generate_ai_reply(history: list[dict]) -> str:
+def generate_ai_reply(
+    history: list[dict],
+    module_context: dict | None = None,
+    phone: str | None = None,
+    conversation_id: str | None = None,
+    store: "AgentStore | None" = None,
+    customer_name: str | None = None,
+    last_user_message: str | None = None,
+) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         return ""
@@ -348,12 +495,69 @@ def generate_ai_reply(history: list[dict]) -> str:
 
     model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     client = OpenAI(api_key=api_key)
+    messages = build_ai_messages(history, module_context=module_context)
+
     response = client.chat.completions.create(
         model=model,
-        messages=build_ai_messages(history),
+        messages=messages,
+        tools=[REGISTRAR_PEDIDO_TOOL],
+        tool_choice="auto",
         temperature=0.3,
     )
-    return normalize_text(response.choices[0].message.content)
+
+    msg = response.choices[0].message
+
+    if msg.tool_calls:
+        tool_call = msg.tool_calls[0]
+        if tool_call.function.name == "registrar_pedido" and store and phone:
+            try:
+                args = json.loads(tool_call.function.arguments)
+                order_id = store.save_order_for_review(
+                    phone=phone,
+                    conversation_id=conversation_id,
+                    itens=args.get("itens", []),
+                    observacoes=args.get("observacoes", ""),
+                    customer_name=customer_name or (module_context or {}).get("customer_name"),
+                    mensagem_cliente=last_user_message or "",
+                )
+                tool_result = json.dumps(
+                    {"sucesso": True, "id": order_id, "mensagem": "Pedido registrado para revisão do representante."},
+                    ensure_ascii=False,
+                )
+                logger.info("Pedido registrado para revisão: %s (telefone: %s)", order_id, phone)
+            except Exception as exc:
+                logger.warning("Falha ao registrar pedido: %s", exc)
+                tool_result = json.dumps({"sucesso": False, "erro": str(exc)}, ensure_ascii=False)
+
+            messages_with_result = messages + [
+                {
+                    "role": "assistant",
+                    "content": msg.content,
+                    "tool_calls": [
+                        {
+                            "id": tool_call.id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_call.function.name,
+                                "arguments": tool_call.function.arguments,
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": tool_result,
+                },
+            ]
+            response2 = client.chat.completions.create(
+                model=model,
+                messages=messages_with_result,
+                temperature=0.3,
+            )
+            return normalize_text(response2.choices[0].message.content)
+
+    return normalize_text(msg.content or "")
 
 
 def process_inbound_message(
@@ -361,7 +565,7 @@ def process_inbound_message(
     text: str,
     payload_json: dict | None = None,
     conversation_key: str | None = None,
-    store: AgentStore | None = None,
+    store: "AgentStore | None" = None,
 ) -> dict:
     store = store or AgentStore()
     safe_phone = normalize_phone(phone)
@@ -372,10 +576,11 @@ def process_inbound_message(
     conversation = store.get_or_create_conversation(key, safe_phone)
     conversation = maybe_expire_pause(store, conversation)
 
+    normalized_text = normalize_text(text)
     store.add_message(
         str(conversation["id"]),
         "user",
-        normalize_text(text),
+        normalized_text,
         payload_json=payload_json,
     )
 
@@ -392,7 +597,16 @@ def process_inbound_message(
         }
 
     history = store.recent_messages(str(conversation["id"]), CONTEXT_MESSAGE_LIMIT)
-    reply = generate_ai_reply(history)
+    module_context = store.get_module_context(safe_phone)
+    reply = generate_ai_reply(
+        history,
+        module_context=module_context,
+        phone=safe_phone,
+        conversation_id=str(conversation["id"]),
+        store=store,
+        customer_name=(module_context or {}).get("customer_name"),
+        last_user_message=normalized_text,
+    )
     if not reply:
         return {
             "action": "no_reply_generated",
@@ -406,4 +620,5 @@ def process_inbound_message(
         "should_reply": True,
         "reply": reply,
         "context_messages": len(history),
+        "module_context": module_context.get("module") if module_context else None,
     }

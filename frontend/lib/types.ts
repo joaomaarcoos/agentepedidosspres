@@ -1,3 +1,35 @@
+export type PedidoRevisaoStatus = "pendente" | "em_revisao" | "pedido_feito" | "cancelado";
+
+export interface PedidoRevisaoItem {
+  nome: string;
+  quantidade: string;
+}
+
+export interface PedidoRevisao {
+  id: string;
+  conversation_id?: string | null;
+  cliente_nome?: string | null;
+  cliente_telefone: string;
+  itens_json: PedidoRevisaoItem[];
+  observacoes: string;
+  mensagem_cliente: string;
+  status: PedidoRevisaoStatus;
+  revisado_em?: string | null;
+  revisado_por?: string | null;
+  created_at: string;
+  updated_at: string;
+  conversation_messages?: { role: string; content: string; created_at: string }[];
+}
+
+export interface PedidoRevisaoListResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+  stats: Record<PedidoRevisaoStatus, number>;
+  pedidos: PedidoRevisao[];
+}
+
 export interface SyncLog {
   id: string;
   triggered_at: string;

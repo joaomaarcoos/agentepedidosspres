@@ -5,13 +5,15 @@ Gerencia instâncias da Evolution API.
 Saída em JSON no stdout; logs no stderr.
 
 Subcomandos:
-  status                                       — saúde da API
-  list                                         — lista instâncias
-  create --name N [--webhook-url U] [--msg-call M]  — cria instância
-  qrcode     --name N                          — lê QR code
-  delete     --name N                          — apaga instância
-  disconnect --name N                          — logout/desconecta
-  restart    --name N                          — reinicia/reconecta
+  status                                          — saúde da API
+  list                                            — lista instâncias
+  create --name N [--webhook-url U] [--msg-call M] — cria instância
+  qrcode        --name N                          — lê QR code
+  delete        --name N                          — apaga instância
+  disconnect    --name N                          — logout/desconecta
+  restart       --name N                          — reinicia/reconecta
+  agent-status  --name N                          — estado do agente Marcela
+  agent-toggle  --name N --enabled true|false     — liga/desliga agente
 """
 
 import argparse
@@ -369,6 +371,76 @@ def cmd_restart(name: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Agent toggle — persiste em system_settings com key agent_instance__{name}
+# ---------------------------------------------------------------------------
+
+_AGENT_FALLBACK = os.path.join(os.path.dirname(__file__), "..", ".tmp", "data", "agent_settings.json")
+
+
+def _agent_key(name: str) -> str:
+    return f"agent_instance__{name}"
+
+
+def _agent_db():
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+    if not url or not key:
+        raise RuntimeError("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY não configurados")
+    from supabase import create_client
+    return create_client(url, key)
+
+
+def _agent_read_fallback(name: str) -> bool:
+    path = _AGENT_FALLBACK
+    try:
+        if os.path.exists(path):
+            data = json.loads(open(path, encoding="utf-8").read())
+            return bool(data.get(_agent_key(name), True))
+    except Exception:
+        pass
+    return True
+
+
+def _agent_write_fallback(name: str, enabled: bool) -> None:
+    import pathlib
+    path = _AGENT_FALLBACK
+    pathlib.Path(path).parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = json.loads(open(path, encoding="utf-8").read()) if os.path.exists(path) else {}
+    except Exception:
+        data = {}
+    data[_agent_key(name)] = enabled
+    open(path, "w", encoding="utf-8").write(json.dumps(data, indent=2))
+
+
+def cmd_agent_status(name: str) -> int:
+    try:
+        db = _agent_db()
+        key = _agent_key(name)
+        res = db.table("system_settings").select("value").eq("key", key).limit(1).execute()
+        rows = res.data or []
+        enabled = bool(rows[0]["value"]) if rows else True
+    except Exception:
+        enabled = _agent_read_fallback(name)
+
+    return success({"instanceName": name, "agent_enabled": enabled})
+
+
+def cmd_agent_toggle(name: str, enabled: bool) -> int:
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    key = _agent_key(name)
+    try:
+        db = _agent_db()
+        db.table("system_settings").upsert(
+            {"key": key, "value": enabled, "updated_at": now}
+        ).execute()
+    except Exception:
+        _agent_write_fallback(name, enabled)
+
+    return success({"instanceName": name, "agent_enabled": enabled})
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -396,6 +468,13 @@ def main() -> int:
     p_restart = sub.add_parser("restart")
     p_restart.add_argument("--name", required=True)
 
+    p_agt_status = sub.add_parser("agent-status")
+    p_agt_status.add_argument("--name", required=True)
+
+    p_agt_toggle = sub.add_parser("agent-toggle")
+    p_agt_toggle.add_argument("--name", required=True)
+    p_agt_toggle.add_argument("--enabled", required=True)
+
     args = parser.parse_args()
 
     try:
@@ -413,6 +492,11 @@ def main() -> int:
             return cmd_disconnect(args.name)
         if args.command == "restart":
             return cmd_restart(args.name)
+        if args.command == "agent-status":
+            return cmd_agent_status(args.name)
+        if args.command == "agent-toggle":
+            enabled = args.enabled.lower() in ("true", "1", "yes")
+            return cmd_agent_toggle(args.name, enabled)
         return failure("Comando nao suportado")
     except Exception as exc:
         logger.exception("Falha no modulo conexao")

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, BarChart2, FileText, Repeat2, ShoppingCart, Users, Zap } from "lucide-react";
+import { Activity, BarChart2, ClipboardCheck, FileText, Repeat2, ShoppingCart, Users, Zap } from "lucide-react";
 
 const nav = [
   { href: "/pedidos", label: "Pedidos", icon: ShoppingCart },
+  { href: "/revisaopedido", label: "Revisão Pedidos", icon: ClipboardCheck },
   { href: "/conexao", label: "Conexão", icon: Activity },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/recorrencia", label: "Recorrência", icon: Repeat2 },
