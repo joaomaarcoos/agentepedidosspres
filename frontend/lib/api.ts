@@ -172,6 +172,23 @@ export const settingsApi = {
     api.patch<{ key: string; value: boolean }>("/api/settings/disparo", { key, value }),
 };
 
+export const cronApi = {
+  getStatus: () =>
+    api.get<{
+      enabled: boolean;
+      interval_hours: number;
+      last_run: string | null;
+      last_run_status: "success" | "error" | null;
+    }>("/api/clic-vendas/cron"),
+  setEnabled: (enabled: boolean) =>
+    api.post<{
+      enabled: boolean;
+      interval_hours: number;
+      last_run: string | null;
+      last_run_status: "success" | "error" | null;
+    }>("/api/clic-vendas/cron", { enabled }),
+};
+
 export const ativacaoApi = {
   list: (params?: { status?: string; page?: number; pageSize?: number }) => {
     const q = new URLSearchParams();

@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/layout/Header";
-import { clicVendasApi } from "@/lib/api";
+import { clicVendasApi, cronApi } from "@/lib/api";
 import type { Pedido, PedidoItem, SyncLog } from "@/lib/types";
-import { RefreshCw, Activity, ShoppingCart, Users, ChevronLeft, ChevronRight, X, Package, Database } from "lucide-react";
+import { RefreshCw, Activity, ShoppingCart, Users, ChevronLeft, ChevronRight, X, Package, Database, Clock, CalendarDays } from "lucide-react";
 import Link from "next/link";
 
 function SitBadge({ sit }: { sit?: string }) {
@@ -327,6 +327,10 @@ export default function ClicVendasPage() {
   const [dias, setDias] = useState(0);
   const [loadingPedidos, setLoadingPedidos] = useState(false);
   const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null);
+  const [cronEnabled, setCronEnabled] = useState(false);
+  const [cronLoading, setCronLoading] = useState(false);
+  const [todayLoading, setTodayLoading] = useState(false);
+  const [todayMsg, setTodayMsg] = useState<string | null>(null);
 
   const loadPedidos = useCallback(async (targetPage = 1) => {
     setLoadingPedidos(true);
@@ -347,8 +351,35 @@ export default function ClicVendasPage() {
       const last = result.logs.find((log) => log.status === "success" || log.status === "error");
       setLastLog(last || null);
     });
+    cronApi.getStatus().then((s) => setCronEnabled(s.enabled)).catch(() => null);
     loadPedidos(1);
   }, [loadPedidos]);
+
+  const handleCronToggle = async () => {
+    setCronLoading(true);
+    try {
+      const result = await cronApi.setEnabled(!cronEnabled);
+      setCronEnabled(result.enabled);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCronLoading(false);
+    }
+  };
+
+  const handleSyncToday = async () => {
+    setTodayLoading(true);
+    setTodayMsg(null);
+    try {
+      const result = await clicVendasApi.sync(1);
+      setTodayMsg(result.message);
+      await loadPedidos(1);
+    } catch (e) {
+      setTodayMsg(`Erro: ${e instanceof Error ? e.message : "Falha"}`);
+    } finally {
+      setTodayLoading(false);
+    }
+  };
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -419,39 +450,34 @@ export default function ClicVendasPage() {
           <button
             onClick={handleSync}
             disabled={loading}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              background: "var(--accent)",
-              color: "#fff",
-              border: "none",
-              borderRadius: 8,
-              padding: "8px 18px",
-              fontWeight: 600,
-              fontSize: 13,
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.7 : 1,
-            }}
+            style={{ display: "flex", alignItems: "center", gap: 7, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontWeight: 600, fontSize: 13, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}
           >
             <RefreshCw size={14} style={{ animation: loading ? "spin 1s linear infinite" : undefined }} />
             {loading ? "Sincronizando..." : "Atualizar Base"}
           </button>
 
+          <button
+            onClick={handleSyncToday}
+            disabled={todayLoading}
+            style={{ display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: todayLoading ? "not-allowed" : "pointer", opacity: todayLoading ? 0.7 : 1 }}
+          >
+            <CalendarDays size={14} style={{ animation: todayLoading ? "spin 1s linear infinite" : undefined }} />
+            {todayLoading ? "Buscando..." : "Buscar Hoje"}
+          </button>
+
+          <button
+            onClick={handleCronToggle}
+            disabled={cronLoading}
+            title={cronEnabled ? "Cron automático ativo (a cada 1h) — clique para desativar" : "Cron automático inativo — clique para ativar"}
+            style={{ display: "flex", alignItems: "center", gap: 7, background: cronEnabled ? "rgba(34,197,94,0.12)" : "var(--surface2)", color: cronEnabled ? "var(--success)" : "var(--muted)", border: `1px solid ${cronEnabled ? "rgba(34,197,94,0.4)" : "var(--border)"}`, borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: cronLoading ? "not-allowed" : "pointer", opacity: cronLoading ? 0.7 : 1 }}
+          >
+            <Clock size={14} />
+            {cronEnabled ? "Cron Ativo" : "Cron Inativo"}
+          </button>
+
           <Link
             href="/clic-vendas/monitor"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 7,
-              color: "var(--muted)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "8px 16px",
-              fontSize: 13,
-              textDecoration: "none",
-              background: "transparent",
-            }}
+            style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 16px", fontSize: 13, textDecoration: "none", background: "transparent" }}
           >
             <Activity size={14} />
             Monitor de Syncs
@@ -460,6 +486,11 @@ export default function ClicVendasPage() {
           {syncMsg && (
             <span style={{ fontSize: 12, color: syncMsg.startsWith("Erro") ? "var(--error)" : "var(--success)" }}>
               {syncMsg}
+            </span>
+          )}
+          {todayMsg && (
+            <span style={{ fontSize: 12, color: todayMsg.startsWith("Erro") ? "var(--error)" : "var(--success)" }}>
+              {todayMsg}
             </span>
           )}
         </div>
