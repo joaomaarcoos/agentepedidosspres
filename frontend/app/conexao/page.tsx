@@ -174,9 +174,11 @@ function QrModal({
 function CreateModal({
   onClose,
   onCreated,
+  existingNames,
 }: {
   onClose: () => void;
   onCreated: (result: CreateInstanceResult) => void;
+  existingNames: string[];
 }) {
   const [name, setName] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -184,14 +186,19 @@ function CreateModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const nameTrimmed = name.trim();
+  const isDuplicate = existingNames.some(
+    (n) => n.toLowerCase() === nameTrimmed.toLowerCase()
+  );
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!nameTrimmed || isDuplicate) return;
     setLoading(true);
     setError(null);
     try {
       const result = await conexaoApi.createInstance({
-        name: name.trim(),
+        name: nameTrimmed,
         webhookUrl: webhookUrl.trim() || undefined,
         msgCall: msgCall.trim() || undefined,
       });
@@ -242,11 +249,19 @@ function CreateModal({
               placeholder="ex: spres-principal"
               required
               style={{
-                background: "var(--surface2)", border: "1px solid var(--border)",
+                background: "var(--surface2)",
+                border: `1px solid ${isDuplicate ? "var(--error)" : "var(--border)"}`,
                 borderRadius: 8, padding: "10px 12px",
                 fontSize: 13, color: "var(--text)", outline: "none",
+                transition: "border-color 0.15s",
               }}
             />
+            {isDuplicate && (
+              <span style={{ fontSize: 12, color: "var(--error)", display: "flex", alignItems: "center", gap: 5 }}>
+                <AlertTriangle size={12} />
+                Já existe uma instância com este nome. Escolha outro.
+              </span>
+            )}
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -300,14 +315,14 @@ function CreateModal({
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button
               type="submit"
-              disabled={loading || !name.trim()}
+              disabled={loading || !nameTrimmed || isDuplicate}
               style={{
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 background: "var(--accent)", color: "#fff", border: "none",
                 borderRadius: 8, padding: "10px 0",
                 fontSize: 14, fontWeight: 700,
-                cursor: (loading || !name.trim()) ? "not-allowed" : "pointer",
-                opacity: (loading || !name.trim()) ? 0.6 : 1,
+                cursor: (loading || !nameTrimmed || isDuplicate) ? "not-allowed" : "pointer",
+                opacity: (loading || !nameTrimmed || isDuplicate) ? 0.6 : 1,
               }}
             >
               {loading ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={15} />}
@@ -822,7 +837,11 @@ export default function ConexaoPage() {
         <QrModal instance={qrInstance} onClose={() => setQrInstance(null)} />
       )}
       {showCreate && (
-        <CreateModal onClose={() => setShowCreate(false)} onCreated={handleCreated} />
+        <CreateModal
+          onClose={() => setShowCreate(false)}
+          onCreated={handleCreated}
+          existingNames={instances.map((i) => i.instanceName)}
+        />
       )}
       {toast && (
         <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />
