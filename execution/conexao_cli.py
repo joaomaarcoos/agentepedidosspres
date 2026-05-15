@@ -250,11 +250,11 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
     if not webhook_url:
         webhook_url = _default_webhook_url()
 
-    # 1. Criar instância (sem webhook no body — Evolution API v2 ignora esses campos aqui)
+    # 1. Criar instância com webhook aninhado (estrutura correta do Evolution API v2)
     body: dict = {
         "instanceName": name,
-        "qrcode": True,
         "integration": "WHATSAPP-BAILEYS",
+        "qrcode": False,
         "rejectCall": True,
         "msgCall": msg_call or "No momento nao consigo atender. Envie uma mensagem!",
         "groupsIgnore": False,
@@ -263,25 +263,32 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
         "readStatus": False,
     }
 
+    if webhook_url:
+        body["webhook"] = {
+            "url": webhook_url,
+            "byEvents": False,
+            "base64": True,
+            "events": ["MESSAGES_UPSERT"],
+        }
+
     try:
         r = requests.post(f"{base_url}/instance/create", headers=_headers(api_key), json=body, timeout=30)
         r.raise_for_status()
         payload = r.json()
         inst = payload.get("instance") or {}
-        qr = payload.get("qrcode") or {}
         instance_name = inst.get("instanceName") or name
     except requests.HTTPError as exc:
         return failure(f"Erro ao criar instancia ({exc.response.status_code}): {exc.response.text[:300]}")
     except Exception as exc:
         return failure(str(exc))
 
-    # 2. Configurar webhook via endpoint dedicado (Evolution API v2)
+    # 2. Reforçar webhook via /webhook/set (garantia extra)
     webhook_warning = None
     if webhook_url:
         webhook_body = {
             "enabled": True,
             "url": webhook_url,
-            "webhookByEvents": True,
+            "webhookByEvents": False,
             "webhookBase64": True,
             "events": ["MESSAGES_UPSERT"],
         }
@@ -294,8 +301,7 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
             )
             rw.raise_for_status()
         except Exception as exc:
-            # Não falha a criação — registra aviso
-            webhook_warning = f"Instância criada, mas webhook não configurado: {exc}"
+            webhook_warning = f"Instância criada, mas webhook/set falhou: {exc}"
             logger.warning(webhook_warning)
 
     return success({
@@ -305,10 +311,7 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
         "webhookConfigured": webhook_url != "" and webhook_warning is None,
         "webhookUrl": webhook_url or None,
         "warning": webhook_warning,
-        "qrcode": {
-            "code": qr.get("code") or "",
-            "base64": qr.get("base64") or "",
-        } if qr else None,
+        "qrcode": None,
     })
 
 
