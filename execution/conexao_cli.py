@@ -250,10 +250,7 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
     if not webhook_url:
         webhook_url = _default_webhook_url()
 
-    DEFAULT_EVENTS = [
-        "MESSAGES_UPSERT",
-    ]
-
+    # 1. Criar instância (sem webhook no body — Evolution API v2 ignora esses campos aqui)
     body: dict = {
         "instanceName": name,
         "qrcode": True,
@@ -266,33 +263,53 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
         "readStatus": False,
     }
 
-    if webhook_url:
-        body.update({
-            "webhookUrl": webhook_url,
-            "webhookByEvents": True,
-            "webhookBase64": True,
-            "webhookEvents": DEFAULT_EVENTS,
-        })
-
     try:
         r = requests.post(f"{base_url}/instance/create", headers=_headers(api_key), json=body, timeout=30)
         r.raise_for_status()
         payload = r.json()
         inst = payload.get("instance") or {}
         qr = payload.get("qrcode") or {}
-        return success({
-            "instanceName": inst.get("instanceName") or name,
-            "instanceId": inst.get("instanceId") or "",
-            "status": inst.get("status") or "created",
-            "qrcode": {
-                "code": qr.get("code") or "",
-                "base64": qr.get("base64") or "",
-            } if qr else None,
-        })
+        instance_name = inst.get("instanceName") or name
     except requests.HTTPError as exc:
         return failure(f"Erro ao criar instancia ({exc.response.status_code}): {exc.response.text[:300]}")
     except Exception as exc:
         return failure(str(exc))
+
+    # 2. Configurar webhook via endpoint dedicado (Evolution API v2)
+    webhook_warning = None
+    if webhook_url:
+        webhook_body = {
+            "enabled": True,
+            "url": webhook_url,
+            "webhookByEvents": True,
+            "webhookBase64": True,
+            "events": ["MESSAGES_UPSERT"],
+        }
+        try:
+            rw = requests.post(
+                f"{base_url}/webhook/set/{instance_name}",
+                headers=_headers(api_key),
+                json=webhook_body,
+                timeout=30,
+            )
+            rw.raise_for_status()
+        except Exception as exc:
+            # Não falha a criação — registra aviso
+            webhook_warning = f"Instância criada, mas webhook não configurado: {exc}"
+            logger.warning(webhook_warning)
+
+    return success({
+        "instanceName": instance_name,
+        "instanceId": inst.get("instanceId") or "",
+        "status": inst.get("status") or "created",
+        "webhookConfigured": webhook_url != "" and webhook_warning is None,
+        "webhookUrl": webhook_url or None,
+        "warning": webhook_warning,
+        "qrcode": {
+            "code": qr.get("code") or "",
+            "base64": qr.get("base64") or "",
+        } if qr else None,
+    })
 
 
 def cmd_qrcode(name: str) -> int:
