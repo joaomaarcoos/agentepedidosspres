@@ -86,5 +86,5 @@ Markdown SOPs that define how each agent/flow should behave. They are **read by 
 
 - **JSON IPC**: Python scripts must write valid JSON (and only JSON) to stdout. Anything else breaks the Node bridge.
 - **Fallback storage**: `supabase_client.py` and the atendimento agent fall back to `.tmp/data/*.json` when Supabase is unreachable - useful for local dev without network.
-- **Deployment**: Vercel. Build command `npm --prefix frontend run build`, output `frontend/.next`. Config in root `vercel.json`.
+- **Deployment**: Docker. Build command `npm --prefix frontend run build`, output `frontend/.next`.
 - **No tests**: No test framework is configured. Validate behavior by running scripts directly or inspecting Supabase.
