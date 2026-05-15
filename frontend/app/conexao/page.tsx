@@ -6,7 +6,6 @@ import {
   Bot,
   CheckCircle2,
   Loader2,
-  PhoneOff,
   Plus,
   QrCode,
   RefreshCw,
@@ -182,10 +181,13 @@ function CreateModal({
   existingNames: string[];
 }) {
   const [name, setName] = useState("");
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [msgCall, setMsgCall] = useState("No momento nao consigo atender. Envie uma mensagem!");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   const nameTrimmed = name.trim();
   const isDuplicate = existingNames.some(
@@ -198,11 +200,7 @@ function CreateModal({
     setLoading(true);
     setError(null);
     try {
-      const result = await conexaoApi.createInstance({
-        name: nameTrimmed,
-        webhookUrl: webhookUrl.trim() || undefined,
-        msgCall: msgCall.trim() || undefined,
-      });
+      const result = await conexaoApi.createInstance({ name: nameTrimmed });
       onCreated(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar instancia");
@@ -226,7 +224,7 @@ function CreateModal({
           border: "1px solid var(--border)",
           borderRadius: 16,
           padding: 28,
-          width: 420,
+          width: 380,
           display: "flex",
           flexDirection: "column",
           gap: 20,
@@ -245,6 +243,7 @@ function CreateModal({
               Nome da Instância *
             </label>
             <input
+              ref={inputRef}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="ex: spres-principal"
@@ -265,42 +264,31 @@ function CreateModal({
             )}
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
-              URL do Webhook
-            </label>
-            <input
-              value={webhookUrl}
-              onChange={(e) => setWebhookUrl(e.target.value)}
-              placeholder="https://seu-servidor.com/webhook"
-              style={{
-                background: "var(--surface2)", border: "1px solid var(--border)",
-                borderRadius: 8, padding: "10px 12px",
-                fontSize: 13, color: "var(--text)", outline: "none",
-              }}
-            />
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>
-              Ativa message_upsert, base64 e eventos de conexão automaticamente
+          {/* Info: configurações automáticas */}
+          <div
+            style={{
+              background: "var(--surface2)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "10px 14px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Configurado automaticamente
             </span>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
-              Mensagem de Recusa de Ligação
-            </label>
-            <input
-              value={msgCall}
-              onChange={(e) => setMsgCall(e.target.value)}
-              style={{
-                background: "var(--surface2)", border: "1px solid var(--border)",
-                borderRadius: 8, padding: "10px 12px",
-                fontSize: 13, color: "var(--text)", outline: "none",
-              }}
-            />
-            <span style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
-              <PhoneOff size={11} />
-              Ligações são sempre recusadas automaticamente
-            </span>
+            {[
+              ["Webhook", "Gerado pelo sistema"],
+              ["Ligações", "Recusadas — \"No momento não consigo atender. Envie uma mensagem!\""],
+              ["Eventos", "message_upsert + conexão ativados"],
+            ].map(([k, v]) => (
+              <div key={k} style={{ display: "flex", gap: 6, fontSize: 12 }}>
+                <span style={{ color: "var(--muted)", minWidth: 60 }}>{k}:</span>
+                <span style={{ color: "var(--text)" }}>{v}</span>
+              </div>
+            ))}
           </div>
 
           {error && (
@@ -326,8 +314,8 @@ function CreateModal({
                 opacity: (loading || !nameTrimmed || isDuplicate) ? 0.6 : 1,
               }}
             >
-              {loading ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={15} />}
-              {loading ? "Criando..." : "Criar Instância"}
+              {loading ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> : <QrCode size={15} />}
+              {loading ? "Criando..." : "Criar e ver QR Code"}
             </button>
             <button
               type="button"
@@ -721,15 +709,13 @@ export default function ConexaoPage() {
     setShowCreate(false);
     showToast(`Instância "${result.instanceName}" criada`);
     loadAll();
-    if (result.qrcode?.base64) {
-      // Show QR immediately after creation if returned
-      const inst: EvolutionInstance = {
-        instanceName: result.instanceName,
-        instanceId: result.instanceId,
-        status: result.status,
-      };
-      setQrInstance(inst);
-    }
+    // Sempre abre o QR modal para conectar o WhatsApp
+    const inst: EvolutionInstance = {
+      instanceName: result.instanceName,
+      instanceId: result.instanceId,
+      status: result.status,
+    };
+    setQrInstance(inst);
   }
 
   const instances = data?.instances ?? [];

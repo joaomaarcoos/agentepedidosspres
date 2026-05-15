@@ -69,7 +69,7 @@ export const produtosApi = {
 export const conexaoApi = {
   status: () => api.get<import("./types").ConexaoStatus>("/api/conexao/status"),
   listInstances: () => api.get<import("./types").EvolutionInstancesResponse>("/api/conexao/instances"),
-  createInstance: (body: { name: string; webhookUrl?: string; msgCall?: string }) =>
+  createInstance: (body: { name: string }) =>
     api.post<import("./types").CreateInstanceResult>("/api/conexao/instances", body),
   getQrCode: (name: string) =>
     api.get<import("./types").QrCodeResult>(`/api/conexao/instances/${encodeURIComponent(name)}/qrcode`),
