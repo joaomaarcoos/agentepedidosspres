@@ -17,7 +17,7 @@ export async function GET() {
 }
 
 function buildWebhookUrl(request: Request): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
+  const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
   if (appUrl) {
     const base = appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
     return `${base}/api/evolution/webhook`;
