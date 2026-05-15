@@ -1,3 +1,22 @@
+export interface Produto {
+  id: string;
+  filial: string;
+  cod_produto: string;
+  nome: string;
+  derivacao: string;
+  preco_base: number | null;
+  preco_inst_299: number | null;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProdutosListResponse {
+  ok: boolean;
+  produtos: Produto[];
+  total: number;
+}
+
 export type PedidoRevisaoStatus = "pendente" | "em_revisao" | "pedido_feito" | "cancelado";
 
 export interface PedidoRevisaoItem {

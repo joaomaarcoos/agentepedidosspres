@@ -371,6 +371,23 @@ class AgentStore:
         rows.append(row)
         self._local_write(table, rows)
 
+    def get_produtos(self) -> list[dict]:
+        """Retorna catálogo de produtos ativos. Vazio se Supabase indisponível."""
+        if self.use_local:
+            return []
+        try:
+            result = (
+                self.client.table("produtos")
+                .select("cod_produto, nome, derivacao, preco_base, preco_inst_299")
+                .eq("ativo", True)
+                .order("nome")
+                .execute()
+            )
+            return result.data or []
+        except Exception as exc:
+            logger.warning("Falha ao buscar produtos: %s", exc)
+            return []
+
 
 def maybe_expire_pause(store: AgentStore, conversation: dict) -> dict:
     if not conversation.get("ai_paused"):
@@ -465,8 +482,15 @@ REGISTRAR_PEDIDO_TOOL: dict = {
 }
 
 
-def build_ai_messages(history: list[dict], module_context: dict | None = None) -> list[dict]:
-    system_prompt = build_prompt(context=module_context)
+def build_ai_messages(
+    history: list[dict],
+    module_context: dict | None = None,
+    produtos: list[dict] | None = None,
+) -> list[dict]:
+    ctx = {**(module_context or {})}
+    if produtos:
+        ctx["produtos"] = produtos
+    system_prompt = build_prompt(context=ctx if ctx else None)
     messages = [{"role": "system", "content": system_prompt}]
     for item in history[-CONTEXT_MESSAGE_LIMIT:]:
         role = item.get("role")
@@ -486,6 +510,7 @@ def generate_ai_reply(
     store: "AgentStore | None" = None,
     customer_name: str | None = None,
     last_user_message: str | None = None,
+    produtos: list[dict] | None = None,
 ) -> str:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
@@ -495,7 +520,7 @@ def generate_ai_reply(
 
     model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
     client = OpenAI(api_key=api_key)
-    messages = build_ai_messages(history, module_context=module_context)
+    messages = build_ai_messages(history, module_context=module_context, produtos=produtos)
 
     response = client.chat.completions.create(
         model=model,
@@ -598,6 +623,7 @@ def process_inbound_message(
 
     history = store.recent_messages(str(conversation["id"]), CONTEXT_MESSAGE_LIMIT)
     module_context = store.get_module_context(safe_phone)
+    produtos = store.get_produtos()
     reply = generate_ai_reply(
         history,
         module_context=module_context,
@@ -606,6 +632,7 @@ def process_inbound_message(
         store=store,
         customer_name=(module_context or {}).get("customer_name"),
         last_user_message=normalized_text,
+        produtos=produtos,
     )
     if not reply:
         return {

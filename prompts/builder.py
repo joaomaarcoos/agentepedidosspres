@@ -50,6 +50,10 @@ def build_prompt(context: dict | None = None) -> str:
     if not context:
         return base
 
+    produtos = context.get("produtos") or []
+    if produtos:
+        base += f"\n\n---\n\n{_catalogo_section(produtos)}"
+
     section = _module_section(context.get("module", ""), context)
     if section:
         base += f"\n\n---\n\n{section}"
@@ -122,6 +126,30 @@ def _ativacao_section(ctx: dict) -> str:
         linhas += [f'Mensagem que foi enviada ao cliente: "{mensagem}"', ""]
     linhas.append("Objetivo: reativar o relacionamento. Facilite a conversa, não force um pedido.")
 
+    return "\n".join(linhas)
+
+
+def _catalogo_section(produtos: list[dict]) -> str:
+    linhas = [
+        "## CATÁLOGO DE PRODUTOS DISPONÍVEIS",
+        "",
+        "Use estas informações quando o cliente perguntar sobre produtos, preços ou disponibilidade.",
+        "Preço base = tabela padrão. Preço Inst.299 = tabela instalação 299.",
+        "",
+        "| Código | Produto | Deriv. | Preço Base | Preço Inst.299 |",
+        "|--------|---------|--------|------------|----------------|",
+    ]
+    for p in produtos:
+        cod = p.get("cod_produto", "")
+        nome = p.get("nome", "")
+        deriv = p.get("derivacao", "")
+        base = p.get("preco_base")
+        inst = p.get("preco_inst_299")
+        base_str = f"R$ {base:.2f}".replace(".", ",") if base is not None else "-"
+        inst_str = f"R$ {inst:.2f}".replace(".", ",") if inst is not None else "-"
+        linhas.append(f"| {cod} | {nome} | {deriv} | {base_str} | {inst_str} |")
+    linhas.append("")
+    linhas.append("Ao citar preços, use sempre o valor da tabela acima. Nunca invente preços fora desta lista.")
     return "\n".join(linhas)
 
 

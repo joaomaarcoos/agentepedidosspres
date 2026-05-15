@@ -57,6 +57,15 @@ export const statusApi = {
   check: () => api.get<import("./types").ApiStatus>("/api/status"),
 };
 
+export const produtosApi = {
+  list: (params?: { filial?: string; busca?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.filial) q.set("filial", params.filial);
+    if (params?.busca) q.set("busca", params.busca);
+    return api.get<import("./types").ProdutosListResponse>(`/api/produtos?${q}`);
+  },
+};
+
 export const conexaoApi = {
   status: () => api.get<import("./types").ConexaoStatus>("/api/conexao/status"),
   listInstances: () => api.get<import("./types").EvolutionInstancesResponse>("/api/conexao/instances"),
