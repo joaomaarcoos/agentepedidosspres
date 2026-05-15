@@ -88,22 +88,16 @@ def extract_message(payload: dict) -> dict:
     }
 
 
-def _evolution_config() -> tuple[str, str, str]:
+def _evolution_config() -> tuple[str, str]:
     api_url = os.getenv("EVOLUTION_API_URL", "").rstrip("/")
     api_key = os.getenv("EVOLUTION_API_KEY", "")
-    instance = (
-        os.getenv("EVOLUTION_INSTANCE")
-        or os.getenv("EVOLUTION_INSTANCE_NAME")
-        or os.getenv("EVOLUTION_INSTANCE_ID")
-        or ""
-    )
-    if not api_url or not api_key or not instance:
-        raise RuntimeError("EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_INSTANCE nao configurados")
-    return api_url, api_key, instance
+    if not api_url or not api_key:
+        raise RuntimeError("EVOLUTION_API_URL e EVOLUTION_API_KEY nao configurados")
+    return api_url, api_key
 
 
-def send_whatsapp(phone: str, text: str) -> dict:
-    api_url, api_key, instance = _evolution_config()
+def send_whatsapp(phone: str, text: str, instance: str) -> dict:
+    api_url, api_key = _evolution_config()
     response = requests.post(
         f"{api_url}/message/sendText/{instance}",
         json={"number": f"{phone}@s.whatsapp.net", "text": text},
@@ -117,13 +111,7 @@ def send_whatsapp(phone: str, text: str) -> dict:
         return {"status_code": response.status_code, "text": response.text[:500]}
 
 
-def _is_agent_enabled() -> bool:
-    instance = (
-        os.getenv("EVOLUTION_INSTANCE")
-        or os.getenv("EVOLUTION_INSTANCE_NAME")
-        or os.getenv("EVOLUTION_INSTANCE_ID")
-        or ""
-    )
+def _is_agent_enabled(instance: str) -> bool:
     if not instance:
         return True
 
@@ -156,6 +144,14 @@ def _is_agent_enabled() -> bool:
 
 
 def handle_payload(payload: dict, send_reply: bool = True) -> dict:
+    # Instance name comes from the payload — no hardcoded prefix
+    instance = (
+        payload.get("instance")
+        or payload.get("instanceName")
+        or payload.get("sender")
+        or ""
+    )
+
     incoming = extract_message(payload)
 
     if incoming["from_me"]:
@@ -163,7 +159,7 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
     if not incoming["phone"] or not incoming["text"]:
         return {"action": "ignored_empty", "should_reply": False}
 
-    if not _is_agent_enabled():
+    if not _is_agent_enabled(instance):
         return {"action": "agent_disabled", "should_reply": False}
 
     result = process_inbound_message(
@@ -174,7 +170,7 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
     )
 
     if send_reply and result.get("should_reply") and result.get("reply"):
-        result["evolution_response"] = send_whatsapp(incoming["phone"], result["reply"])
+        result["evolution_response"] = send_whatsapp(incoming["phone"], result["reply"], instance)
 
     return result
 

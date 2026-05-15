@@ -58,10 +58,14 @@ def _db():
 def _evolution_config() -> tuple[str, str, str]:
     api_url = os.getenv("EVOLUTION_API_URL", "").rstrip("/")
     api_key = os.getenv("EVOLUTION_API_KEY", "")
-    instance = os.getenv("EVOLUTION_INSTANCE", "")
+    instance = (
+        os.getenv("EVOLUTION_INSTANCE_NAME")
+        or os.getenv("EVOLUTION_INSTANCE")
+        or ""
+    )
     if not api_url or not api_key or not instance:
         raise RuntimeError(
-            "EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_INSTANCE não configurados"
+            "EVOLUTION_API_URL, EVOLUTION_API_KEY e EVOLUTION_INSTANCE_NAME não configurados"
         )
     return api_url, api_key, instance
 
