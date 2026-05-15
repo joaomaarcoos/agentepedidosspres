@@ -17,6 +17,17 @@ export interface ProdutosListResponse {
   total: number;
 }
 
+export interface PromptFile {
+  slug: string;
+  filename: string;
+  label: string;
+  description: string;
+  content: string;
+  lines: number;
+  core: boolean;
+  updatedAt: string;
+}
+
 export type PedidoRevisaoStatus = "pendente" | "em_revisao" | "pedido_feito" | "cancelado";
 
 export interface PedidoRevisaoItem {

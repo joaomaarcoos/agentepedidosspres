@@ -241,6 +241,20 @@ export const ativacaoApi = {
     }>("/api/ativacao/pipeline", { triggered_by: triggeredBy, dry_run: dryRun }),
 };
 
+export const agenteStudioApi = {
+  list: () => api.get<{ prompts: import("./types").PromptFile[] }>("/api/agente-studio/prompts"),
+  get: (slug: string) => api.get<import("./types").PromptFile>(`/api/agente-studio/prompts/${slug}`),
+  create: (slug: string, content: string) =>
+    api.post<import("./types").PromptFile>("/api/agente-studio/prompts", { slug, content }),
+  update: (slug: string, content: string) =>
+    request<import("./types").PromptFile>(`/api/agente-studio/prompts/${slug}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }),
+  delete: (slug: string) =>
+    api.delete<{ ok: boolean }>(`/api/agente-studio/prompts/${slug}`),
+};
+
 export const revisaoPedidoApi = {
   list: (status?: string, page = 1, pageSize = 50) => {
     const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });

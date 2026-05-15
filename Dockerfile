@@ -33,6 +33,9 @@ COPY --from=builder /app/frontend/.next ./frontend/.next
 # Scripts Python
 COPY execution/ ./execution/
 
+# Prompts da Marcela
+COPY prompts/ ./prompts/
+
 ENV NODE_ENV=production
 ENV PYTHON_EXECUTABLE=/app/.venv/bin/python3
 

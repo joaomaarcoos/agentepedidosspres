@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, BarChart2, ClipboardCheck, FileText, Package, Repeat2, ShoppingCart, Users, Zap } from "lucide-react";
+import { Activity, BarChart2, BrainCircuit, ClipboardCheck, FileText, Package, Repeat2, ShoppingCart, Users, Zap } from "lucide-react";
 
 const nav = [
   { href: "/pedidos", label: "Pedidos", icon: ShoppingCart },
@@ -14,6 +14,7 @@ const nav = [
   { href: "/ativacao", label: "Ativação", icon: Zap },
   { href: "/resultados", label: "Resultados", icon: BarChart2 },
   { href: "/logs", label: "Logs Disparos", icon: FileText },
+  { href: "/agente-studio", label: "Agente Studio", icon: BrainCircuit },
 ];
 
 export default function Sidebar() {

@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 _MARCELA_DIR = Path(__file__).parent / "marcela"
 
-_PARTS = [
+# Ordem preferencial dos arquivos conhecidos
+_KNOWN_ORDER = [
     "system.md",
     "personality.md",
     "business_rules.md",
@@ -33,6 +34,16 @@ _PARTS = [
     "examples.md",
     "tools.md",
 ]
+
+
+def _ordered_parts() -> list[str]:
+    """Retorna todos os .md do diretório marcela, conhecidos na ordem certa primeiro."""
+    if not _MARCELA_DIR.exists():
+        return []
+    all_files = {p.name for p in _MARCELA_DIR.glob("*.md")}
+    ordered = [f for f in _KNOWN_ORDER if f in all_files]
+    extras = sorted(all_files - set(_KNOWN_ORDER))
+    return ordered + extras
 
 
 def _read(filename: str) -> str:
@@ -44,7 +55,7 @@ def _read(filename: str) -> str:
 
 
 def build_prompt(context: dict | None = None) -> str:
-    parts = [_read(f) for f in _PARTS]
+    parts = [_read(f) for f in _ordered_parts()]
     base = "\n\n---\n\n".join(p for p in parts if p)
 
     if not context:
