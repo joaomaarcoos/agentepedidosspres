@@ -251,14 +251,7 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
         webhook_url = _default_webhook_url()
 
     DEFAULT_EVENTS = [
-        "APPLICATION_STARTUP",
-        "QRCODE_UPDATED",
         "MESSAGES_UPSERT",
-        "MESSAGES_UPDATE",
-        "MESSAGES_DELETE",
-        "SEND_MESSAGE",
-        "CONNECTION_UPDATE",
-        "CALL",
     ]
 
     body: dict = {
