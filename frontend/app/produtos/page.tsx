@@ -95,7 +95,7 @@ export default function ProdutosPage() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <Header title="Produtos" subtitle={`${produtos.length} produto${produtos.length !== 1 ? "s" : ""} ativos`} />
+      <Header title={`Produtos${produtos.length > 0 ? ` (${produtos.length})` : ""}`} />
 
       <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
         {/* Barra de busca */}
