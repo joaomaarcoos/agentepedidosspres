@@ -33,6 +33,51 @@ def failure(message: str) -> int:
     return 0
 
 
+def _ensure_representatives(pedidos: list[dict], db_client) -> None:
+    """Garante que os representantes dos pedidos existam na tabela representatives."""
+    from dotenv import load_dotenv as _ldenv
+    _ldenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+    if not url or not key:
+        return
+
+    from supabase import create_client
+    client = create_client(url, key)
+
+    # Coleta cod_rep e nomes únicos dos pedidos
+    reps_to_create = {}
+    for pedido in pedidos:
+        cod_rep = pedido.get("codRep")
+        if cod_rep and cod_rep not in reps_to_create:
+            reps_to_create[cod_rep] = pedido.get("nomeRep") or f"Rep {cod_rep}"
+
+    if not reps_to_create:
+        return
+
+    # Busca representantes existentes
+    try:
+        existing = client.table("representatives").select("cod_rep").in_("cod_rep", list(reps_to_create.keys())).execute()
+        existing_codes = {r["cod_rep"] for r in (existing.data or [])}
+    except Exception:
+        existing_codes = set()
+
+    # Insere os que não existem
+    new_reps = [
+        {"cod_rep": cod, "name": name, "active": True, "whatsapp_number": ""}
+        for cod, name in reps_to_create.items()
+        if cod not in existing_codes
+    ]
+
+    if new_reps:
+        try:
+            client.table("representatives").insert(new_reps).execute()
+            logger.info("Criados %d representantes automaticamente", len(new_reps))
+        except Exception as exc:
+            logger.warning("Erro ao criar representantes: %s", exc)
+
+
 def run_sync(dias: int, triggered_by: str) -> dict:
     db = SupabaseClient()
     start = time.time()
@@ -65,6 +110,9 @@ def run_sync(dias: int, triggered_by: str) -> dict:
         total_fetched = len(pedidos)
         synced_at = datetime.utcnow().isoformat() + "Z"
 
+        # Garante que os representantes existam antes de inserir pedidos
+        _ensure_representatives(pedidos, db)
+
         order_rows = []
         for pedido in pedidos:
             order_rows.append(
@@ -72,8 +120,6 @@ def run_sync(dias: int, triggered_by: str) -> dict:
                     "id": str(uuid.uuid4()),
                     "cod_rep": pedido.get("codRep"),
                     "cod_cli": pedido.get("codCli"),
-                    "customer_name": pedido.get("nomeCliente"),
-                    "rep_name": pedido.get("nomeRep"),
                     "num_ped": pedido.get("numPed"),
                     "dat_emi": pedido.get("datEmi"),
                     "sit_ped": pedido.get("sitPed"),
@@ -166,54 +212,38 @@ def _db_direct():
     return create_client(url, key)
 
 
-def _cpf_digits_int(cpf: str):
-    import re as _re
-    digits = _re.sub(r"\D", "", cpf or "")
-    try:
-        return int(digits) if digits else None
-    except ValueError:
-        return None
-
-
-def _nome_from_raw(raw_json) -> str:
-    c = (raw_json or {}).get("cliente") or {}
-    return c.get("fantasia") or c.get("razaoSocial") or ""
-
-
-def _map_row(row: dict) -> dict:
-    cpf = row.get("cpf_cnpj") or ""
-    criado_em = row.get("criado_em") or ""
-    return {
-        "num_ped": row.get("numero"),
-        "cod_cli": _cpf_digits_int(cpf) or cpf,
-        "customer_name": _nome_from_raw(row.get("raw_json") or {}) or cpf,
-        "dat_emi": criado_em[:10] if criado_em else "",
-        "sit_ped": row.get("situacao_id") or "",
-        "order_total_value": float(row.get("valor_total") or 0),
-        "items_json": row.get("itens_json") or [],
-        "has_items": bool(row.get("itens_json")),
-        "source": "clic_vendas",
-        "cpf_cnpj": cpf,
-    }
-
-
 def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int) -> dict:
+    """Lista pedidos sincronizados da tabela rep_order_base."""
     db = _db_direct()
 
     q = (
-        db.table("clic_pedidos_integrados")
-        .select("id, numero, cpf_cnpj, valor_total, situacao_id, criado_em, itens_json, raw_json")
-        .order("criado_em", desc=True)
+        db.table("rep_order_base")
+        .select("id, num_ped, cod_cli, cod_rep, dat_emi, sit_ped, order_total_value, items_json, has_items, source")
+        .order("dat_emi", desc=True)
         .limit(5000)
     )
     if dias > 0:
-        from_date = (datetime.utcnow() - timedelta(days=dias)).strftime("%Y-%m-%dT00:00:00.000Z")
-        q = q.gte("criado_em", from_date)
+        from_date = (datetime.utcnow() - timedelta(days=dias)).strftime("%Y-%m-%d")
+        q = q.gte("dat_emi", from_date)
 
-    pedidos = [_map_row(r) for r in (q.execute().data or [])]
+    rows = q.execute().data or []
+
+    pedidos = []
+    for r in rows:
+        pedidos.append({
+            "num_ped": r.get("num_ped"),
+            "cod_cli": r.get("cod_cli"),
+            "cod_rep": r.get("cod_rep"),
+            "dat_emi": r.get("dat_emi") or "",
+            "sit_ped": r.get("sit_ped") or "",
+            "order_total_value": float(r.get("order_total_value") or 0),
+            "items_json": r.get("items_json") or [],
+            "has_items": bool(r.get("has_items")),
+            "source": r.get("source") or "clic_vendas",
+        })
 
     if cod_cli is not None:
-        pedidos = [p for p in pedidos if _cpf_digits_int(str(p.get("cpf_cnpj") or "")) == cod_cli]
+        pedidos = [p for p in pedidos if p.get("cod_cli") == cod_cli]
 
     total = len(pedidos)
     start = (page - 1) * page_size

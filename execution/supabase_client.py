@@ -190,8 +190,7 @@ class SupabaseClient:
             return payload["id"]
         except Exception as exc:
             logger.error("Erro ao inserir clic_sync_log: %s", exc)
-            if self.use_local:
-                self._local_append(SYNC_LOGS_TABLE, payload)
+            self._local_append(SYNC_LOGS_TABLE, payload)
             return payload["id"]
 
     def update_clic_sync_log(self, log_id: str, updates: dict) -> bool:
