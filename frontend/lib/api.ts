@@ -255,6 +255,20 @@ export const agenteStudioApi = {
     api.delete<{ ok: boolean }>(`/api/agente-studio/prompts/${slug}`),
 };
 
+export const tabelaPrecoApi = {
+  list: () =>
+    api.get<import("./types").TabelasPrecoListResponse>("/api/tabela-preco"),
+  getItens: (codigoTabela: string) =>
+    api.get<import("./types").TabelaPrecoItensResponse>(
+      `/api/tabela-preco?tabela=${encodeURIComponent(codigoTabela)}`
+    ),
+  sync: (codigos: string[] = ["201", "202"]) =>
+    api.post<{ ok: boolean; data: { tabelas_upserted: number; itens_upserted: number; duration_ms: number } }>(
+      "/api/tabela-preco",
+      { codigos }
+    ),
+};
+
 export const revisaoPedidoApi = {
   list: (status?: string, page = 1, pageSize = 50) => {
     const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });

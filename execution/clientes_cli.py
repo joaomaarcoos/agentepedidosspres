@@ -65,6 +65,9 @@ def _cpf_to_int(cpf: str) -> int | None:
 def _extract_info(raw_json: dict) -> dict:
     c = (raw_json or {}).get("cliente") or {}
     telefones = c.get("telefones") or []
+    tabelas_preco = c.get("tabelasPreco") or []
+    tabela_principal = tabelas_preco[0] if tabelas_preco else {}
+    tabela_especial = c.get("tabelaEspecial") or None
     return {
         "nome": c.get("fantasia") or c.get("razaoSocial") or "",
         "razao_social": c.get("razaoSocial") or "",
@@ -74,6 +77,9 @@ def _extract_info(raw_json: dict) -> dict:
         "cidade": c.get("cidade") or "",
         "uf": c.get("uf") or "",
         "ativo": True,
+        "tabela_preco_codigo": tabela_principal.get("codigoTabela") or None,
+        "tabela_preco_nome": tabela_principal.get("nomeTabela") or None,
+        "tabelas_especiais_json": tabela_especial if tabela_especial else None,
     }
 
 

@@ -189,6 +189,41 @@ export interface Cliente {
   proximo_pedido_estimado_em?: string | null;
   historico_situacoes_json?: Record<string, number> | null;
   top_produtos_json?: Array<Record<string, unknown>> | null;
+  tabela_preco_codigo?: string | null;
+  tabela_preco_nome?: string | null;
+  tabelas_especiais_json?: Array<{ produto: string; variacao: string; tabelaPreco: string }> | null;
+}
+
+export interface TabelaPreco {
+  id?: number;
+  codigo_tabela: string;
+  nome_tabela?: string | null;
+  synced_at?: string;
+  total_itens?: number;
+}
+
+export interface TabelaPrecoItem {
+  id?: number;
+  codigo_tabela: string;
+  cod_produto: string;
+  nome_produto?: string | null;
+  variacao?: string | null;
+  quantidade_minima: number;
+  preco: number;
+  desconto: number;
+  synced_at?: string;
+}
+
+export interface TabelasPrecoListResponse {
+  tabelas: TabelaPreco[];
+  total: number;
+}
+
+export interface TabelaPrecoItensResponse {
+  codigo_tabela: string;
+  nome_tabela: string | null;
+  itens: TabelaPrecoItem[];
+  total: number;
 }
 
 export interface ClientesListResponse {

@@ -129,6 +129,15 @@ def _parse_pedidos(raw_pedidos: list | dict, data_limite: datetime) -> list[dict
         situacao = raw.get('situacao') or {}
         sit_ped = situacao.get('id') if isinstance(situacao, dict) else str(situacao)
 
+        # Tabela de preço do cliente
+        tabelas_preco_cli = cliente.get('tabelasPreco') or []
+        tabela_principal = tabelas_preco_cli[0] if tabelas_preco_cli else {}
+        tabela_especial = cliente.get('tabelaEspecial') or []
+
+        # Telefone principal do cliente (primeiro da lista)
+        telefones = cliente.get('telefones') or []
+        telefone_raw = telefones[0].get('valor', '') if telefones else ''
+
         # Monta pedido normalizado
         pedido = {
             'numPed': _safe_int(raw.get('numero') or raw.get('_id')),
@@ -142,6 +151,12 @@ def _parse_pedidos(raw_pedidos: list | dict, data_limite: datetime) -> list[dict
             '_id': raw.get('_id'),
             'nomeCliente': cliente.get('razaoSocial') or cliente.get('fantasia'),
             'nomeRep': representante.get('razaoSocial') or representante.get('fantasia'),
+            # Telefone do cliente
+            'telefone': telefone_raw,
+            # Tabela de preço praticada pelo cliente
+            'tabelaPreco': tabela_principal.get('codigoTabela'),
+            'tabelaPrecoNome': tabela_principal.get('nomeTabela'),
+            'tabelasEspeciais': tabela_especial,
         }
 
         # So inclui se tiver pelo menos numero do pedido

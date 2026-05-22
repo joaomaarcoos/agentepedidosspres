@@ -388,6 +388,41 @@ class AgentStore:
             logger.warning("Falha ao buscar produtos: %s", exc)
             return []
 
+    def get_tabela_preco_for_phone(self, phone: str) -> str | None:
+        """Retorna o codigo_tabela de preço vinculado ao telefone do cliente."""
+        if self.use_local or not phone:
+            return None
+        try:
+            result = (
+                self.client.table("clic_customer_precos")
+                .select("tabela_preco_codigo")
+                .eq("telefone", phone)
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            return rows[0]["tabela_preco_codigo"] if rows else None
+        except Exception as exc:
+            logger.warning("Falha ao buscar tabela de preço para %s: %s", phone, exc)
+            return None
+
+    def get_produtos_tabela(self, codigo_tabela: str) -> list[dict]:
+        """Retorna itens da tabela de preço do Senior ERP para o cliente."""
+        if self.use_local or not codigo_tabela:
+            return []
+        try:
+            result = (
+                self.client.table("tabelas_preco_itens")
+                .select("cod_produto, nome_produto, variacao, quantidade_minima, preco, desconto")
+                .eq("codigo_tabela", codigo_tabela)
+                .order("cod_produto")
+                .execute()
+            )
+            return result.data or []
+        except Exception as exc:
+            logger.warning("Falha ao buscar itens da tabela %s: %s", codigo_tabela, exc)
+            return []
+
 
 def maybe_expire_pause(store: AgentStore, conversation: dict) -> dict:
     if not conversation.get("ai_paused"):
@@ -623,7 +658,11 @@ def process_inbound_message(
 
     history = store.recent_messages(str(conversation["id"]), CONTEXT_MESSAGE_LIMIT)
     module_context = store.get_module_context(safe_phone)
-    produtos = store.get_produtos()
+    codigo_tabela = store.get_tabela_preco_for_phone(safe_phone)
+    if codigo_tabela:
+        produtos = store.get_produtos_tabela(codigo_tabela)
+    else:
+        produtos = store.get_produtos()
     reply = generate_ai_reply(
         history,
         module_context=module_context,
