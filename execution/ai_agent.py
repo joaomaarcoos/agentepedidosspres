@@ -394,7 +394,7 @@ class AgentStore:
             return None
         try:
             result = (
-                self.client.table("clic_customer_precos")
+                self.client.table("clic_clientes")
                 .select("tabela_preco_codigo")
                 .eq("telefone", phone)
                 .limit(1)

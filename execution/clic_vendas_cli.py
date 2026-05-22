@@ -34,7 +34,7 @@ def failure(message: str) -> int:
     return 0
 
 
-def _ensure_representatives(pedidos: list[dict], db_client) -> None:
+def _ensure_representatives(pedidos: list[dict], _db_client=None) -> None:
     """Garante que os representantes dos pedidos existam na tabela representatives."""
     from dotenv import load_dotenv as _ldenv
     _ldenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -79,8 +79,8 @@ def _ensure_representatives(pedidos: list[dict], db_client) -> None:
             logger.warning("Erro ao criar representantes: %s", exc)
 
 
-def _upsert_customer_precos(pedidos: list[dict], synced_at: str) -> None:
-    """Persiste a tabela de preço de cada cliente em clic_customer_precos."""
+def _upsert_tabela_preco_clientes(pedidos: list[dict]) -> None:
+    """Persiste tabela de preço e telefone de cada cliente em clic_clientes."""
     from dotenv import load_dotenv as _ldenv
     _ldenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -92,22 +92,20 @@ def _upsert_customer_precos(pedidos: list[dict], synced_at: str) -> None:
     from supabase import create_client
     client = create_client(url, key)
 
-    # Coleta: mantém o último pedido de cada cliente (preserve a mais recente)
-    customer_map: dict[int, dict] = {}
+    # cpf_cnpj em clic_clientes = str(cod_cli) — mantém o mais recente por cliente
+    customer_map: dict[str, dict] = {}
     for pedido in pedidos:
         cod_cli = pedido.get("codCli")
         tabela_codigo = pedido.get("tabelaPreco")
         if not cod_cli or not tabela_codigo:
             continue
-        telefone_raw = pedido.get("telefone") or ""
-        telefone = re.sub(r"\D", "", str(telefone_raw))
-        customer_map[cod_cli] = {
-            "cod_cli": cod_cli,
+        telefone = re.sub(r"\D", "", str(pedido.get("telefone") or ""))
+        customer_map[str(cod_cli)] = {
+            "cpf_cnpj": str(cod_cli),
             "tabela_preco_codigo": tabela_codigo,
             "tabela_preco_nome": pedido.get("tabelaPrecoNome"),
             "tabelas_especiais_json": pedido.get("tabelasEspeciais") or None,
             "telefone": telefone or None,
-            "synced_at": synced_at,
         }
 
     if not customer_map:
@@ -115,10 +113,10 @@ def _upsert_customer_precos(pedidos: list[dict], synced_at: str) -> None:
 
     rows = list(customer_map.values())
     try:
-        client.table("clic_customer_precos").upsert(rows, on_conflict="cod_cli").execute()
-        logger.info("Tabelas de preço: %d clientes atualizados", len(rows))
+        client.table("clic_clientes").upsert(rows, on_conflict="cpf_cnpj").execute()
+        logger.info("Tabela de preço: %d clientes atualizados em clic_clientes", len(rows))
     except Exception as exc:
-        logger.warning("Erro ao upsert clic_customer_precos: %s", exc)
+        logger.warning("Erro ao upsert tabela de preço em clic_clientes: %s", exc)
 
 
 def run_sync(dias: int, triggered_by: str) -> dict:
@@ -178,8 +176,8 @@ def run_sync(dias: int, triggered_by: str) -> dict:
 
         total_upserted = db.upsert_rep_order_base(order_rows) if order_rows else 0
 
-        # Persiste tabela de preço por cliente (mais recente vence)
-        _upsert_customer_precos(pedidos, synced_at)
+        # Persiste tabela de preço por cliente em clic_clientes (mais recente vence)
+        _upsert_tabela_preco_clientes(pedidos)
 
         status_breakdown: dict[str, int] = {}
         clients_set = set()
