@@ -220,17 +220,33 @@ def _db():
 
 
 def _enrich_nomes(db, itens: list[dict]) -> list[dict]:
-    """Preenche nome_produto dos itens a partir da tabela produtos do Supabase."""
+    """Preenche nome_produto dos itens a partir da tabela produtos do Supabase.
+    Usa (cod_produto, derivacao) como chave composta para diferenciar tamanhos."""
     try:
-        res = db.table("produtos").select("cod_produto, nome").eq("ativo", True).execute()
-        nome_map = {
-            p["cod_produto"]: p["nome"]
-            for p in (res.data or [])
-            if p.get("nome")
-        }
+        res = db.table("produtos").select("cod_produto, derivacao, nome").eq("ativo", True).execute()
+        # chave exata: (cod_produto, derivacao)
+        nome_map_comp: dict[tuple, str] = {}
+        # fallback: só cod_produto (quando não há derivação cadastrada)
+        nome_map_base: dict[str, str] = {}
+        for p in (res.data or []):
+            nome = p.get("nome") or ""
+            if not nome:
+                continue
+            der = (p.get("derivacao") or "").strip()
+            cod = (p.get("cod_produto") or "").strip()
+            if cod and der:
+                nome_map_comp[(cod, der)] = nome
+            if cod:
+                nome_map_base.setdefault(cod, nome)
+
         for item in itens:
             if not item.get("nome_produto"):
-                item["nome_produto"] = nome_map.get(item["cod_produto"])
+                cod = item["cod_produto"]
+                var = (item.get("variacao") or "").strip()
+                item["nome_produto"] = (
+                    nome_map_comp.get((cod, var))
+                    or nome_map_base.get(cod)
+                )
     except Exception as exc:
         logger.warning("Falha ao enriquecer nomes de produtos: %s", exc)
     return itens
