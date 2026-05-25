@@ -219,6 +219,23 @@ def _db():
     return create_client(url, key)
 
 
+def _enrich_nomes(db, itens: list[dict]) -> list[dict]:
+    """Preenche nome_produto dos itens a partir da tabela produtos do Supabase."""
+    try:
+        res = db.table("produtos").select("cod_produto, nome").eq("ativo", True).execute()
+        nome_map = {
+            p["cod_produto"]: p["nome"]
+            for p in (res.data or [])
+            if p.get("nome")
+        }
+        for item in itens:
+            if not item.get("nome_produto"):
+                item["nome_produto"] = nome_map.get(item["cod_produto"])
+    except Exception as exc:
+        logger.warning("Falha ao enriquecer nomes de produtos: %s", exc)
+    return itens
+
+
 def _upsert_supabase(tabelas: list[dict], itens: list[dict]) -> dict:
     if not tabelas:
         return {"tabelas_upserted": 0, "itens_upserted": 0}
@@ -229,12 +246,15 @@ def _upsert_supabase(tabelas: list[dict], itens: list[dict]) -> dict:
     db.table("tabelas_preco").upsert(tabelas, on_conflict="codigo_tabela").execute()
     logger.info("Tabelas upsertadas: %d", len(tabelas))
 
-    # Para os itens: apaga os existentes das tabelas sincronizadas e re-insere
-    # (garante dados frescos sem precisar de unique constraint composta)
+    # Apaga itens existentes das tabelas sincronizadas e re-insere (evita duplicatas)
     codigos = list({t["codigo_tabela"] for t in tabelas})
     db.table("tabelas_preco_itens").delete().in_("codigo_tabela", codigos).execute()
 
     if itens:
+        itens = _enrich_nomes(db, itens)
+        sem_nome = sum(1 for i in itens if not i.get("nome_produto"))
+        if sem_nome:
+            logger.warning("%d produto(s) sem nome — catálogo Senior ERP não sincronizado", sem_nome)
         BATCH = 500
         for i in range(0, len(itens), BATCH):
             db.table("tabelas_preco_itens").insert(itens[i : i + BATCH]).execute()
