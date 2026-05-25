@@ -1,0 +1,280 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Header from "@/components/layout/Header";
+import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@/lib/auth-context";
+import type { UserProfile, Role } from "@/lib/types";
+import { ArrowLeft, Save } from "lucide-react";
+import Link from "next/link";
+
+const ROLES: Role[] = ["master_dev", "admin", "gestor", "representante"];
+const ROLE_LABELS: Record<Role, string> = {
+  master_dev:    "Master Dev",
+  admin:         "Admin",
+  gestor:        "Gestor",
+  representante: "Representante",
+};
+
+export default function EditarUsuarioPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const { profile: currentProfile } = useAuth();
+
+  const [usuario, setUsuario] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const [nome, setNome] = useState("");
+  const [role, setRole] = useState<Role>("gestor");
+  const [codRep, setCodRep] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [ativo, setAtivo] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("id", id)
+        .single<UserProfile>();
+      if (data) {
+        setUsuario(data);
+        setNome(data.nome);
+        setRole(data.role);
+        setCodRep(data.cod_rep !== null ? String(data.cod_rep) : "");
+        setCpf(data.cpf ?? "");
+        setAtivo(data.ativo);
+      }
+      setLoading(false);
+    }
+    load();
+  }, [id]);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+
+    const supabase = createClient();
+    const { error: updateError } = await supabase
+      .from("user_profiles")
+      .update({
+        nome: nome.trim(),
+        role,
+        cod_rep: codRep ? Number(codRep) : null,
+        cpf: cpf.trim() || null,
+        ativo,
+      })
+      .eq("id", id);
+
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      setSuccess(true);
+      setTimeout(() => router.push("/admin/usuarios"), 800);
+    }
+    setSaving(false);
+  }
+
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Header title="Editar Usuário" />
+        <div style={{ padding: 48, textAlign: "center", color: "var(--muted)" }}>Carregando...</div>
+      </div>
+    );
+  }
+
+  if (!usuario) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <Header title="Usuário não encontrado" />
+        <div style={{ padding: 48, textAlign: "center", color: "var(--error)" }}>Usuário não encontrado.</div>
+      </div>
+    );
+  }
+
+  const fieldStyle = {
+    width: "100%",
+    padding: "10px 14px",
+    background: "var(--surface2)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    color: "var(--text)",
+    fontSize: 14,
+    outline: "none",
+    boxSizing: "border-box" as const,
+  };
+
+  const labelStyle = {
+    display: "block" as const,
+    fontSize: 12,
+    color: "var(--muted)",
+    marginBottom: 6,
+    fontWeight: 500 as const,
+  };
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <Header title="Editar Usuário" />
+      <div style={{ flex: 1, overflowY: "auto", padding: 28 }}>
+        <Link
+          href="/admin/usuarios"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 13,
+            color: "var(--muted)",
+            textDecoration: "none",
+            marginBottom: 24,
+          }}
+        >
+          <ArrowLeft size={14} />
+          Voltar para Usuários
+        </Link>
+
+        <div
+          style={{
+            maxWidth: 480,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            padding: 28,
+          }}
+        >
+          <h2 style={{ margin: "0 0 24px", fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
+            {usuario.nome}
+          </h2>
+
+          {error && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "rgba(248,113,113,0.1)",
+                border: "1px solid rgba(248,113,113,0.3)",
+                borderRadius: 8,
+                color: "var(--error)",
+                fontSize: 13,
+                marginBottom: 20,
+              }}
+            >
+              {error}
+            </div>
+          )}
+          {success && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "rgba(52,211,153,0.1)",
+                border: "1px solid rgba(52,211,153,0.3)",
+                borderRadius: 8,
+                color: "var(--success)",
+                fontSize: 13,
+                marginBottom: 20,
+              }}
+            >
+              Salvo com sucesso!
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <div>
+              <label style={labelStyle}>Nome</label>
+              <input
+                type="text"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                style={fieldStyle}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Cargo</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value as Role)}
+                disabled={currentProfile?.role !== "master_dev" && id === currentProfile?.id}
+                style={fieldStyle}
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABELS[r]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Código do Representante (cod_rep)</label>
+              <input
+                type="number"
+                value={codRep}
+                onChange={(e) => setCodRep(e.target.value)}
+                placeholder="Ex: 4"
+                style={fieldStyle}
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>CPF</label>
+              <input
+                type="text"
+                value={cpf}
+                onChange={(e) => setCpf(e.target.value)}
+                placeholder="000.000.000-00"
+                style={fieldStyle}
+              />
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                type="checkbox"
+                id="ativo"
+                checked={ativo}
+                onChange={(e) => setAtivo(e.target.checked)}
+                disabled={id === currentProfile?.id}
+                style={{ width: 16, height: 16, cursor: "pointer" }}
+              />
+              <label
+                htmlFor="ativo"
+                style={{ fontSize: 13, color: "var(--text)", cursor: "pointer" }}
+              >
+                Usuário ativo
+              </label>
+            </div>
+
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                padding: "11px 0",
+                background: saving ? "var(--border)" : "var(--accent)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 8,
+                fontWeight: 600,
+                fontSize: 14,
+                cursor: saving ? "not-allowed" : "pointer",
+                boxShadow: saving ? "none" : "0 0 12px var(--accent-glow)",
+                marginTop: 8,
+              }}
+            >
+              <Save size={14} />
+              {saving ? "Salvando..." : "Salvar Alterações"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

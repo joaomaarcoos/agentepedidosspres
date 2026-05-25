@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listClicVendasSyncLogs } from "@/lib/server/clic-vendas";
+import { listPedidosSyncLogs } from "@/lib/server/pedidos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Parâmetro limit inválido" }, { status: 400 });
     }
 
-    const result = await listClicVendasSyncLogs(date, limit);
+    const result = await listPedidosSyncLogs(date, limit);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

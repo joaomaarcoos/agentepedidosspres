@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listClicVendasPedidos } from "@/lib/server/clic-vendas";
+import { listPedidos } from "@/lib/server/pedidos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,13 +27,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Parametro cod_cli invalido" }, { status: 400 });
     }
 
-    const result = await listClicVendasPedidos({
-      codCli,
-      dias,
-      page,
-      pageSize,
-    });
-
+    const result = await listPedidos({ codCli, dias, page, pageSize });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

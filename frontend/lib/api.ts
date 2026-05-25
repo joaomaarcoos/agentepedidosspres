@@ -23,7 +23,7 @@ export const api = {
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
-export const clicVendasApi = {
+export const pedidosApi = {
   sync: (dias = 30) =>
     api.post<{
       id: string;
@@ -32,24 +32,23 @@ export const clicVendasApi = {
       total_fetched?: number;
       total_upserted?: number;
       duration_ms?: number;
-    }>("/api/clic-vendas/sync", { dias, triggered_by: "manual" }),
+    }>("/api/pedidos/sync", { dias, triggered_by: "manual" }),
   getSyncLogs: (date?: string) =>
     api.get<{ date: string; logs: import("./types").SyncLog[]; total: number }>(
-      `/api/clic-vendas/sync-logs${date ? `?date=${date}` : ""}`
+      `/api/pedidos/sync-logs${date ? `?date=${date}` : ""}`
     ),
-  getSyncLog: (id: string) => api.get(`/api/clic-vendas/sync-logs/${id}`),
-  getPedidos: (params?: { cod_cli?: number; dias?: number; page?: number }) => {
+  getSyncLog: (id: string) => api.get(`/api/pedidos/sync-logs/${id}`),
+  list: (params?: { cod_cli?: number; dias?: number; page?: number }) => {
     const q = new URLSearchParams();
     if (params?.cod_cli) q.set("cod_cli", String(params.cod_cli));
     if (params?.dias) q.set("dias", String(params.dias));
     if (params?.page) q.set("page", String(params.page));
-
     return api.get<{
       total: number;
       page: number;
       pages: number;
       pedidos: import("./types").Pedido[];
-    }>(`/api/clic-vendas/pedidos?${q}`);
+    }>(`/api/pedidos?${q}`);
   },
 };
 
@@ -192,14 +191,14 @@ export const cronApi = {
       interval_hours: number;
       last_run: string | null;
       last_run_status: "success" | "error" | null;
-    }>("/api/clic-vendas/cron"),
+    }>("/api/pedidos/cron"),
   setEnabled: (enabled: boolean) =>
     api.post<{
       enabled: boolean;
       interval_hours: number;
       last_run: string | null;
       last_run_status: "success" | "error" | null;
-    }>("/api/clic-vendas/cron", { enabled }),
+    }>("/api/pedidos/cron", { enabled }),
 };
 
 export const ativacaoApi = {

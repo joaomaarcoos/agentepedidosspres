@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/layout/Header";
-import { clicVendasApi, cronApi } from "@/lib/api";
+import { pedidosApi, cronApi } from "@/lib/api";
 import type { Pedido, PedidoItem, SyncLog } from "@/lib/types";
 import { RefreshCw, Activity, ShoppingCart, Users, ChevronLeft, ChevronRight, X, Package, Database, Clock, CalendarDays } from "lucide-react";
 import Link from "next/link";
@@ -173,7 +173,7 @@ export default function PedidosPage() {
   const loadPedidos = useCallback(async (targetPage = 1) => {
     setLoadingPedidos(true);
     try {
-      const result = await clicVendasApi.getPedidos({ dias, page: targetPage });
+      const result = await pedidosApi.list({ dias, page: targetPage });
       setPedidos(result.pedidos);
       setTotal(result.total);
       setPages(result.pages);
@@ -187,7 +187,7 @@ export default function PedidosPage() {
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    clicVendasApi.getSyncLogs(today).then((result) => {
+    pedidosApi.getSyncLogs(today).then((result) => {
       const last = result.logs.find((l) => l.status === "success" || l.status === "error");
       setLastLog(last || null);
     }).catch(() => null);
@@ -211,7 +211,7 @@ export default function PedidosPage() {
     setTodayLoading(true);
     setTodayMsg(null);
     try {
-      const result = await clicVendasApi.sync(1);
+      const result = await pedidosApi.sync(1);
       setTodayMsg(result.message);
       await loadPedidos(1);
     } catch (e) {
@@ -232,11 +232,11 @@ export default function PedidosPage() {
     setSyncMsg(null);
     try {
       const syncWindow = dias > 0 ? dias : 30;
-      const result = await clicVendasApi.sync(syncWindow);
+      const result = await pedidosApi.sync(syncWindow);
       setSyncMsg(`${result.message}`);
       await loadPedidos(1);
       const today = new Date().toISOString().slice(0, 10);
-      const logs = await clicVendasApi.getSyncLogs(today);
+      const logs = await pedidosApi.getSyncLogs(today);
       setLastLog(logs.logs.find((l) => l.status === "success" || l.status === "error") || null);
     } catch (error) {
       setSyncMsg(`Erro: ${error instanceof Error ? error.message : "Falha ao sincronizar"}`);

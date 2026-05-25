@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { syncClicVendas } from "@/lib/server/clic-vendas";
+import { syncPedidos } from "@/lib/server/pedidos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Parâmetro dias inválido" }, { status: 400 });
     }
 
-    const result = await syncClicVendas(dias, triggeredBy);
+    const result = await syncPedidos(dias, triggeredBy);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

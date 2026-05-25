@@ -407,3 +407,20 @@ export interface DisparoLogsOverview {
   page: number;
   pages: number;
 }
+
+// ---------------------------------------------------------------------------
+// Auth / RBAC
+// ---------------------------------------------------------------------------
+
+export type Role = "master_dev" | "admin" | "gestor" | "representante";
+
+export interface UserProfile {
+  id: string;
+  role: Role;
+  cod_rep: number | null;
+  cpf: string | null;
+  nome: string;
+  ativo: boolean;
+  created_at: string;
+  updated_at: string;
+}
