@@ -5,12 +5,12 @@ import Header from "@/components/layout/Header";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import type { Role } from "@/lib/types";
-import { Save } from "lucide-react";
+import { Eye, EyeOff, Save } from "lucide-react";
 
 const ROLE_LABELS: Record<Role, string> = {
-  master_dev:    "Master Dev",
-  admin:         "Admin",
-  gestor:        "Gestor",
+  master_dev: "Master Dev",
+  admin: "Admin",
+  gestor: "Gestor",
   representante: "Representante",
 };
 
@@ -18,6 +18,8 @@ export default function PerfilPage() {
   const { profile, loading: authLoading } = useAuth();
 
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [nome, setNome] = useState("");
   const [cpf, setCpf] = useState("");
   const [codRep, setCodRep] = useState("");
@@ -43,22 +45,28 @@ export default function PerfilPage() {
     setError(null);
     setSuccess(false);
 
-    const supabase = createClient();
-    const { error: updateError } = await supabase
-      .from("user_profiles")
-      .update({
-        nome: nome.trim(),
-        cpf: cpf.trim() || null,
-        cod_rep: codRep ? Number(codRep) : null,
-      })
-      .eq("id", profile.id);
+    const response = await fetch("/api/perfil", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        password,
+        nome,
+        cpf,
+        cod_rep: codRep,
+      }),
+    });
 
-    if (updateError) {
-      setError(updateError.message);
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      setError(data?.error || "Nao foi possivel salvar o perfil.");
     } else {
+      setPassword("");
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     }
+
     setSaving(false);
   }
 
@@ -111,10 +119,10 @@ export default function PerfilPage() {
           }}
         >
           <h2 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
-            Informações da conta
+            Informacoes da conta
           </h2>
           <p style={{ margin: "0 0 24px", fontSize: 13, color: "var(--muted)" }}>
-            Edite seus dados pessoais e de representante.
+            Edite seus dados de acesso, dados pessoais e representante.
           </p>
 
           {error && (
@@ -132,6 +140,7 @@ export default function PerfilPage() {
               {error}
             </div>
           )}
+
           {success && (
             <div
               style={{
@@ -154,11 +163,50 @@ export default function PerfilPage() {
               <input
                 type="email"
                 value={email}
-                disabled
-                style={disabledFieldStyle}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="seu@email.com"
+                style={fieldStyle}
               />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Nova senha</label>
+              <div style={{ position: "relative", width: "100%" }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Deixe em branco para manter"
+                  style={{ ...fieldStyle, paddingRight: 44 }}
+                />
+                <button
+                  type="button"
+                  aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                  title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                  onClick={() => setShowPassword((value) => !value)}
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    right: 10,
+                    transform: "translateY(-50%)",
+                    width: 28,
+                    height: 28,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: 6,
+                    color: "var(--muted)",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </div>
               <span style={{ fontSize: 11, color: "var(--muted)", marginTop: 4, display: "block" }}>
-                O e-mail não pode ser alterado aqui.
+                Preencha somente se quiser trocar a senha.
               </span>
             </div>
 
@@ -198,7 +246,7 @@ export default function PerfilPage() {
             </div>
 
             <div>
-              <label style={labelStyle}>Código do Representante (cod_rep)</label>
+              <label style={labelStyle}>Codigo do Representante (cod_rep)</label>
               <input
                 type="number"
                 value={codRep}
@@ -207,7 +255,7 @@ export default function PerfilPage() {
                 style={fieldStyle}
               />
               <span style={{ fontSize: 11, color: "var(--muted)", marginTop: 4, display: "block" }}>
-                Necessário para o cargo de representante.
+                Necessario para o cargo de representante.
               </span>
             </div>
 

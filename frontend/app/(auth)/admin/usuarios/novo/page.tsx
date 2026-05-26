@@ -1,33 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Header from "@/components/layout/Header";
-import { useAuth } from "@/lib/auth-context";
-import type { UserProfile, Role } from "@/lib/types";
+import type { Role } from "@/lib/types";
 import { ArrowLeft, Eye, EyeOff, Save } from "lucide-react";
 import Link from "next/link";
 
 const ROLES: Role[] = ["master_dev", "admin", "gestor", "representante"];
 const ROLE_LABELS: Record<Role, string> = {
-  master_dev:    "Master Dev",
-  admin:         "Admin",
-  gestor:        "Gestor",
+  master_dev: "Master Dev",
+  admin: "Admin",
+  gestor: "Gestor",
   representante: "Representante",
 };
 
-type EditableUser = UserProfile & { email: string };
-
-export default function EditarUsuarioPage() {
-  const { id } = useParams<{ id: string }>();
+export default function NovoUsuarioPage() {
   const router = useRouter();
-  const { profile: currentProfile } = useAuth();
-
-  const [usuario, setUsuario] = useState<EditableUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,40 +26,22 @@ export default function EditarUsuarioPage() {
   const [codRep, setCodRep] = useState("");
   const [cpf, setCpf] = useState("");
   const [ativo, setAtivo] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      const response = await fetch(`/api/admin/usuarios/${id}`);
-      const data = await response.json().catch(() => null);
+  async function handleCreate() {
+    if (saving) return;
 
-      if (response.ok && data) {
-        setUsuario(data);
-        setEmail(data.email ?? "");
-        setNome(data.nome);
-        setRole(data.role);
-        setCodRep(data.cod_rep !== null ? String(data.cod_rep) : "");
-        setCpf(data.cpf ?? "");
-        setAtivo(data.ativo);
-      } else {
-        setError(data?.error || "Nao foi possivel carregar o usuario.");
-      }
-      setLoading(false);
-    }
-    load();
-  }, [id]);
-
-  async function handleSave() {
     setSaving(true);
     setError(null);
-    setSuccess(false);
 
-    const response = await fetch(`/api/admin/usuarios/${id}`, {
-      method: "PATCH",
+    const response = await fetch("/api/admin/usuarios", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email,
         password,
-        nome: nome.trim(),
+        nome,
         role,
         cod_rep: codRep,
         cpf,
@@ -81,31 +52,13 @@ export default function EditarUsuarioPage() {
     const data = await response.json().catch(() => null);
 
     if (!response.ok) {
-      setError(data?.error || "Nao foi possivel salvar o usuario.");
-    } else {
-      setPassword("");
-      setSuccess(true);
-      setTimeout(() => router.push("/admin/usuarios"), 800);
+      setError(data?.error || "Nao foi possivel criar o usuario.");
+      setSaving(false);
+      return;
     }
-    setSaving(false);
-  }
 
-  if (loading) {
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <Header title="Editar Usuário" />
-        <div style={{ padding: 48, textAlign: "center", color: "var(--muted)" }}>Carregando...</div>
-      </div>
-    );
-  }
-
-  if (!usuario) {
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <Header title="Usuário não encontrado" />
-        <div style={{ padding: 48, textAlign: "center", color: "var(--error)" }}>Usuário não encontrado.</div>
-      </div>
-    );
+    router.push("/admin/usuarios");
+    router.refresh();
   }
 
   const fieldStyle = {
@@ -130,7 +83,7 @@ export default function EditarUsuarioPage() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <Header title="Editar Usuário" />
+      <Header title="Novo Usuario" />
       <div style={{ flex: 1, overflowY: "auto", padding: 28 }}>
         <Link
           href="/admin/usuarios"
@@ -145,12 +98,12 @@ export default function EditarUsuarioPage() {
           }}
         >
           <ArrowLeft size={14} />
-          Voltar para Usuários
+          Voltar para Usuarios
         </Link>
 
         <div
           style={{
-            maxWidth: 480,
+            maxWidth: 520,
             background: "var(--surface)",
             border: "1px solid var(--border)",
             borderRadius: 12,
@@ -158,7 +111,7 @@ export default function EditarUsuarioPage() {
           }}
         >
           <h2 style={{ margin: "0 0 24px", fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
-            {usuario.nome}
+            Adicionar usuario
           </h2>
 
           {error && (
@@ -176,60 +129,45 @@ export default function EditarUsuarioPage() {
               {error}
             </div>
           )}
-          {success && (
-            <div
-              style={{
-                padding: "10px 14px",
-                background: "rgba(52,211,153,0.1)",
-                border: "1px solid rgba(52,211,153,0.3)",
-                borderRadius: 8,
-                color: "var(--success)",
-                fontSize: 13,
-                marginBottom: 20,
-              }}
-            >
-              Salvo com sucesso!
-            </div>
-          )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <div>
+              <label style={labelStyle}>Nome</label>
+              <input
+                type="text"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Nome completo"
+                style={fieldStyle}
+              />
+            </div>
+
             <div>
               <label style={labelStyle}>E-mail</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={currentProfile?.role !== "master_dev"}
-                style={{
-                  ...fieldStyle,
-                  opacity: currentProfile?.role !== "master_dev" ? 0.7 : 1,
-                  cursor: currentProfile?.role !== "master_dev" ? "not-allowed" : "text",
-                }}
+                placeholder="usuario@email.com"
+                style={fieldStyle}
               />
             </div>
 
             <div>
-              <label style={labelStyle}>Nova senha</label>
+              <label style={labelStyle}>Senha inicial</label>
               <div style={{ position: "relative", width: "100%" }}>
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  disabled={currentProfile?.role !== "master_dev"}
-                  placeholder="Deixe em branco para manter"
-                  style={{
-                    ...fieldStyle,
-                    paddingRight: 44,
-                    opacity: currentProfile?.role !== "master_dev" ? 0.7 : 1,
-                    cursor: currentProfile?.role !== "master_dev" ? "not-allowed" : "text",
-                  }}
+                  placeholder="Minimo 6 caracteres"
+                  style={{ ...fieldStyle, paddingRight: 44 }}
                 />
                 <button
                   type="button"
                   aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                   title={showPassword ? "Ocultar senha" : "Mostrar senha"}
                   onClick={() => setShowPassword((value) => !value)}
-                  disabled={currentProfile?.role !== "master_dev"}
                   style={{
                     position: "absolute",
                     top: "50%",
@@ -244,7 +182,7 @@ export default function EditarUsuarioPage() {
                     border: "none",
                     borderRadius: 6,
                     color: "var(--muted)",
-                    cursor: currentProfile?.role !== "master_dev" ? "not-allowed" : "pointer",
+                    cursor: "pointer",
                     padding: 0,
                   }}
                 >
@@ -254,27 +192,8 @@ export default function EditarUsuarioPage() {
             </div>
 
             <div>
-              <label style={labelStyle}>Nome</label>
-              <input
-                type="text"
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                style={fieldStyle}
-              />
-            </div>
-
-            <div>
               <label style={labelStyle}>Cargo</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as Role)}
-                disabled={currentProfile?.role !== "master_dev"}
-                style={{
-                  ...fieldStyle,
-                  opacity: currentProfile?.role !== "master_dev" ? 0.7 : 1,
-                  cursor: currentProfile?.role !== "master_dev" ? "not-allowed" : "pointer",
-                }}
-              >
+              <select value={role} onChange={(e) => setRole(e.target.value as Role)} style={fieldStyle}>
                 {ROLES.map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABELS[r]}
@@ -284,7 +203,7 @@ export default function EditarUsuarioPage() {
             </div>
 
             <div>
-              <label style={labelStyle}>Código do Representante (cod_rep)</label>
+              <label style={labelStyle}>Codigo do Representante (cod_rep)</label>
               <input
                 type="number"
                 value={codRep}
@@ -311,19 +230,15 @@ export default function EditarUsuarioPage() {
                 id="ativo"
                 checked={ativo}
                 onChange={(e) => setAtivo(e.target.checked)}
-                disabled={id === currentProfile?.id}
                 style={{ width: 16, height: 16, cursor: "pointer" }}
               />
-              <label
-                htmlFor="ativo"
-                style={{ fontSize: 13, color: "var(--text)", cursor: "pointer" }}
-              >
-                Usuário ativo
+              <label htmlFor="ativo" style={{ fontSize: 13, color: "var(--text)", cursor: "pointer" }}>
+                Usuario ativo
               </label>
             </div>
 
             <button
-              onClick={handleSave}
+              onClick={handleCreate}
               disabled={saving}
               style={{
                 display: "flex",
@@ -343,7 +258,7 @@ export default function EditarUsuarioPage() {
               }}
             >
               <Save size={14} />
-              {saving ? "Salvando..." : "Salvar Alterações"}
+              {saving ? "Criando..." : "Criar usuario"}
             </button>
           </div>
         </div>
