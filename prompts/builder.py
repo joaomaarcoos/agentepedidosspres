@@ -140,27 +140,59 @@ def _ativacao_section(ctx: dict) -> str:
     return "\n".join(linhas)
 
 
+def _fmt_preco(valor) -> str:
+    try:
+        return f"R$ {float(valor):.2f}".replace(".", ",")
+    except (TypeError, ValueError):
+        return "-"
+
+
 def _catalogo_section(produtos: list[dict]) -> str:
-    linhas = [
-        "## CATÁLOGO DE PRODUTOS DISPONÍVEIS",
-        "",
-        "Use estas informações quando o cliente perguntar sobre produtos, preços ou disponibilidade.",
-        "Preço base = tabela padrão. Preço Inst.299 = tabela instalação 299.",
-        "",
-        "| Código | Produto | Deriv. | Preço Base | Preço Inst.299 |",
-        "|--------|---------|--------|------------|----------------|",
-    ]
-    for p in produtos:
-        cod = p.get("cod_produto", "")
-        nome = p.get("nome", "")
-        deriv = p.get("derivacao", "")
-        base = p.get("preco_base")
-        inst = p.get("preco_inst_299")
-        base_str = f"R$ {base:.2f}".replace(".", ",") if base is not None else "-"
-        inst_str = f"R$ {inst:.2f}".replace(".", ",") if inst is not None else "-"
-        linhas.append(f"| {cod} | {nome} | {deriv} | {base_str} | {inst_str} |")
+    if not produtos:
+        return ""
+
+    # Detecta formato: tabelas_preco_itens tem 'nome_produto'; produtos tem 'nome'
+    is_tabela = "nome_produto" in (produtos[0] if produtos else {})
+
+    if is_tabela:
+        linhas = [
+            "## TABELA DE PREÇOS DO CLIENTE",
+            "",
+            "Estes são os produtos e preços desta tabela de preços específica do cliente.",
+            "Use estes valores ao falar sobre preços — nunca invente valores fora desta lista.",
+            "",
+            "| Código | Produto | Variação | Qtd. Mín. | Preço | Desconto |",
+            "|--------|---------|----------|-----------|-------|----------|",
+        ]
+        for p in produtos:
+            cod = p.get("cod_produto", "")
+            nome = p.get("nome_produto", "")
+            variacao = p.get("variacao") or "-"
+            qtd_min = p.get("quantidade_minima") or "-"
+            preco = _fmt_preco(p.get("preco"))
+            desc = p.get("desconto")
+            desc_str = f"{float(desc):.1f}%".replace(".", ",") if desc else "-"
+            linhas.append(f"| {cod} | {nome} | {variacao} | {qtd_min} | {preco} | {desc_str} |")
+    else:
+        linhas = [
+            "## CATÁLOGO DE PRODUTOS DISPONÍVEIS",
+            "",
+            "Use estas informações quando o cliente perguntar sobre produtos, preços ou disponibilidade.",
+            "Preço base = tabela padrão. Preço Inst.299 = tabela instalação 299.",
+            "",
+            "| Código | Produto | Deriv. | Preço Base | Preço Inst.299 |",
+            "|--------|---------|--------|------------|----------------|",
+        ]
+        for p in produtos:
+            cod = p.get("cod_produto", "")
+            nome = p.get("nome", "")
+            deriv = p.get("derivacao") or "-"
+            base_str = _fmt_preco(p.get("preco_base"))
+            inst_str = _fmt_preco(p.get("preco_inst_299"))
+            linhas.append(f"| {cod} | {nome} | {deriv} | {base_str} | {inst_str} |")
+
     linhas.append("")
-    linhas.append("Ao citar preços, use sempre o valor da tabela acima. Nunca invente preços fora desta lista.")
+    linhas.append("Ao citar preços, use sempre os valores da tabela acima. Nunca invente preços.")
     return "\n".join(linhas)
 
 

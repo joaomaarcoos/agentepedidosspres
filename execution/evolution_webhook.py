@@ -55,7 +55,75 @@ def _dig(data: dict, *path: str) -> Any:
     return value
 
 
-def extract_message(payload: dict) -> dict:
+def _get_audio_base64(payload: dict, instance: str) -> tuple[str, str] | None:
+    """Baixa mídia de áudio da Evolution API e retorna (base64, mimetype) ou None."""
+    try:
+        api_url, api_key = _evolution_config()
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        body = {"message": {"key": data.get("key") or {}, "message": data.get("message") or {}}}
+        resp = requests.post(
+            f"{api_url}/chat/getBase64FromMediaMessage/{instance}",
+            json=body,
+            headers={"apikey": api_key, "Content-Type": "application/json"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        b64 = result.get("base64") or _dig(result, "data", "base64") or ""
+        mimetype = result.get("mimetype") or "audio/ogg"
+        if b64:
+            return b64, mimetype
+    except Exception as exc:
+        logger.warning("Falha ao baixar áudio da Evolution API: %s", exc)
+    return None
+
+
+def _transcribe_audio(base64_str: str, mimetype: str = "audio/ogg") -> str | None:
+    """Transcreve áudio com OpenAI Whisper. Retorna texto ou None."""
+    import base64 as _b64
+    import tempfile
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        logger.warning("OPENAI_API_KEY ausente — transcrição de áudio desativada")
+        return None
+    try:
+        from openai import OpenAI
+
+        audio_bytes = _b64.b64decode(base64_str)
+        ext = "ogg"
+        if "mp4" in mimetype or "mpeg" in mimetype:
+            ext = "mp3"
+        elif "wav" in mimetype:
+            ext = "wav"
+        elif "webm" in mimetype:
+            ext = "webm"
+
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as f:
+            f.write(audio_bytes)
+            tmp_path = f.name
+        try:
+            client = OpenAI(api_key=api_key)
+            with open(tmp_path, "rb") as audio_file:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="pt",
+                )
+            text = transcript.text.strip()
+            logger.info("Áudio transcrito (%d chars): %s", len(text), text[:120])
+            return text
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.warning("Falha na transcrição Whisper: %s", exc)
+        return None
+
+
+def extract_message(payload: dict, instance: str = "") -> dict:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     key = data.get("key") if isinstance(data.get("key"), dict) else {}
     message = data.get("message") if isinstance(data.get("message"), dict) else {}
@@ -76,6 +144,16 @@ def extract_message(payload: dict) -> dict:
         or ""
     )
 
+    is_audio = False
+    if not text and (message.get("audioMessage") or message.get("pttMessage")):
+        is_audio = True
+        if instance:
+            audio_data = _get_audio_base64(payload, instance)
+            if audio_data:
+                transcribed = _transcribe_audio(*audio_data)
+                if transcribed:
+                    text = transcribed
+
     phone = normalize_phone(str(remote_jid).split("@", 1)[0])
     message_id = key.get("id") or data.get("id") or data.get("messageId")
 
@@ -85,6 +163,7 @@ def extract_message(payload: dict) -> dict:
         "from_me": from_me,
         "message_id": message_id,
         "remote_jid": remote_jid,
+        "is_audio": is_audio,
     }
 
 
@@ -152,7 +231,7 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
         or ""
     )
 
-    incoming = extract_message(payload)
+    incoming = extract_message(payload, instance=instance)
 
     if incoming["from_me"]:
         return {"action": "ignored_from_me", "should_reply": False}
