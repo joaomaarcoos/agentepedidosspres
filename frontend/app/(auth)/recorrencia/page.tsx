@@ -19,11 +19,12 @@ interface AiData {
   pedido_sugerido?: Array<{ codPro: string; desPro: string; qtdPed: number }>;
   valor_medio?: number;
   mensagem?: string;
+  tabela_preco?: string;
 }
 
 function parseAi(raw: string | null): AiData | null {
   if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
+  try { return JSON.parse(raw); } catch { return { motivo: raw }; }
 }
 
 // ─── Constantes visuais ───────────────────────────────────────────────────────
@@ -168,9 +169,50 @@ function JanelaBadge({ days }: { days: number | null }) {
 
 // ─── Drawer de detalhe ────────────────────────────────────────────────────────
 
+function fmtDate(raw: string | null | undefined): string {
+  if (!raw) return "—";
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      padding: "11px 18px", borderBottom: "1px solid var(--border)",
+      display: "flex", alignItems: "center", gap: 8,
+    }}>
+      <span style={{
+        fontSize: 10, fontWeight: 800, letterSpacing: 1,
+        textTransform: "uppercase", color: "var(--muted)",
+      }}>
+        {children}
+      </span>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, color, wide }: { label: string; value: string; color?: string | null; wide?: boolean }) {
+  return (
+    <div style={{
+      background: "var(--surface2)", border: "1px solid var(--border)",
+      borderRadius: 10, padding: "12px 16px",
+      gridColumn: wide ? "span 2" : undefined,
+    }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 5 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 800, color: color ?? "var(--text)", lineHeight: 1.2 }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () => void }) {
   const ai = parseAi(data.ai_reasoning);
   const { color: jColor, label: jLabel } = janelaHeat(data.days_until_predicted ?? null);
+  const isApproved = data.ai_decision === "sim";
 
   return (
     <>
@@ -178,226 +220,233 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
         onClick={onClose}
         style={{
           position: "fixed", inset: 0,
-          background: "rgba(0,0,0,0.45)", zIndex: 100, backdropFilter: "blur(2px)",
+          background: "rgba(0,0,0,0.5)", zIndex: 100, backdropFilter: "blur(3px)",
         }}
       />
       <div style={{
         position: "fixed", top: 0, right: 0, bottom: 0,
-        width: "min(720px, 94vw)",
+        width: "min(680px, 96vw)",
         background: "var(--surface)", borderLeft: "1px solid var(--border)",
         zIndex: 101, display: "flex", flexDirection: "column",
+        boxShadow: "-8px 0 32px rgba(0,0,0,0.35)",
       }}>
-        {/* header */}
+
+        {/* barra de cor no topo */}
         <div style={{
-          padding: "20px 24px", borderBottom: "1px solid var(--border)",
-          display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-        }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>
+          height: 3,
+          background: isApproved
+            ? "linear-gradient(90deg, var(--success), var(--accent))"
+            : "var(--border)",
+        }} />
+
+        {/* header */}
+        <div style={{ padding: "18px 22px 16px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "var(--text)", marginBottom: 8, lineHeight: 1.3 }}>
                 {data.customer_name || "—"}
-              </span>
-              <StatusBadge status={data.status} />
-              <JanelaBadge days={data.days_until_predicted ?? null} />
-            </div>
-            <div style={{ color: "var(--muted)", fontSize: 12, display: "flex", gap: 14, flexWrap: "wrap" }}>
-              <span>{data.cpf_cnpj}</span>
-              <span>{data.customer_phone || "sem telefone"}</span>
-              {data.cod_rep != null && <span>Rep. {data.cod_rep}</span>}
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "transparent", border: "1px solid var(--border)",
-              borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "var(--muted)",
-            }}
-          >
-            <X size={15} />
-          </button>
-        </div>
-
-        <div style={{ padding: 24, overflow: "auto", display: "grid", gap: 16 }}>
-          {/* métricas */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-            {([
-              ["Tier", data.recurrence_tier ? TIER_LABEL[data.recurrence_tier] : "—", null],
-              ["Pedidos 30d", String(data.orders_count_30d ?? "—"), null],
-              ["Intervalo médio", data.recurrence_interval_days != null ? `${data.recurrence_interval_days}d` : "—", null],
-              ["Último pedido", data.last_order_date || "—", null],
-              ["Próximo previsto", data.predicted_next_order_date || "—", null],
-              ["Janela", jLabel, jColor],
-            ] as [string, string, string | null][]).map(([label, value, color]) => (
-              <div key={label} style={{
-                background: "var(--surface2)", border: "1px solid var(--border)",
-                borderRadius: 10, padding: "12px 14px",
-              }}>
-                <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>
-                  {label}
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: color ?? "var(--text)" }}>
-                  {value}
-                </div>
               </div>
-            ))}
-          </div>
-
-          {/* decisão IA */}
-          {ai && (
-            <div style={{
-              background: "var(--surface2)", border: "1px solid var(--border)",
-              borderRadius: 12, padding: 16,
-            }}>
-              <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 }}>
-                Decisão da IA
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                <StatusBadge status={data.status} />
+                <JanelaBadge days={data.days_until_predicted ?? null} />
+                {ai?.nivel_confianca && <ConfiancaBadge value={ai.nivel_confianca} />}
               </div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-                <span style={{
-                  padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700,
-                  background: data.ai_decision === "sim" ? "var(--success)22" : "var(--error)22",
-                  color: data.ai_decision === "sim" ? "var(--success)" : "var(--error)",
-                  border: `1px solid ${data.ai_decision === "sim" ? "var(--success)" : "var(--error)"}44`,
-                }}>
-                  {data.ai_decision === "sim" ? "✓ Aprovado" : "✗ Rejeitado"}
-                </span>
-                {ai.nivel_confianca && <ConfiancaBadge value={ai.nivel_confianca} />}
-                {ai.valor_medio != null && ai.valor_medio > 0 && (
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "monospace" }}>{data.cpf_cnpj}</span>
+                {data.customer_phone && (
+                  <span style={{ fontSize: 12, color: "var(--muted)" }}>📱 {data.customer_phone}</span>
+                )}
+                {ai?.tabela_preco && (
                   <span style={{
-                    padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700,
-                    background: "var(--accent)18", color: "var(--accent)",
-                    border: "1px solid var(--accent)44",
+                    fontSize: 11, fontWeight: 700, color: "var(--accent)",
+                    background: "var(--accent)15", border: "1px solid var(--accent)33",
+                    borderRadius: 6, padding: "2px 8px",
                   }}>
-                    {fmtBRL(ai.valor_medio)}
+                    Tabela {ai.tabela_preco}
                   </span>
                 )}
               </div>
-              {ai.motivo && (
-                <p style={{ fontSize: 13, color: "var(--text)", margin: 0, lineHeight: 1.6 }}>
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                flexShrink: 0, background: "var(--surface2)", border: "1px solid var(--border)",
+                borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "var(--muted)",
+                lineHeight: 0,
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* conteúdo scrollável */}
+        <div style={{ flex: 1, overflow: "auto", padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+          {/* métricas */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            <MetricCard label="Tier" value={data.recurrence_tier ? TIER_LABEL[data.recurrence_tier] : "—"} />
+            <MetricCard label="Pedidos 30d" value={String(data.orders_count_30d ?? "—")} />
+            <MetricCard label="Intervalo médio" value={data.recurrence_interval_days != null ? `${data.recurrence_interval_days}d` : "—"} />
+            <MetricCard label="Último pedido" value={fmtDate(data.last_order_date)} />
+            <MetricCard label="Próximo previsto" value={fmtDate(data.predicted_next_order_date)} />
+            <MetricCard label="Janela" value={jLabel} color={jColor} />
+            {ai?.valor_medio != null && ai.valor_medio > 0 && (
+              <MetricCard label="Valor médio" value={fmtBRL(ai.valor_medio)} color="var(--accent)" wide />
+            )}
+          </div>
+
+          {/* decisão IA */}
+          {ai?.motivo && (
+            <div style={{
+              borderRadius: 12, overflow: "hidden",
+              border: `1px solid ${isApproved ? "var(--success)44" : "var(--border)"}`,
+              background: isApproved ? "var(--success)08" : "var(--surface2)",
+            }}>
+              <SectionTitle>Análise da IA</SectionTitle>
+              <div style={{ padding: "12px 18px" }}>
+                <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.65 }}>
                   {ai.motivo}
                 </p>
-              )}
-            </div>
-          )}
-
-          {/* pedido sugerido */}
-          {(ai?.pedido_sugerido ?? []).length > 0 && (
-            <div style={{
-              background: "var(--surface2)", border: "1px solid var(--border)",
-              borderRadius: 12, overflow: "hidden",
-            }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
-                  Pedido Sugerido
-                </span>
               </div>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Código", "Produto", "Qtd"].map(h => (
-                      <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(ai!.pedido_sugerido!).map((item, i) => (
-                    <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px 14px", color: "var(--accent)", fontWeight: 700, fontSize: 12 }}>{item.codPro}</td>
-                      <td style={{ padding: "8px 14px", color: "var(--text)", fontSize: 13 }}>{item.desPro}</td>
-                      <td style={{ padding: "8px 14px", color: "var(--text)", fontWeight: 700, fontSize: 13 }}>{item.qtdPed}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           )}
 
           {/* mensagem pronta */}
           {ai?.mensagem && (
-            <div style={{
-              background: "var(--surface2)", border: "1px solid var(--border)",
-              borderRadius: 12, overflow: "hidden",
-            }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 6 }}>
-                <MessageSquare size={13} color="var(--accent)" />
-                <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
-                  Mensagem Pronta
-                </span>
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+              <SectionTitle><MessageSquare size={11} style={{ display: "inline", marginRight: 5 }} />Mensagem WhatsApp</SectionTitle>
+              <div style={{ padding: "14px 18px" }}>
+                <div style={{
+                  background: "#1a2a1a", border: "1px solid #2d4a2d",
+                  borderRadius: "4px 12px 12px 12px",
+                  padding: "12px 14px", display: "inline-block", maxWidth: "100%",
+                }}>
+                  <p style={{
+                    margin: 0, fontSize: 13, color: "#e8f5e8",
+                    lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                  }}>
+                    {ai.mensagem}
+                  </p>
+                </div>
               </div>
-              <div style={{ padding: 16 }}>
-                <pre style={{ margin: 0, fontFamily: "inherit", fontSize: 13, color: "var(--text)", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
-                  {ai.mensagem}
-                </pre>
+            </div>
+          )}
+
+          {/* pedido sugerido */}
+          {(ai?.pedido_sugerido ?? []).length > 0 && (
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+              <SectionTitle>Pedido Sugerido</SectionTitle>
+              <div style={{ padding: "8px 0" }}>
+                {ai!.pedido_sugerido!.map((item, i) => (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "9px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined,
+                    gap: 12,
+                  }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 2 }}>
+                        {item.desPro}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--accent)", fontFamily: "monospace" }}>{item.codPro}</div>
+                    </div>
+                    <div style={{
+                      flexShrink: 0, background: "var(--accent)18", border: "1px solid var(--accent)44",
+                      borderRadius: 8, padding: "4px 12px",
+                      fontSize: 13, fontWeight: 800, color: "var(--accent)", whiteSpace: "nowrap",
+                    }}>
+                      {item.qtdPed} un
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
           {/* produtos recorrentes */}
           {(data.top_items_json ?? []).length > 0 && (
-            <div style={{
-              background: "var(--surface2)", border: "1px solid var(--border)",
-              borderRadius: 12, overflow: "hidden",
-            }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
-                  Produtos Recorrentes
-                </span>
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+              <SectionTitle>Produtos Recorrentes</SectionTitle>
+              <div style={{ padding: "8px 0" }}>
+                {(data.top_items_json ?? []).map((item, i) => (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "9px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined,
+                    gap: 12,
+                  }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 2 }}>{item.desPro}</div>
+                      <div style={{ fontSize: 11, color: "var(--accent)", fontFamily: "monospace" }}>{item.codPro}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, color: "var(--warn)",
+                        background: "var(--warn)15", border: "1px solid var(--warn)33",
+                        borderRadius: 6, padding: "3px 8px",
+                      }}>
+                        {item.aparicoes}× pedidos
+                      </span>
+                      <span style={{
+                        fontSize: 11, color: "var(--muted)",
+                        background: "var(--surface)", border: "1px solid var(--border)",
+                        borderRadius: 6, padding: "3px 8px",
+                      }}>
+                        {item.total_qtd} un
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Produto", "Aparições", "Qtd Total"].map(h => (
-                      <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.top_items_json ?? []).map((item, i) => (
-                    <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td style={{ padding: "8px 14px" }}>
-                        <div style={{ color: "var(--text)", fontSize: 13 }}>{item.desPro}</div>
-                        <div style={{ color: "var(--accent)", fontSize: 11 }}>{item.codPro}</div>
-                      </td>
-                      <td style={{ padding: "8px 14px", color: "var(--text)", fontWeight: 700, fontSize: 13 }}>{item.aparicoes}×</td>
-                      <td style={{ padding: "8px 14px", color: "var(--muted)", fontSize: 12 }}>{item.total_qtd}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           )}
 
           {/* últimos pedidos */}
           {(data.last_3_orders_json ?? []).length > 0 && (
-            <div style={{
-              background: "var(--surface2)", border: "1px solid var(--border)",
-              borderRadius: 12, overflow: "hidden",
-            }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ fontWeight: 700, fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
-                  Últimos Pedidos
-                </span>
-              </div>
-              {(data.last_3_orders_json ?? []).map((p, i) => (
-                <div key={i} style={{ padding: "12px 16px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontWeight: 700, color: "var(--accent)", fontSize: 13 }}>#{p.numero}</span>
-                    <span style={{ color: "var(--muted)", fontSize: 12 }}>
-                      {p.data} · {p.valor_total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                    </span>
-                  </div>
-                  {(p.itens ?? []).map((it, j) => (
-                    <div key={j} style={{ fontSize: 12, color: "var(--muted)", paddingLeft: 8 }}>
-                      {it.desPro || it.codPro} — {it.qtdPed}un · {it.vlrTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+              <SectionTitle>Últimos Pedidos</SectionTitle>
+              <div style={{ padding: "8px 0" }}>
+                {(data.last_3_orders_json ?? []).map((p, i) => (
+                  <div key={i} style={{ padding: "12px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{
+                        fontSize: 12, fontWeight: 800, color: "var(--accent)",
+                        background: "var(--accent)15", border: "1px solid var(--accent)33",
+                        borderRadius: 6, padding: "3px 10px", fontFamily: "monospace",
+                      }}>
+                        #{p.numero}
+                      </span>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+                          {p.valor_total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--muted)" }}>{fmtDate(p.data)}</div>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              ))}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {(p.itens ?? []).map((it, j) => (
+                        <div key={j} style={{
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          background: "var(--surface)", border: "1px solid var(--border)",
+                          borderRadius: 7, padding: "6px 10px", gap: 8,
+                        }}>
+                          <span style={{ fontSize: 12, color: "var(--text)", minWidth: 0 }}>
+                            {it.desPro || it.codPro}
+                          </span>
+                          <div style={{ flexShrink: 0, display: "flex", gap: 8, alignItems: "center" }}>
+                            <span style={{ fontSize: 11, color: "var(--muted)" }}>{it.qtdPed} un</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
+                              {it.vlrTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
+
         </div>
       </div>
     </>
