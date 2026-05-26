@@ -1,42 +1,72 @@
 "use client";
 
-import { useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { Suspense, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/pedidos";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(searchParams.get("error"));
+  const submittingRef = useRef(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleLogin(source: string = "submit") {
+    if (submittingRef.current) return;
+
     if (!email || !password) {
       setError("Preencha e-mail e senha.");
       return;
     }
+
+    submittingRef.current = true;
     setLoading(true);
     setError(null);
+    console.info("Iniciando login:", { source, email: email.trim() });
 
-    const supabase = createClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    try {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 15000);
 
-    if (authError) {
-      setError("E-mail ou senha incorretos.");
+      const result = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          next,
+        }),
+        signal: controller.signal,
+      });
+      window.clearTimeout(timeout);
+
+      if (!result.ok) {
+        const data = await result.json().catch(() => null);
+        setError(data?.error || "E-mail ou senha incorretos.");
+        submittingRef.current = false;
+        setLoading(false);
+        return;
+      }
+
+      console.info("Login concluido. Redirecionando:", next);
+      window.location.assign(next);
+    } catch (err) {
+      console.error("Erro no login:", err);
+      setError("Nao foi possivel concluir o login. Verifique a conexao e tente novamente.");
+      submittingRef.current = false;
       setLoading(false);
-      return;
     }
+  }
 
-    router.push(next);
-    router.refresh();
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await handleLogin("submit");
   }
 
   return (
@@ -109,7 +139,13 @@ function LoginForm() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <form
+          action="/api/auth/login"
+          method="post"
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: 14 }}
+        >
+          <input type="hidden" name="next" value={next} />
           <div>
             <label
               style={{
@@ -124,6 +160,7 @@ function LoginForm() {
             </label>
             <input
               type="email"
+              name="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="seu@email.com"
@@ -154,24 +191,52 @@ function LoginForm() {
             >
               Senha
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                background: "var(--surface2)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                color: "var(--text)",
-                fontSize: 14,
-                outline: "none",
-                boxSizing: "border-box",
-              }}
-            />
+            <div style={{ position: "relative", width: "100%" }}>
+              <input
+                type={showPassword ? "text" : "password"}
+                name="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="********"
+                required
+                style={{
+                  width: "100%",
+                  padding: "10px 44px 10px 14px",
+                  background: "var(--surface2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  color: "var(--text)",
+                  fontSize: 14,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                onClick={() => setShowPassword((value) => !value)}
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  right: 10,
+                  transform: "translateY(-50%)",
+                  width: 28,
+                  height: 28,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: 6,
+                  color: "var(--muted)",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
           </div>
 
           <button

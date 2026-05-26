@@ -22,29 +22,34 @@ CREATE POLICY "user_profiles: self read"
   ON public.user_profiles FOR SELECT
   USING (auth.uid() = id);
 
+-- Evita recursao nas policies que precisam consultar a propria user_profiles
+CREATE OR REPLACE FUNCTION public.current_user_is_admin()
+RETURNS BOOLEAN
+LANGUAGE SQL
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_profiles p
+    WHERE p.id = auth.uid()
+      AND p.role IN ('master_dev', 'admin')
+      AND p.ativo = TRUE
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.current_user_is_admin() TO authenticated;
+
 -- master_dev e admin leem todos os perfis
 CREATE POLICY "user_profiles: admin read all"
   ON public.user_profiles FOR SELECT
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.user_profiles p
-      WHERE p.id = auth.uid()
-        AND p.role IN ('master_dev', 'admin')
-        AND p.ativo = TRUE
-    )
-  );
+  USING (public.current_user_is_admin());
 
 -- master_dev e admin gerenciam todos os perfis
 CREATE POLICY "user_profiles: admin write"
   ON public.user_profiles FOR ALL
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.user_profiles p
-      WHERE p.id = auth.uid()
-        AND p.role IN ('master_dev', 'admin')
-        AND p.ativo = TRUE
-    )
-  );
+  USING (public.current_user_is_admin())
+  WITH CHECK (public.current_user_is_admin());
 
 -- Usuário atualiza seu próprio perfil (nome, cpf, cod_rep)
 CREATE POLICY "user_profiles: self update"

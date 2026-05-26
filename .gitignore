@@ -1,5 +1,9 @@
 # Credenciais e segredos
 .env
+.env.*
+frontend/.env*
+!.env.example
+!frontend/.env.example
 .mcp.json
 credentials.json
 token.json
