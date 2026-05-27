@@ -243,6 +243,10 @@ export const ativacaoApi = {
 export const agenteStudioApi = {
   list: () => api.get<{ prompts: import("./types").PromptFile[] }>("/api/agente-studio/prompts"),
   get: (slug: string) => api.get<import("./types").PromptFile>(`/api/agente-studio/prompts/${slug}`),
+  getSettings: () =>
+    api.get<{ message_buffer_seconds: number }>("/api/agente-studio/settings"),
+  updateSettings: (settings: { message_buffer_seconds: number }) =>
+    api.patch<{ message_buffer_seconds: number }>("/api/agente-studio/settings", settings),
   create: (slug: string, content: string) =>
     api.post<import("./types").PromptFile>("/api/agente-studio/prompts", { slug, content }),
   update: (slug: string, content: string) =>

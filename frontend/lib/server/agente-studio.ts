@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { createClient } from "@supabase/supabase-js";
 
 const PROMPTS_DIR = path.join(process.cwd(), "..", "prompts", "marcela");
 
@@ -102,4 +103,84 @@ export function deletePrompt(slug: string): void {
   if (!fs.existsSync(filepath)) throw new Error(`Prompt "${slug}" não encontrado`);
   if (KNOWN_ORDER.includes(slug)) throw new Error(`Prompt "${slug}" é essencial e não pode ser removido`);
   fs.unlinkSync(filepath);
+}
+
+export type AgentRuntimeSettings = {
+  message_buffer_seconds: number;
+};
+
+const DEFAULT_RUNTIME_SETTINGS: AgentRuntimeSettings = {
+  message_buffer_seconds: 5,
+};
+
+function settingsClient() {
+  const url = (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+  const key = (
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    ""
+  ).trim();
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+function settingsFallbackPath() {
+  return path.join(process.cwd(), "..", ".tmp", "data", "agent_runtime_settings.json");
+}
+
+function normalizeRuntimeSettings(raw: Partial<AgentRuntimeSettings>): AgentRuntimeSettings {
+  const buffer = Number(raw.message_buffer_seconds);
+  return {
+    message_buffer_seconds: Number.isFinite(buffer)
+      ? Math.max(0, Math.min(30, buffer))
+      : DEFAULT_RUNTIME_SETTINGS.message_buffer_seconds,
+  };
+}
+
+export async function getAgentRuntimeSettings(): Promise<AgentRuntimeSettings> {
+  const client = settingsClient();
+  if (client) {
+    const { data } = await client
+      .from("system_settings")
+      .select("key,value")
+      .eq("key", "ai_message_buffer_seconds")
+      .limit(1);
+    const value = data?.[0]?.value;
+    return normalizeRuntimeSettings({
+      message_buffer_seconds: value ?? DEFAULT_RUNTIME_SETTINGS.message_buffer_seconds,
+    });
+  }
+
+  try {
+    const file = settingsFallbackPath();
+    if (fs.existsSync(file)) {
+      return normalizeRuntimeSettings(JSON.parse(fs.readFileSync(file, "utf-8")));
+    }
+  } catch {
+    return DEFAULT_RUNTIME_SETTINGS;
+  }
+  return DEFAULT_RUNTIME_SETTINGS;
+}
+
+export async function saveAgentRuntimeSettings(
+  settings: Partial<AgentRuntimeSettings>
+): Promise<AgentRuntimeSettings> {
+  const normalized = normalizeRuntimeSettings(settings);
+  const client = settingsClient();
+  if (client) {
+    await client
+      .from("system_settings")
+      .upsert({
+        key: "ai_message_buffer_seconds",
+        value: normalized.message_buffer_seconds,
+        updated_at: new Date().toISOString(),
+      });
+    return normalized;
+  }
+
+  const file = settingsFallbackPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(normalized, null, 2), "utf-8");
+  return normalized;
 }

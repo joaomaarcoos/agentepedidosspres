@@ -37,11 +37,12 @@ PAUSE_TRIGGER = "##"
 RESUME_TRIGGER = "###"
 PAUSE_HOURS = int(os.getenv("AI_PAUSE_HOURS", "5"))
 CONTEXT_MESSAGE_LIMIT = int(os.getenv("AI_CONTEXT_MESSAGE_LIMIT", "10"))
-MESSAGE_BUFFER_SECONDS = float(os.getenv("AI_MESSAGE_BUFFER_SECONDS", "5"))
+DEFAULT_MESSAGE_BUFFER_SECONDS = float(os.getenv("AI_MESSAGE_BUFFER_SECONDS", "5"))
 LOCAL_DATA_DIR = Path(__file__).resolve().parent.parent / ".tmp" / "data"
 CONVERSATIONS_TABLE = "ai_conversations"
 MESSAGES_TABLE = "ai_conversation_messages"
 STATE_TABLE = "system_settings"
+BUFFER_SETTING_KEY = "ai_message_buffer_seconds"
 
 
 def utc_now() -> datetime:
@@ -70,6 +71,16 @@ def normalize_phone(value: str | None) -> str:
 
 def normalize_text(value: str | None) -> str:
     return str(value or "").strip()
+
+
+def _safe_float_setting(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+        if parsed < 0:
+            return default
+        return parsed
+    except (TypeError, ValueError):
+        return default
 
 
 def _lower_ascii(value: str) -> str:
@@ -709,6 +720,35 @@ class AgentStore:
         except Exception as exc:
             logger.warning("Falha ao salvar estado da conversa: %s", exc)
 
+    def get_agent_runtime_settings(self) -> dict:
+        defaults = {"message_buffer_seconds": DEFAULT_MESSAGE_BUFFER_SECONDS}
+        if self.use_local:
+            rows = self._local_read("agent_runtime_settings")
+            values = {row.get("key"): row.get("value") for row in rows if isinstance(row, dict)}
+            return {
+                "message_buffer_seconds": _safe_float_setting(
+                    values.get(BUFFER_SETTING_KEY),
+                    defaults["message_buffer_seconds"],
+                )
+            }
+
+        try:
+            result = (
+                self.client.table(STATE_TABLE)
+                .select("key,value")
+                .eq("key", BUFFER_SETTING_KEY)
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            value = rows[0].get("value") if rows else defaults["message_buffer_seconds"]
+            return {
+                "message_buffer_seconds": _safe_float_setting(value, defaults["message_buffer_seconds"])
+            }
+        except Exception as exc:
+            logger.warning("Falha ao ler configuracoes runtime do agente; usando padrao: %s", exc)
+            return defaults
+
     def _local_file(self, table: str) -> Path:
         LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
         return LOCAL_DATA_DIR / f"{table}.json"
@@ -1067,13 +1107,15 @@ def process_inbound_message(
             "paused_until": conversation.get("paused_until"),
         }
 
-    if MESSAGE_BUFFER_SECONDS > 0:
-        time.sleep(MESSAGE_BUFFER_SECONDS)
+    runtime_settings = store.get_agent_runtime_settings()
+    message_buffer_seconds = float(runtime_settings.get("message_buffer_seconds", DEFAULT_MESSAGE_BUFFER_SECONDS))
+    if message_buffer_seconds > 0:
+        time.sleep(message_buffer_seconds)
         if store.has_newer_user_message(str(conversation["id"]), str(user_message.get("created_at") or "")):
             return {
                 "action": "buffered_waiting_latest_message",
                 "should_reply": False,
-                "buffer_seconds": MESSAGE_BUFFER_SECONDS,
+                "buffer_seconds": message_buffer_seconds,
             }
 
     history = store.recent_messages(str(conversation["id"]), CONTEXT_MESSAGE_LIMIT)

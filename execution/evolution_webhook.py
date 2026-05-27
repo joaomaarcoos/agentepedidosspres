@@ -198,8 +198,9 @@ def split_reply(text: str, max_chars: int = REPLY_SPLIT_MAX_CHARS) -> list[str]:
     text = str(text or "").strip()
     if not text:
         return []
+    text = re.sub(r"<br\s*/?>", "\n\n", text, flags=re.IGNORECASE)
     if max_chars <= 0 or len(text) <= max_chars:
-        return [text]
+        return [part.strip() for part in re.split(r"\n{2,}", text) if part.strip()] or [text]
 
     chunks: list[str] = []
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]

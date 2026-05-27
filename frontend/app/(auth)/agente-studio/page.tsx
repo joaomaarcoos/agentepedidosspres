@@ -25,12 +25,17 @@ export default function AgenteStudioPage() {
   const [newSlugInput, setNewSlugInput] = useState("");
   const [showNewForm, setShowNewForm] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [bufferSeconds, setBufferSeconds] = useState(5);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await agenteStudioApi.list();
+      const settings = await agenteStudioApi.getSettings().catch(() => null);
+      if (settings) setBufferSeconds(settings.message_buffer_seconds);
       setPrompts(data.prompts);
       if (data.prompts.length > 0 && !selected) {
         const first = data.prompts[0];
@@ -107,6 +112,22 @@ export default function AgenteStudioPage() {
       setError(e instanceof Error ? e.message : "Erro ao criar");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleSaveSettings() {
+    setSettingsSaving(true);
+    setSettingsMessage(null);
+    try {
+      const saved = await agenteStudioApi.updateSettings({
+        message_buffer_seconds: bufferSeconds,
+      });
+      setBufferSeconds(saved.message_buffer_seconds);
+      setSettingsMessage("Configurações salvas");
+    } catch (e) {
+      setSettingsMessage(e instanceof Error ? e.message : "Erro ao salvar configurações");
+    } finally {
+      setSettingsSaving(false);
     }
   }
 
@@ -195,6 +216,34 @@ export default function AgenteStudioPage() {
             ))
           )}
         </nav>
+
+        <div className="p-3 border-t border-gray-200 bg-gray-50">
+          <div className="text-xs font-semibold text-gray-600 mb-2">Runtime</div>
+          <label className="block text-xs text-gray-500 mb-1">
+            Buffer de mensagens (segundos)
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              max={30}
+              step={0.5}
+              value={bufferSeconds}
+              onChange={(e) => setBufferSeconds(Number(e.target.value))}
+              className="w-20 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleSaveSettings}
+              disabled={settingsSaving}
+              className="text-xs bg-gray-800 text-white rounded px-2 py-1 hover:bg-gray-900 disabled:opacity-50"
+            >
+              {settingsSaving ? "..." : "Salvar"}
+            </button>
+          </div>
+          {settingsMessage && (
+            <p className="text-xs text-gray-400 mt-2 truncate">{settingsMessage}</p>
+          )}
+        </div>
       </aside>
 
       {/* Editor panel */}
