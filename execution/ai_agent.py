@@ -41,6 +41,7 @@ MESSAGE_BUFFER_SECONDS = float(os.getenv("AI_MESSAGE_BUFFER_SECONDS", "5"))
 LOCAL_DATA_DIR = Path(__file__).resolve().parent.parent / ".tmp" / "data"
 CONVERSATIONS_TABLE = "ai_conversations"
 MESSAGES_TABLE = "ai_conversation_messages"
+STATE_TABLE = "system_settings"
 
 
 def utc_now() -> datetime:
@@ -95,6 +96,10 @@ def is_simple_greeting(text: str) -> bool:
     }
 
 
+def contains_any(value: str, terms: tuple[str, ...]) -> bool:
+    return any(term in value for term in terms)
+
+
 def mentions_order_context(messages: list[dict]) -> bool:
     keywords = (
         "pedido",
@@ -117,6 +122,25 @@ def mentions_order_context(messages: list[dict]) -> bool:
     return False
 
 
+def is_complaint(text: str) -> bool:
+    value = _lower_ascii(text)
+    return contains_any(
+        value,
+        (
+            "reclam",
+            "atrasou",
+            "atrasado",
+            "problema",
+            "errado",
+            "veio errado",
+            "nao chegou",
+            "devolucao",
+            "estorno",
+            "cancelar pedido",
+        ),
+    )
+
+
 def is_prompt_attack(text: str) -> bool:
     value = _lower_ascii(text)
     patterns = (
@@ -134,6 +158,103 @@ def is_prompt_attack(text: str) -> bool:
         "a partir de agora",
     )
     return any(pattern in value for pattern in patterns)
+
+
+def infer_entities(text: str) -> dict:
+    value = _lower_ascii(text)
+    product_terms = (
+        "laranja",
+        "uva",
+        "manga",
+        "maracuja",
+        "goiaba",
+        "acerola",
+        "abacaxi",
+        "suco",
+        "nectar",
+    )
+    package_terms = ("garrafa", "copo", "bolsa", "concentrada", "caixa", "litro", "1l", "300ml")
+    quantities = re.findall(r"\b\d+(?:[,.]\d+)?\s*(?:caixas?|cx|unidades?|un|garrafas?|copos?|bolsas?)?\b", value)
+    return {
+        "products": [term for term in product_terms if term in value],
+        "packages": [term for term in package_terms if term in value],
+        "quantities": [q.strip() for q in quantities if q.strip()],
+    }
+
+
+def classify_intent(text: str, previous_history: list[dict], state: dict | None = None) -> dict:
+    state = state or {}
+    value = _lower_ascii(text)
+    has_order_context = mentions_order_context(previous_history) or bool(state.get("order_in_progress"))
+    entities = infer_entities(text)
+
+    if is_prompt_attack(text):
+        return {
+            "intent": "prompt_attack",
+            "confidence": 1.0,
+            "requires_ai": False,
+            "requires_human": False,
+            "out_of_scope": True,
+            "has_order_context": has_order_context,
+            "entities": entities,
+        }
+    if is_out_of_scope(text):
+        return {
+            "intent": "out_of_scope",
+            "confidence": 0.95,
+            "requires_ai": False,
+            "requires_human": False,
+            "out_of_scope": True,
+            "has_order_context": has_order_context,
+            "entities": entities,
+        }
+    if is_complaint(text):
+        return {
+            "intent": "complaint",
+            "confidence": 0.9,
+            "requires_ai": False,
+            "requires_human": True,
+            "out_of_scope": False,
+            "has_order_context": has_order_context,
+            "entities": entities,
+        }
+    if is_simple_greeting(text):
+        return {
+            "intent": "greeting",
+            "confidence": 0.95,
+            "requires_ai": False,
+            "requires_human": False,
+            "out_of_scope": False,
+            "has_order_context": has_order_context,
+            "entities": entities,
+        }
+
+    if contains_any(value, ("ultimo pedido", "ultima vez", "comprei antes", "pedi antes", "historico")):
+        intent = "history_query"
+    elif contains_any(value, ("repetir", "repete", "igual ao ultimo", "mesmo pedido")):
+        intent = "repeat_order"
+    elif contains_any(value, ("entrega", "entregar", "prazo", "chega hoje", "chega amanha")):
+        intent = "delivery_query"
+    elif contains_any(value, ("preco", "valor", "quanto custa", "quanto esta", "tabela")):
+        intent = "price_query"
+    elif contains_any(value, ("quero fazer um pedido", "fazer pedido", "montar pedido", "comprar", "pedido")):
+        intent = "order_request"
+    elif state.get("order_in_progress") and contains_any(value, ("tira", "remove", "coloca", "inclui", "mais", "menos", "troca", "altera")):
+        intent = "order_adjustment"
+    elif entities["products"]:
+        intent = "product_query"
+    else:
+        intent = "commercial_unknown"
+
+    return {
+        "intent": intent,
+        "confidence": 0.75,
+        "requires_ai": True,
+        "requires_human": False,
+        "out_of_scope": False,
+        "has_order_context": has_order_context,
+        "entities": entities,
+    }
 
 
 def is_out_of_scope(text: str) -> bool:
@@ -155,6 +276,9 @@ def is_out_of_scope(text: str) -> bool:
     if any(term in value for term in commercial_terms):
         return False
 
+    if re.search(r"\b(que|qual)\b.{0,16}\b(?:dia|d\s*i\s*a)\b.{0,24}\bhoje\b", value):
+        return True
+
     out_patterns = (
         "quem e o presidente",
         "presidente do brasil",
@@ -168,6 +292,8 @@ def is_out_of_scope(text: str) -> bool:
         "programa em python",
         "codigo em",
         "noticia",
+        "que di a e hoje",
+        "que dia eh hoje",
     )
     return any(pattern in value for pattern in out_patterns)
 
@@ -182,6 +308,50 @@ def greeting_reply(has_order_context: bool = False) -> str:
     if has_order_context:
         return "Oi! Sou a Marcela, da Sucos SPRES. Quer continuar seu pedido ou ajustar algum item?"
     return "Oi! Sou a Marcela, da Sucos SPRES. Quer montar um pedido ou consultar algum produto?"
+
+
+def direct_reply_for_intent(classification: dict) -> str:
+    intent = classification.get("intent")
+    has_order_context = bool(classification.get("has_order_context"))
+    if intent in {"prompt_attack", "out_of_scope"}:
+        return scoped_redirect_reply(has_order_context)
+    if intent == "complaint":
+        return "Entendo. Vou te conectar com um atendente agora para resolver isso direto."
+    if intent == "greeting":
+        return greeting_reply(has_order_context)
+    return ""
+
+
+def update_commercial_state(state: dict | None, classification: dict, user_text: str) -> dict:
+    state = {**(state or {})}
+    intent = classification.get("intent", "")
+    if intent in {"order_request", "repeat_order", "order_adjustment", "price_query", "product_query"}:
+        state["order_in_progress"] = True
+    if intent in {"complaint", "out_of_scope", "prompt_attack"}:
+        state["order_in_progress"] = bool(state.get("order_in_progress"))
+    state["last_intent"] = intent
+    state["last_user_message"] = user_text
+    state["last_entities"] = classification.get("entities") or {}
+    state["updated_at"] = iso_z(utc_now())
+    return state
+
+
+def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool) -> str:
+    text = normalize_text(reply)
+    if not text:
+        return ""
+    intent = classification.get("intent")
+    if intent in {"prompt_attack", "out_of_scope"}:
+        return scoped_redirect_reply(has_order_context)
+
+    lowered = _lower_ascii(text)
+    verify_only = re.fullmatch(r"(deixa eu verificar( isso)?( aqui)?( pra voce| para voce)?[.!]*)", lowered.strip())
+    if verify_only or ("deixa eu verificar" in lowered and len(text) <= 90):
+        entities = classification.get("entities") or {}
+        if entities.get("products") and not entities.get("packages"):
+            return "Para eu te passar certinho, voce quer garrafa, copo ou bolsa concentrada?"
+        return "Nao tenho essa informacao completa aqui. Posso deixar como observacao para o representante validar?"
+    return text
 
 
 class AgentStore:
@@ -489,6 +659,55 @@ class AgentStore:
         except Exception as exc:
             logger.warning("Falha ao verificar buffer de mensagens; prosseguindo: %s", exc)
             return False
+
+    def _state_key(self, conversation_id: str) -> str:
+        return f"ai_state__{conversation_id}"
+
+    def get_conversation_state(self, conversation_id: str) -> dict:
+        key = self._state_key(conversation_id)
+        if self.use_local:
+            rows = self._local_read("conversation_state")
+            for row in rows:
+                if row.get("key") == key:
+                    value = row.get("value")
+                    return value if isinstance(value, dict) else {}
+            return {}
+
+        try:
+            result = (
+                self.client.table(STATE_TABLE)
+                .select("value")
+                .eq("key", key)
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            value = rows[0].get("value") if rows else {}
+            return value if isinstance(value, dict) else {}
+        except Exception as exc:
+            logger.warning("Falha ao ler estado da conversa; usando vazio: %s", exc)
+            return {}
+
+    def save_conversation_state(self, conversation_id: str, state: dict) -> None:
+        key = self._state_key(conversation_id)
+        if self.use_local:
+            rows = self._local_read("conversation_state")
+            payload = {"key": key, "value": state, "updated_at": iso_z(utc_now())}
+            for index, row in enumerate(rows):
+                if row.get("key") == key:
+                    rows[index] = payload
+                    self._local_write("conversation_state", rows)
+                    return
+            rows.append(payload)
+            self._local_write("conversation_state", rows)
+            return
+
+        try:
+            self.client.table(STATE_TABLE).upsert(
+                {"key": key, "value": state, "updated_at": iso_z(utc_now())}
+            ).execute()
+        except Exception as exc:
+            logger.warning("Falha ao salvar estado da conversa: %s", exc)
 
     def _local_file(self, table: str) -> Path:
         LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -859,15 +1078,12 @@ def process_inbound_message(
 
     history = store.recent_messages(str(conversation["id"]), CONTEXT_MESSAGE_LIMIT)
     previous_history = history[:-1] if history else []
-    has_order_context = mentions_order_context(previous_history)
+    conversation_state = store.get_conversation_state(str(conversation["id"]))
+    classification = classify_intent(normalized_text, previous_history, conversation_state)
+    conversation_state = update_commercial_state(conversation_state, classification, normalized_text)
+    store.save_conversation_state(str(conversation["id"]), conversation_state)
 
-    direct_reply = ""
-    if is_prompt_attack(normalized_text):
-        direct_reply = scoped_redirect_reply(has_order_context)
-    elif is_out_of_scope(normalized_text):
-        direct_reply = scoped_redirect_reply(has_order_context)
-    elif is_simple_greeting(normalized_text):
-        direct_reply = greeting_reply(has_order_context)
+    direct_reply = direct_reply_for_intent(classification)
 
     if direct_reply:
         store.add_message(str(conversation["id"]), "assistant", direct_reply, payload_json={"source": "guardrail"})
@@ -876,6 +1092,7 @@ def process_inbound_message(
             "should_reply": True,
             "reply": direct_reply,
             "context_messages": len(history),
+            "intent": classification.get("intent"),
         }
 
     module_context = store.get_module_context(safe_phone)
@@ -896,6 +1113,9 @@ def process_inbound_message(
             module_context["customer_name"] = module_context.get("customer_name") or module_context["customer_profile"].get("nome")
         if recent_orders:
             module_context["recent_orders"] = recent_orders
+    module_context = {**(module_context or {})}
+    module_context["classified_intent"] = classification
+    module_context["conversation_state"] = conversation_state
     if codigo_tabela:
         produtos = store.get_produtos_tabela(codigo_tabela)
     else:
@@ -909,6 +1129,11 @@ def process_inbound_message(
         customer_name=(module_context or {}).get("customer_name"),
         last_user_message=normalized_text,
         produtos=produtos,
+    )
+    reply = sanitize_ai_reply(
+        reply,
+        classification=classification,
+        has_order_context=bool(classification.get("has_order_context")),
     )
     if not reply:
         return {
@@ -924,4 +1149,5 @@ def process_inbound_message(
         "reply": reply,
         "context_messages": len(history),
         "module_context": module_context.get("module") if module_context else None,
+        "intent": classification.get("intent"),
     }

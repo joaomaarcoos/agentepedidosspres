@@ -69,11 +69,58 @@ def build_prompt(context: dict | None = None) -> str:
     if section:
         base += f"\n\n---\n\n{section}"
 
+    decision_section = _decision_section(context)
+    if decision_section:
+        base += f"\n\n---\n\n{decision_section}"
+
     customer_section = _customer_section(context)
     if customer_section:
         base += f"\n\n---\n\n{customer_section}"
 
     return base
+
+
+def _decision_section(ctx: dict) -> str:
+    classified = ctx.get("classified_intent") or {}
+    state = ctx.get("conversation_state") or {}
+    if not classified and not state:
+        return ""
+
+    linhas = ["## DECISAO OPERACIONAL DO ATENDIMENTO", ""]
+    if classified:
+        linhas += [
+            f"Intencao classificada: {classified.get('intent') or '-'}",
+            f"Confianca: {classified.get('confidence') or '-'}",
+            f"Requer humano: {bool(classified.get('requires_human'))}",
+            f"Fora do escopo: {bool(classified.get('out_of_scope'))}",
+        ]
+        entities = classified.get("entities") or {}
+        if entities:
+            linhas += [
+                f"Produtos detectados: {', '.join(entities.get('products') or []) or '-'}",
+                f"Embalagens detectadas: {', '.join(entities.get('packages') or []) or '-'}",
+                f"Quantidades detectadas: {', '.join(entities.get('quantities') or []) or '-'}",
+            ]
+        linhas.append("")
+
+    if state:
+        linhas += [
+            "Estado comercial atual:",
+            f"- Pedido em andamento: {bool(state.get('order_in_progress'))}",
+            f"- Ultima intencao: {state.get('last_intent') or '-'}",
+        ]
+        last_entities = state.get("last_entities") or {}
+        if last_entities:
+            linhas.append(f"- Ultimos produtos detectados: {', '.join(last_entities.get('products') or []) or '-'}")
+        linhas.append("")
+
+    linhas += [
+        "Use esta decisao para responder de forma objetiva.",
+        "Se a intencao for preco_produto/price_query, priorize tabela de preco e derivacao.",
+        "Se houver pedido em andamento, mantenha continuidade e nao reinicie a conversa.",
+        "Se faltar embalagem, derivacao ou quantidade, pergunte somente o dado faltante.",
+    ]
+    return "\n".join(linhas)
 
 
 def _customer_section(ctx: dict) -> str:
