@@ -252,7 +252,7 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
         intent = "order_request"
     elif state.get("order_in_progress") and contains_any(value, ("tira", "remove", "coloca", "inclui", "mais", "menos", "troca", "altera")):
         intent = "order_adjustment"
-    elif entities["products"]:
+    elif entities["products"] or contains_any(value, ("quais tem", "quais voces tem", "opcoes", "sabores", "modelos", "embalagens")):
         intent = "product_query"
     else:
         intent = "commercial_unknown"
@@ -362,6 +362,37 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
         if entities.get("products") and not entities.get("packages"):
             return "Para eu te passar certinho, voce quer garrafa, copo ou bolsa concentrada?"
         return "Nao tenho essa informacao completa aqui. Posso deixar como observacao para o representante validar?"
+    if classification.get("intent") in {"product_query", "commercial_unknown", "price_query"}:
+        passive_closings = (
+            "se precisar",
+            "e so avisar",
+            "é só avisar",
+            "estou a disposicao",
+            "estou à disposicao",
+            "posso ajudar em mais alguma coisa",
+        )
+        if any(closing in lowered for closing in passive_closings):
+            text = re.sub(r"\n*\s*Se precisar.*$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
+            text = re.sub(r"\n*\s*Estou (a|à) disposi[cç][aã]o.*$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
+            text = re.sub(r"\n*\s*Posso ajudar em mais alguma coisa\??.*$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
+        advancement_terms = (
+            "bag",
+            "concentrado",
+            "caixa",
+            "garrafa",
+            "copo",
+            "quantas",
+            "quantidade",
+            "montar",
+            "separar",
+            "pedido",
+            "sugestao",
+            "sugestão",
+        )
+        refreshed_lowered = _lower_ascii(text)
+        has_advancement_question = "?" in text and any(term in refreshed_lowered for term in advancement_terms)
+        if not has_advancement_question:
+            text = f"{text}\n\nVoce precisa de bag de suco concentrado, caixa de garrafas ou copos para consumo individual?"
     return text
 
 
