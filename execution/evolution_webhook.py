@@ -12,7 +12,9 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,8 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stderr)],
 )
 logger = logging.getLogger(__name__)
+REPLY_SPLIT_MAX_CHARS = int(os.getenv("AI_REPLY_SPLIT_MAX_CHARS", "450"))
+REPLY_SPLIT_DELAY_SECONDS = float(os.getenv("AI_REPLY_SPLIT_DELAY_SECONDS", "0.8"))
 
 
 def emit(payload: dict) -> None:
@@ -190,6 +194,60 @@ def send_whatsapp(phone: str, text: str, instance: str) -> dict:
         return {"status_code": response.status_code, "text": response.text[:500]}
 
 
+def split_reply(text: str, max_chars: int = REPLY_SPLIT_MAX_CHARS) -> list[str]:
+    text = str(text or "").strip()
+    if not text:
+        return []
+    if max_chars <= 0 or len(text) <= max_chars:
+        return [text]
+
+    chunks: list[str] = []
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+    current = ""
+
+    def flush_current() -> None:
+        nonlocal current
+        if current.strip():
+            chunks.append(current.strip())
+            current = ""
+
+    for paragraph in paragraphs or [text]:
+        if len(paragraph) > max_chars:
+            flush_current()
+            sentences = re.split(r"(?<=[.!?])\s+", paragraph)
+            sentence_current = ""
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                if len(sentence) > max_chars:
+                    if sentence_current:
+                        chunks.append(sentence_current.strip())
+                        sentence_current = ""
+                    for index in range(0, len(sentence), max_chars):
+                        chunks.append(sentence[index : index + max_chars].strip())
+                    continue
+                candidate = f"{sentence_current} {sentence}".strip()
+                if len(candidate) <= max_chars:
+                    sentence_current = candidate
+                else:
+                    chunks.append(sentence_current.strip())
+                    sentence_current = sentence
+            if sentence_current:
+                chunks.append(sentence_current.strip())
+            continue
+
+        candidate = f"{current}\n\n{paragraph}".strip() if current else paragraph
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            flush_current()
+            current = paragraph
+
+    flush_current()
+    return [chunk for chunk in chunks if chunk]
+
+
 def _is_agent_enabled(instance: str) -> bool:
     if not instance:
         return True
@@ -249,7 +307,14 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
     )
 
     if send_reply and result.get("should_reply") and result.get("reply"):
-        result["evolution_response"] = send_whatsapp(incoming["phone"], result["reply"], instance)
+        reply_parts = split_reply(result["reply"])
+        responses = []
+        for index, part in enumerate(reply_parts):
+            if index > 0 and REPLY_SPLIT_DELAY_SECONDS > 0:
+                time.sleep(REPLY_SPLIT_DELAY_SECONDS)
+            responses.append(send_whatsapp(incoming["phone"], part, instance))
+        result["reply_parts"] = reply_parts
+        result["evolution_response"] = responses[0] if len(responses) == 1 else responses
 
     return result
 

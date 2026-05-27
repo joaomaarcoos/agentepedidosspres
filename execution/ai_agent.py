@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import sys
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +37,7 @@ PAUSE_TRIGGER = "##"
 RESUME_TRIGGER = "###"
 PAUSE_HOURS = int(os.getenv("AI_PAUSE_HOURS", "5"))
 CONTEXT_MESSAGE_LIMIT = int(os.getenv("AI_CONTEXT_MESSAGE_LIMIT", "10"))
+MESSAGE_BUFFER_SECONDS = float(os.getenv("AI_MESSAGE_BUFFER_SECONDS", "5"))
 LOCAL_DATA_DIR = Path(__file__).resolve().parent.parent / ".tmp" / "data"
 CONVERSATIONS_TABLE = "ai_conversations"
 MESSAGES_TABLE = "ai_conversation_messages"
@@ -348,6 +350,32 @@ class AgentStore:
             logger.warning("Falha ao buscar historico no Supabase; usando JSON local: %s", exc)
             self.use_local = True
             return self.recent_messages(conversation_id, safe_limit)
+
+    def has_newer_user_message(self, conversation_id: str, created_at: str) -> bool:
+        if self.use_local:
+            rows = [
+                row
+                for row in self._local_read(MESSAGES_TABLE)
+                if str(row.get("conversation_id")) == str(conversation_id)
+                and row.get("role") == "user"
+                and str(row.get("created_at") or "") > str(created_at or "")
+            ]
+            return bool(rows)
+
+        try:
+            result = (
+                self.client.table(MESSAGES_TABLE)
+                .select("id")
+                .eq("conversation_id", conversation_id)
+                .eq("role", "user")
+                .gt("created_at", created_at)
+                .limit(1)
+                .execute()
+            )
+            return bool(result.data)
+        except Exception as exc:
+            logger.warning("Falha ao verificar buffer de mensagens; prosseguindo: %s", exc)
+            return False
 
     def _local_file(self, table: str) -> Path:
         LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -688,7 +716,7 @@ def process_inbound_message(
     conversation = maybe_expire_pause(store, conversation)
 
     normalized_text = normalize_text(text)
-    store.add_message(
+    user_message = store.add_message(
         str(conversation["id"]),
         "user",
         normalized_text,
@@ -706,6 +734,15 @@ def process_inbound_message(
             "should_reply": False,
             "paused_until": conversation.get("paused_until"),
         }
+
+    if MESSAGE_BUFFER_SECONDS > 0:
+        time.sleep(MESSAGE_BUFFER_SECONDS)
+        if store.has_newer_user_message(str(conversation["id"]), str(user_message.get("created_at") or "")):
+            return {
+                "action": "buffered_waiting_latest_message",
+                "should_reply": False,
+                "buffer_seconds": MESSAGE_BUFFER_SECONDS,
+            }
 
     history = store.recent_messages(str(conversation["id"]), CONTEXT_MESSAGE_LIMIT)
     module_context = store.get_module_context(safe_phone)

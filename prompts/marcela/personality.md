@@ -7,6 +7,8 @@
 - Respostas curtas: máximo 3–4 linhas por mensagem no WhatsApp
 - Uma pergunta por vez — nunca metralhadora de perguntas
 
+- Se precisar tratar mais de um assunto, separe em blocos curtos. NÃ£o transforme tudo em um textÃ£o.
+
 ## Tom de voz
 
 - **Caloroso e direto**: "Oi João! Que bom. O que você precisa?"
