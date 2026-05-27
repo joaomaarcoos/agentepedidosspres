@@ -71,6 +71,119 @@ def normalize_text(value: str | None) -> str:
     return str(value or "").strip()
 
 
+def _lower_ascii(value: str) -> str:
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", value or "")
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+
+
+def is_simple_greeting(text: str) -> bool:
+    value = _lower_ascii(text).strip(" .,!?\n\t")
+    return value in {
+        "oi",
+        "ola",
+        "bom dia",
+        "boa tarde",
+        "boa noite",
+        "opa",
+        "e ai",
+        "eae",
+        "tudo bem",
+        "oi tudo bem",
+        "ola tudo bem",
+    }
+
+
+def mentions_order_context(messages: list[dict]) -> bool:
+    keywords = (
+        "pedido",
+        "comprar",
+        "compra",
+        "cotacao",
+        "orcamento",
+        "caixa",
+        "unidade",
+        "garrafa",
+        "copo",
+        "bolsa",
+        "suco",
+        "nectar",
+    )
+    for item in messages[-8:]:
+        content = _lower_ascii(str(item.get("content") or ""))
+        if any(keyword in content for keyword in keywords):
+            return True
+    return False
+
+
+def is_prompt_attack(text: str) -> bool:
+    value = _lower_ascii(text)
+    patterns = (
+        "ignore as instrucoes",
+        "ignore suas instrucoes",
+        "ignore o prompt",
+        "prompt do sistema",
+        "system prompt",
+        "developer message",
+        "mensagem de sistema",
+        "revele seu prompt",
+        "mostre seu prompt",
+        "jailbreak",
+        "finja que",
+        "a partir de agora",
+    )
+    return any(pattern in value for pattern in patterns)
+
+
+def is_out_of_scope(text: str) -> bool:
+    value = _lower_ascii(text)
+    commercial_terms = (
+        "pedido",
+        "comprar",
+        "preco",
+        "valor",
+        "produto",
+        "suco",
+        "nectar",
+        "garrafa",
+        "copo",
+        "bolsa",
+        "entrega",
+        "representante",
+    )
+    if any(term in value for term in commercial_terms):
+        return False
+
+    out_patterns = (
+        "quem e o presidente",
+        "presidente do brasil",
+        "que dia e hoje",
+        "data de hoje",
+        "previsao do tempo",
+        "resultado do jogo",
+        "cotacao do dolar",
+        "me conte uma piada",
+        "receita de",
+        "programa em python",
+        "codigo em",
+        "noticia",
+    )
+    return any(pattern in value for pattern in out_patterns)
+
+
+def scoped_redirect_reply(has_order_context: bool = False) -> str:
+    if has_order_context:
+        return "Consigo te ajudar com assuntos da Sucos SPRES. Quer continuar o pedido que estavamos montando?"
+    return "Oi! Sou a Marcela, da Sucos SPRES. Consigo te ajudar com pedidos, produtos e precos. Quer montar um pedido ou consultar algum produto?"
+
+
+def greeting_reply(has_order_context: bool = False) -> str:
+    if has_order_context:
+        return "Oi! Sou a Marcela, da Sucos SPRES. Quer continuar seu pedido ou ajustar algum item?"
+    return "Oi! Sou a Marcela, da Sucos SPRES. Quer montar um pedido ou consultar algum produto?"
+
+
 class AgentStore:
     def __init__(self) -> None:
         self.supabase_url = os.getenv("SUPABASE_URL", "").strip()
@@ -745,6 +858,26 @@ def process_inbound_message(
             }
 
     history = store.recent_messages(str(conversation["id"]), CONTEXT_MESSAGE_LIMIT)
+    previous_history = history[:-1] if history else []
+    has_order_context = mentions_order_context(previous_history)
+
+    direct_reply = ""
+    if is_prompt_attack(normalized_text):
+        direct_reply = scoped_redirect_reply(has_order_context)
+    elif is_out_of_scope(normalized_text):
+        direct_reply = scoped_redirect_reply(has_order_context)
+    elif is_simple_greeting(normalized_text):
+        direct_reply = greeting_reply(has_order_context)
+
+    if direct_reply:
+        store.add_message(str(conversation["id"]), "assistant", direct_reply, payload_json={"source": "guardrail"})
+        return {
+            "action": "guardrail_reply",
+            "should_reply": True,
+            "reply": direct_reply,
+            "context_messages": len(history),
+        }
+
     module_context = store.get_module_context(safe_phone)
     customer = store.get_customer_for_phone(safe_phone)
     codigo_tabela = (customer or {}).get("tabela_preco_codigo") or store.get_tabela_preco_for_phone(safe_phone)
