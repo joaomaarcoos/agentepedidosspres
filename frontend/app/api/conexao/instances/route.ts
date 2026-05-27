@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listInstances, createInstance } from "@/lib/server/conexao";
 import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
+import { randomBytes } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,14 +21,27 @@ export async function GET() {
   }
 }
 
-function buildWebhookUrl(request: Request): string {
+function buildWebhookUrl(request: Request, token: string): string {
   const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL;
+  let webhookUrl: URL;
+
   if (appUrl) {
     const base = appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
-    return `${base}/api/evolution/webhook`;
+    webhookUrl = new URL("/api/evolution/webhook", base);
+  } else {
+    const url = new URL(request.url);
+    webhookUrl = new URL("/api/evolution/webhook", `${url.protocol}//${url.host}`);
   }
-  const url = new URL(request.url);
-  return `${url.protocol}//${url.host}/api/evolution/webhook`;
+
+  if (token) {
+    webhookUrl.searchParams.set("token", token);
+  }
+
+  return webhookUrl.toString();
+}
+
+function createWebhookToken(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 const DEFAULT_MSG_CALL = "No momento não consigo atender. Envie uma mensagem!";
@@ -42,9 +56,10 @@ export async function POST(request: Request) {
     if (!name || typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "Nome da instancia e obrigatorio" }, { status: 400 });
     }
+    const webhookToken = process.env.EVOLUTION_WEBHOOK_SECRET || createWebhookToken();
     const result = await createInstance({
       name: name.trim(),
-      webhookUrl: buildWebhookUrl(request),
+      webhookUrl: buildWebhookUrl(request, webhookToken),
       msgCall: DEFAULT_MSG_CALL,
     });
     return NextResponse.json(result);

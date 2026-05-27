@@ -261,12 +261,14 @@ class AgentStore:
 
             tipo = ""
             mensagem_inicial = payload.get("mensagem", "")
+            pedido_sugerido = []
             raw_reasoning = target_data.get("ai_reasoning")
             if raw_reasoning:
                 try:
                     reasoning = json.loads(raw_reasoning)
                     tipo = reasoning.get("tipo_abordagem", "")
                     mensagem_inicial = reasoning.get("mensagem") or mensagem_inicial
+                    pedido_sugerido = reasoning.get("pedido_sugerido") or []
                 except (json.JSONDecodeError, TypeError):
                     pass
 
@@ -275,6 +277,7 @@ class AgentStore:
                 "customer_name": target_data.get("customer_name"),
                 "top_items": target_data.get("top_items_json") or [],
                 "last_3_orders": target_data.get("last_3_orders_json") or [],
+                "pedido_sugerido": pedido_sugerido,
                 "predicted_next_order_date": target_data.get("predicted_next_order_date"),
                 "tipo_abordagem": tipo,
                 "ai_mensagem_inicial": mensagem_inicial,
@@ -406,6 +409,31 @@ class AgentStore:
             logger.warning("Falha ao buscar tabela de preço para %s: %s", phone, exc)
             return None
 
+    def get_customer_for_phone(self, phone: str) -> dict | None:
+        """Retorna o cliente vinculado ao telefone normalizado, quando existir."""
+        if self.use_local or not phone:
+            return None
+
+        candidates = {phone}
+        if phone.startswith("55") and len(phone) > 11:
+            candidates.add(phone[2:])
+        elif len(phone) in (10, 11):
+            candidates.add(f"55{phone}")
+
+        try:
+            result = (
+                self.client.table("clic_clientes")
+                .select("*")
+                .in_("telefone", list(candidates))
+                .limit(1)
+                .execute()
+            )
+            rows = result.data or []
+            return rows[0] if rows else None
+        except Exception as exc:
+            logger.warning("Falha ao buscar cliente para %s: %s", phone, exc)
+            return None
+
     def get_produtos_tabela(self, codigo_tabela: str) -> list[dict]:
         """Retorna itens da tabela de preço do Senior ERP para o cliente."""
         if self.use_local or not codigo_tabela:
@@ -421,6 +449,29 @@ class AgentStore:
             return result.data or []
         except Exception as exc:
             logger.warning("Falha ao buscar itens da tabela %s: %s", codigo_tabela, exc)
+            return []
+
+    def get_recent_orders_for_customer(self, customer: dict | None, limit: int = 4) -> list[dict]:
+        """Busca os ultimos pedidos reais do cliente em rep_order_base."""
+        if self.use_local or not customer:
+            return []
+
+        cod_cli = customer.get("cod_cli") or customer.get("cpf_cnpj") or customer.get("external_id")
+        if not cod_cli:
+            return []
+
+        try:
+            result = (
+                self.client.table("rep_order_base")
+                .select("num_ped, dat_emi, sit_ped, order_total_value, items_json")
+                .eq("cod_cli", int(cod_cli))
+                .order("dat_emi", desc=True)
+                .limit(max(1, min(limit, 8)))
+                .execute()
+            )
+            return result.data or []
+        except Exception as exc:
+            logger.warning("Falha ao buscar ultimos pedidos do cliente %s: %s", cod_cli, exc)
             return []
 
 
@@ -658,7 +709,23 @@ def process_inbound_message(
 
     history = store.recent_messages(str(conversation["id"]), CONTEXT_MESSAGE_LIMIT)
     module_context = store.get_module_context(safe_phone)
-    codigo_tabela = store.get_tabela_preco_for_phone(safe_phone)
+    customer = store.get_customer_for_phone(safe_phone)
+    codigo_tabela = (customer or {}).get("tabela_preco_codigo") or store.get_tabela_preco_for_phone(safe_phone)
+    recent_orders = store.get_recent_orders_for_customer(customer, limit=4)
+    if customer or recent_orders:
+        module_context = {**(module_context or {})}
+        if customer:
+            module_context["customer_profile"] = {
+                "nome": customer.get("nome") or customer.get("fantasia") or customer.get("razao_social"),
+                "cod_cli": customer.get("cod_cli") or customer.get("cpf_cnpj"),
+                "tabela_preco_codigo": customer.get("tabela_preco_codigo"),
+                "tabela_preco_nome": customer.get("tabela_preco_nome"),
+                "cidade": customer.get("cidade"),
+                "uf": customer.get("uf"),
+            }
+            module_context["customer_name"] = module_context.get("customer_name") or module_context["customer_profile"].get("nome")
+        if recent_orders:
+            module_context["recent_orders"] = recent_orders
     if codigo_tabela:
         produtos = store.get_produtos_tabela(codigo_tabela)
     else:

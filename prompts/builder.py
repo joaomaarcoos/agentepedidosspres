@@ -69,7 +69,55 @@ def build_prompt(context: dict | None = None) -> str:
     if section:
         base += f"\n\n---\n\n{section}"
 
+    customer_section = _customer_section(context)
+    if customer_section:
+        base += f"\n\n---\n\n{customer_section}"
+
     return base
+
+
+def _customer_section(ctx: dict) -> str:
+    linhas: list[str] = []
+    profile = ctx.get("customer_profile") or {}
+    if profile:
+        linhas += [
+            "## CONTEXTO DO CLIENTE IDENTIFICADO",
+            "",
+            f"Nome: {profile.get('nome') or '-'}",
+            f"Codigo do cliente: {profile.get('cod_cli') or '-'}",
+            f"Tabela de preco: {profile.get('tabela_preco_codigo') or '-'} - {profile.get('tabela_preco_nome') or '-'}",
+        ]
+        cidade = profile.get("cidade")
+        uf = profile.get("uf")
+        if cidade or uf:
+            linhas.append(f"Localidade: {cidade or '-'} / {uf or '-'}")
+        linhas.append("")
+
+    pedido = _fmt_pedido_sugerido(ctx.get("pedido_sugerido") or [])
+    if pedido:
+        if not linhas:
+            linhas += ["## CONTEXTO DO CLIENTE IDENTIFICADO", ""]
+        linhas += [
+            "Pedido sugerido pelo modulo comercial:",
+            pedido,
+            "",
+            "Use como sugestao ajustavel. Nao diga que ja esta fechado.",
+            "",
+        ]
+
+    pedidos = _fmt_recent_orders(ctx.get("recent_orders") or [])
+    if pedidos:
+        if not linhas:
+            linhas += ["## CONTEXTO DO CLIENTE IDENTIFICADO", ""]
+        linhas += [
+            "Ultimos 4 pedidos reais do cliente:",
+            pedidos,
+            "",
+            "Use estes dados para responder sobre historico, repetir pedido ou sugerir recompra.",
+            "Ao mencionar historico, preserve produto, derivacao/unidade quando existir, quantidade e valores informados.",
+        ]
+
+    return "\n".join(linhas).strip()
 
 
 def _module_section(module: str, ctx: dict) -> str:
@@ -202,4 +250,49 @@ def _fmt_produtos(items: list[dict]) -> str:
         nome = it.get("desPro") or it.get("codPro", "")
         if nome:
             linhas.append(f"- {nome}")
+    return "\n".join(linhas)
+
+
+def _fmt_pedido_sugerido(items: list[dict]) -> str:
+    linhas = []
+    for it in items[:10]:
+        cod = it.get("codPro") or it.get("cod_produto") or ""
+        nome = it.get("desPro") or it.get("nome") or cod
+        qtd = it.get("qtdPed") or it.get("quantidade") or ""
+        partes = [str(nome)]
+        if cod:
+            partes.append(f"codigo {cod}")
+        if qtd:
+            partes.append(f"quantidade sugerida {qtd}")
+        linhas.append(f"- {'; '.join(partes)}")
+    return "\n".join(linhas)
+
+
+def _fmt_recent_orders(orders: list[dict]) -> str:
+    linhas = []
+    for order in orders[:4]:
+        numero = order.get("num_ped") or "-"
+        data = order.get("dat_emi") or "-"
+        total = _fmt_preco(order.get("order_total_value"))
+        status = order.get("sit_ped") or "-"
+        linhas.append(f"- Pedido {numero} | data {data} | status {status} | total {total}")
+
+        items = order.get("items_json") or []
+        if not isinstance(items, list):
+            continue
+        for item in items[:12]:
+            cod = item.get("codPro") or item.get("cod_produto") or ""
+            nome = item.get("desPro") or item.get("nome") or cod or "Produto"
+            qtd = item.get("qtdPed") or item.get("quantidade") or "-"
+            unidade = item.get("uniMed") or item.get("unidade") or ""
+            preco = _fmt_preco(item.get("preUni") or item.get("preco"))
+            total_item = _fmt_preco(item.get("vlrTotal") or item.get("valor_total"))
+            detalhe = f"  - {nome}"
+            if cod:
+                detalhe += f" [{cod}]"
+            detalhe += f": qtd {qtd}"
+            if unidade:
+                detalhe += f" {unidade}"
+            detalhe += f", unitario {preco}, total {total_item}"
+            linhas.append(detalhe)
     return "\n".join(linhas)

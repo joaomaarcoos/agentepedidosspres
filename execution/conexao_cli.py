@@ -22,7 +22,9 @@ import logging
 import os
 import sys
 import time
+import secrets
 from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 from dotenv import load_dotenv
@@ -237,9 +239,42 @@ def cmd_list() -> int:
 
 def _default_webhook_url() -> str:
     app_url = os.getenv("APP_URL", "").rstrip("/")
-    if app_url:
-        return f"{app_url}/api/evolution/webhook"
-    return ""
+    if not app_url:
+        return ""
+
+    token = os.getenv("EVOLUTION_WEBHOOK_SECRET") or secrets.token_urlsafe(32)
+    webhook_url = f"{app_url}/api/evolution/webhook"
+    if token:
+        webhook_url = f"{webhook_url}?{urlencode({'token': token})}"
+    return webhook_url
+
+
+def _webhook_token_from_url(webhook_url: str) -> str:
+    if not webhook_url:
+        return ""
+    try:
+        parsed = urlparse(webhook_url)
+        values = parse_qs(parsed.query).get("token") or []
+        return values[0] if values else ""
+    except Exception:
+        return ""
+
+
+def _webhook_token_key(instance_name: str) -> str:
+    return f"evolution_webhook_token__{instance_name}"
+
+
+def _save_webhook_token(instance_name: str, token: str) -> None:
+    if not instance_name or not token:
+        return
+    try:
+        db = _agent_db()
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        db.table("system_settings").upsert(
+            {"key": _webhook_token_key(instance_name), "value": token, "updated_at": now}
+        ).execute()
+    except Exception as exc:
+        logger.warning("Falha ao persistir token do webhook da instância %s: %s", instance_name, exc)
 
 
 def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
@@ -277,6 +312,8 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
         payload = r.json()
         inst = payload.get("instance") or {}
         instance_name = inst.get("instanceName") or name
+        webhook_token = _webhook_token_from_url(webhook_url)
+        _save_webhook_token(instance_name, webhook_token)
     except requests.HTTPError as exc:
         return failure(f"Erro ao criar instancia ({exc.response.status_code}): {exc.response.text[:300]}")
     except Exception as exc:
@@ -286,11 +323,13 @@ def cmd_create(name: str, webhook_url: str, msg_call: str) -> int:
     webhook_warning = None
     if webhook_url:
         webhook_body = {
-            "enabled": True,
-            "url": webhook_url,
-            "webhookByEvents": False,
-            "webhookBase64": True,
-            "events": ["MESSAGES_UPSERT"],
+            "webhook": {
+                "enabled": True,
+                "url": webhook_url,
+                "webhookByEvents": False,
+                "webhookBase64": True,
+                "events": ["MESSAGES_UPSERT"],
+            }
         }
         try:
             rw = requests.post(
