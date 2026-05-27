@@ -326,17 +326,19 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
             <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
               <SectionTitle><MessageSquare size={11} style={{ display: "inline", marginRight: 5 }} />Mensagem WhatsApp</SectionTitle>
               <div style={{ padding: "14px 18px" }}>
-                <div style={{
-                  background: "#1a2a1a", border: "1px solid #2d4a2d",
-                  borderRadius: "4px 12px 12px 12px",
-                  padding: "12px 14px", display: "inline-block", maxWidth: "100%",
-                }}>
-                  <p style={{
-                    margin: 0, fontSize: 13, color: "#e8f5e8",
-                    lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                <div style={{ display: "flex" }}>
+                  <div style={{
+                    background: "#1a2a1a", border: "1px solid #2d4a2d",
+                    borderRadius: "4px 12px 12px 12px",
+                    padding: "12px 14px", maxWidth: "92%",
                   }}>
-                    {ai.mensagem}
-                  </p>
+                    <p style={{
+                      margin: 0, fontSize: 13, color: "#e8f5e8",
+                      lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                    }}>
+                      {ai.mensagem}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -353,8 +355,8 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
                     padding: "9px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined,
                     gap: 12,
                   }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 2 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                         {item.desPro}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--accent)", fontFamily: "monospace" }}>{item.codPro}</div>
@@ -383,8 +385,8 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
                     padding: "9px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined,
                     gap: 12,
                   }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 2 }}>{item.desPro}</div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{item.desPro}</div>
                       <div style={{ fontSize: 11, color: "var(--accent)", fontFamily: "monospace" }}>{item.codPro}</div>
                     </div>
                     <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
@@ -438,7 +440,7 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
                           background: "var(--surface)", border: "1px solid var(--border)",
                           borderRadius: 7, padding: "6px 10px", gap: 8,
                         }}>
-                          <span style={{ fontSize: 12, color: "var(--text)", minWidth: 0 }}>
+                          <span style={{ fontSize: 12, color: "var(--text)", minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                             {it.desPro || it.codPro}
                           </span>
                           <div style={{ flexShrink: 0, display: "flex", gap: 8, alignItems: "center" }}>

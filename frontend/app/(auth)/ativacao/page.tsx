@@ -241,10 +241,12 @@ function DetailDrawer({
                 </span>
               </div>
               <div style={{ padding: "14px 18px" }}>
-                <div style={{ background: "#1a2a1a", border: "1px solid #2d4a2d", borderRadius: "4px 12px 12px 12px", padding: "12px 14px", display: "inline-block", maxWidth: "100%" }}>
-                  <p style={{ margin: 0, fontSize: 13, color: "#e8f5e8", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                    {ai.mensagem}
-                  </p>
+                <div style={{ display: "flex" }}>
+                  <div style={{ background: "#1a2a1a", border: "1px solid #2d4a2d", borderRadius: "4px 12px 12px 12px", padding: "12px 14px", maxWidth: "92%" }}>
+                    <p style={{ margin: 0, fontSize: 13, color: "#e8f5e8", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      {ai.mensagem}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -264,7 +266,7 @@ function DetailDrawer({
                     <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#818cf8", flexShrink: 0 }}>
                       {i + 1}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
                       <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {item.desPro}
                       </div>
@@ -309,7 +311,7 @@ function DetailDrawer({
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {(p.itens ?? []).map((it, j) => (
                         <div key={j} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 10px", gap: 8 }}>
-                          <span style={{ fontSize: 12, color: "var(--text)", minWidth: 0 }}>{it.desPro || it.codPro}</span>
+                          <span style={{ fontSize: 12, color: "var(--text)", minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{it.desPro || it.codPro}</span>
                           <div style={{ flexShrink: 0, display: "flex", gap: 8, alignItems: "center" }}>
                             <span style={{ fontSize: 11, color: "var(--muted)" }}>{it.qtdPed} un</span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
