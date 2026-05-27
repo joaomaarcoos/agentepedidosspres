@@ -49,100 +49,97 @@ function PedidoDrawer({ pedido, onClose }: { pedido: Pedido; onClose: () => void
   const itens: PedidoItem[] = pedido.items_json || [];
   const totalCalculado = itens.reduce((sum, item) => sum + (item.vlrTotal || 0), 0);
 
+  const sitColor = (() => {
+    const s = (pedido.sit_ped || "").toLowerCase();
+    if (s.includes("faturado") || s.includes("aprovado") || s.includes("fechado") || s.includes("integrado")) return "#22c55e";
+    if (s.includes("cancel")) return "#ef4444";
+    return "#94a3b8";
+  })();
+
   return (
     <>
-      <div
-        onClick={onClose}
-        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, backdropFilter: "blur(2px)" }}
-      />
-      <div
-        style={{
-          position: "fixed", top: 0, right: 0, bottom: 0,
-          width: "min(620px, 92vw)",
-          background: "var(--surface)", borderLeft: "1px solid var(--border)",
-          zIndex: 101, display: "flex", flexDirection: "column",
-          boxShadow: "-8px 0 32px rgba(0,0,0,0.3)",
-        }}
-      >
-        <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <ShoppingCart size={16} color="var(--accent)" />
-              <span style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>Pedido #{pedido.num_ped}</span>
-              <SitBadge sit={pedido.sit_ped} />
-            </div>
-            <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
-              <InfoChip label="Cliente" value={pedido.customer_name || String(pedido.cod_cli || "-")} />
-              <InfoChip label="CPF/CNPJ" value={String(pedido.cod_cli || "-")} />
-              <InfoChip label="Data" value={pedido.dat_emi || "-"} />
-              <InfoChip
-                label="Total"
-                value={pedido.order_total_value != null
-                  ? `R$ ${pedido.order_total_value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-                  : "-"}
-                highlight
-              />
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "var(--muted)", display: "flex", alignItems: "center" }}
-          >
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(660px, 94vw)", background: "var(--surface)", borderLeft: "1px solid var(--border)", zIndex: 101, display: "flex", flexDirection: "column", boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" }}>
+
+        <div style={{ background: "linear-gradient(135deg, #0d1b3e 0%, #0a1628 100%)", padding: "24px 24px 20px", position: "relative", flexShrink: 0 }}>
+          <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "rgba(255,255,255,0.7)", display: "flex", alignItems: "center" }}>
             <X size={16} />
           </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
+            <div style={{ width: 50, height: 50, borderRadius: 14, background: "rgba(59,130,246,0.2)", border: "2px solid rgba(59,130,246,0.4)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <ShoppingCart size={20} color="#60a5fa" />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 3 }}>
+                Pedido #{pedido.num_ped}
+              </div>
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {pedido.customer_name || String(pedido.cod_cli || "")}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ padding: "3px 10px", borderRadius: 20, background: `${sitColor}22`, color: sitColor, border: `1px solid ${sitColor}55`, fontSize: 11, fontWeight: 600 }}>
+              {pedido.sit_ped || "—"}
+            </span>
+            {pedido.dat_emi && (
+              <span style={{ padding: "3px 10px", borderRadius: 20, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.12)", fontSize: 11 }}>
+                {pedido.dat_emi}
+              </span>
+            )}
+            <span style={{ padding: "3px 10px", borderRadius: 20, background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.12)", fontSize: 11 }}>
+              {itens.length} {itens.length === 1 ? "item" : "itens"}
+            </span>
+            <span style={{ padding: "3px 12px", borderRadius: 20, background: "rgba(99,102,241,0.2)", color: "#818cf8", border: "1px solid rgba(99,102,241,0.35)", fontSize: 13, fontWeight: 700 }}>
+              R$ {(pedido.order_total_value ?? totalCalculado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+            </span>
+          </div>
         </div>
 
-        <div style={{ flex: 1, overflow: "auto", padding: "0 0 24px" }}>
+        <div style={{ flex: 1, overflow: "auto" }}>
           {itens.length === 0 ? (
             <div style={{ padding: 48, textAlign: "center", color: "var(--muted)", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
               <Package size={32} color="var(--border)" />
               <span>Nenhum item salvo para este pedido.</span>
             </div>
           ) : (
-            <>
-              <div style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>
-                  {itens.length} {itens.length === 1 ? "produto" : "produtos"}
-                </span>
+            <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
+                {itens.length} {itens.length === 1 ? "produto" : "produtos"}
               </div>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr style={{ background: "var(--surface2)" }}>
-                    {["Codigo", "Produto", "Qtd", "Unid", "Preco Unit.", "Total"].map((h) => (
-                      <th key={h} style={{ padding: "9px 14px", textAlign: ["Qtd", "Preco Unit.", "Total"].includes(h) ? "right" : "left", fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {itens.map((item, idx) => (
-                    <tr key={idx} style={{ borderTop: "1px solid var(--border)", background: idx % 2 === 0 ? "transparent" : "var(--surface2)44" }}>
-                      <td style={{ padding: "10px 14px", fontSize: 12, color: "var(--accent)", fontWeight: 600, fontFamily: "monospace", whiteSpace: "nowrap" }}>{item.codPro || "-"}</td>
-                      <td style={{ padding: "10px 14px", fontSize: 13, color: "var(--text)", maxWidth: 200 }}>{item.desPro || "-"}</td>
-                      <td style={{ padding: "10px 14px", fontSize: 13, color: "var(--text)", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>{item.qtdPed != null ? Number(item.qtdPed).toLocaleString("pt-BR") : "-"}</td>
-                      <td style={{ padding: "10px 14px", fontSize: 11, color: "var(--muted)", textAlign: "right", whiteSpace: "nowrap" }}>{item.uniMed || "UN"}</td>
-                      <td style={{ padding: "10px 14px", fontSize: 12, color: "var(--text)", textAlign: "right", whiteSpace: "nowrap" }}>
-                        {item.preUni != null ? `R$ ${item.preUni.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "-"}
-                      </td>
-                      <td style={{ padding: "10px 14px", fontSize: 13, color: "var(--text)", fontWeight: 700, textAlign: "right", whiteSpace: "nowrap" }}>
-                        {item.vlrTotal != null ? `R$ ${item.vlrTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
+              {itens.map((item, idx) => (
+                <div key={idx} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+                  <div style={{ width: 42, height: 42, borderRadius: 10, background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: "#818cf8", lineHeight: 1 }}>{Number(item.qtdPed ?? 0).toLocaleString("pt-BR")}</span>
+                    <span style={{ fontSize: 9, color: "#818cf8", opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.3 }}>{item.uniMed || "un"}</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 3 }}>
+                      {item.desPro || "—"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>
+                      {item.codPro || "—"}
+                      {item.preUni != null && ` · R$ ${item.preUni.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} / un`}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
+                      {item.vlrTotal != null ? `R$ ${item.vlrTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—"}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
         {itens.length > 0 && (
-          <div style={{ padding: "16px 24px", borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface2)" }}>
+          <div style={{ padding: "16px 24px", borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface2)", flexShrink: 0 }}>
             <span style={{ fontSize: 12, color: "var(--muted)" }}>
               {itens.length} {itens.length === 1 ? "item" : "itens"} · {itens.reduce((s, i) => s + (i.qtdPed || 0), 0).toLocaleString("pt-BR")} unidades
             </span>
             <div style={{ textAlign: "right" }}>
-              <span style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 2 }}>TOTAL DOS ITENS</span>
+              <span style={{ fontSize: 10, color: "var(--muted)", display: "block", marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.5 }}>Total</span>
               <span style={{ fontSize: 18, fontWeight: 800, color: "var(--text)" }}>
                 R$ {totalCalculado.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
               </span>

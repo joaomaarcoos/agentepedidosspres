@@ -8,154 +8,127 @@ import type { Cliente, ClientesListResponse } from "@/lib/types";
 
 function Drawer({ cliente, onClose }: { cliente: Cliente; onClose: () => void }) {
   const topProdutos = cliente.top_produtos_json || [];
+  const initials = (cliente.nome || cliente.razao_social || "C")
+    .split(" ")
+    .slice(0, 2)
+    .map((w: string) => w[0])
+    .join("")
+    .toUpperCase();
 
   return (
     <>
-      <div
-        onClick={onClose}
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.45)",
-          zIndex: 100,
-          backdropFilter: "blur(2px)",
-        }}
-      />
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: "min(620px, 92vw)",
-          background: "var(--surface)",
-          borderLeft: "1px solid var(--border)",
-          zIndex: 101,
-          display: "flex",
-          flexDirection: "column",
-          boxShadow: "-8px 0 32px rgba(0,0,0,0.3)",
-        }}
-      >
-        <div
-          style={{
-            padding: "20px 24px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "var(--text)", marginBottom: 6 }}>
-              {cliente.nome || cliente.razao_social || cliente.documento || "Cliente"}
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <Chip label={`Cod. ${cliente.cod_cli ?? "—"}`} />
-              <Chip label={cliente.ativo === false ? "Inativo" : "Ativo"} tone={cliente.ativo === false ? "error" : "success"} />
-              {cliente.total_pedidos != null && <Chip label={`${cliente.total_pedidos} pedidos`} tone="accent" />}
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "transparent",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "6px 8px",
-              cursor: "pointer",
-              color: "var(--muted)",
-            }}
-          >
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, backdropFilter: "blur(2px)" }} />
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(660px, 94vw)", background: "var(--surface)", borderLeft: "1px solid var(--border)", zIndex: 101, display: "flex", flexDirection: "column", boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" }}>
+
+        <div style={{ background: "linear-gradient(135deg, #0a2e1a 0%, #0d1f0d 100%)", padding: "24px 24px 20px", position: "relative", flexShrink: 0 }}>
+          <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "rgba(255,255,255,0.7)", display: "flex", alignItems: "center" }}>
             <X size={16} />
           </button>
-        </div>
-
-        <div style={{ padding: 24, display: "grid", gap: 16, overflow: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
-            {[
-              ["Razao social", cliente.razao_social || "—"],
-              ["Fantasia", cliente.fantasia || "—"],
-              ["Documento", cliente.documento || "—"],
-              ["Email", cliente.email || "—"],
-              ["Telefone", cliente.telefone || "—"],
-              ["Cidade / UF", [cliente.cidade, cliente.uf].filter(Boolean).join(" / ") || "—"],
-              ["Ultimo pedido", cliente.ultimo_pedido_numero ? `#${cliente.ultimo_pedido_numero}` : "—"],
-              ["Valor do ultimo pedido", cliente.ultimo_pedido_valor != null ? `R$ ${cliente.ultimo_pedido_valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—"],
-              ["Ultima compra", cliente.ultimo_pedido_em ? new Date(cliente.ultimo_pedido_em).toLocaleString("pt-BR") : "—"],
-              ["Proximo pedido estimado", cliente.proximo_pedido_estimado_em ? new Date(cliente.proximo_pedido_estimado_em).toLocaleDateString("pt-BR") : "—"],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                style={{
-                  background: "var(--surface2)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 12,
-                  padding: "14px 16px",
-                }}
-              >
-                <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>
-                  {label}
-                </div>
-                <div style={{ fontSize: 14, color: "var(--text)" }}>{value}</div>
-              </div>
-            ))}
-          </div>
-
-          <div
-            style={{
-              background: "var(--surface2)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ fontWeight: 700, fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
-                Top produtos
-              </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+            <div style={{ width: 52, height: 52, borderRadius: 14, background: "rgba(34,197,94,0.2)", border: "2px solid rgba(34,197,94,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800, color: "#4ade80", flexShrink: 0 }}>
+              {initials}
             </div>
-            {topProdutos.length === 0 ? (
-              <div style={{ padding: 16, color: "var(--muted)", fontSize: 13 }}>Nenhum top produto consolidado.</div>
-            ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Codigo", "Produto", "Qtd", "Valor"].map((header) => (
-                      <th
-                        key={header}
-                        style={{
-                          padding: "10px 14px",
-                          textAlign: header === "Qtd" || header === "Valor" ? "right" : "left",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          color: "var(--muted)",
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {header}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {topProdutos.slice(0, 8).map((produto, index) => (
-                    <tr key={index} style={{ borderTop: "1px solid var(--border)" }}>
-                      <td style={{ padding: "10px 14px", color: "var(--accent)", fontFamily: "monospace" }}>
-                        {String(produto.codPro || "—")}
-                      </td>
-                      <td style={{ padding: "10px 14px", color: "var(--text)" }}>{String(produto.desPro || "—")}</td>
-                      <td style={{ padding: "10px 14px", color: "var(--text)", textAlign: "right" }}>
-                        {Number(produto.total_qtd || 0).toLocaleString("pt-BR")}
-                      </td>
-                      <td style={{ padding: "10px 14px", color: "var(--text)", textAlign: "right" }}>
-                        R$ {Number(produto.total_valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 3 }}>
+                {cliente.nome || cliente.razao_social || cliente.documento || "Cliente"}
+              </div>
+              {cliente.razao_social && cliente.nome !== cliente.razao_social && (
+                <div style={{ fontSize: 13, color: "rgba(255,255,255,0.45)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {cliente.razao_social}
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Chip label={`Cod. ${cliente.cod_cli ?? "—"}`} />
+            <Chip label={cliente.ativo === false ? "Inativo" : "Ativo"} tone={cliente.ativo === false ? "error" : "success"} />
+            {cliente.total_pedidos != null && <Chip label={`${cliente.total_pedidos} pedidos`} tone="accent" />}
+            {cliente.valor_total_acumulado != null && (
+              <Chip label={`R$ ${Number(cliente.valor_total_acumulado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} tone="accent" />
             )}
           </div>
+        </div>
+
+        <div style={{ flex: 1, overflow: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+              Identificação e contato
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
+              {([
+                ["Razão social", cliente.razao_social || "—"],
+                ["Fantasia", cliente.fantasia || "—"],
+                ["Documento", cliente.documento || "—"],
+                ["Cidade / UF", [cliente.cidade, cliente.uf].filter(Boolean).join(" / ") || "—"],
+                ["Email", cliente.email || "—"],
+                ["Telefone", cliente.telefone || "—"],
+              ] as [string, string][]).map(([label, value]) => (
+                <div key={label} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, wordBreak: "break-word" }}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+              Histórico de compras
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
+              {([
+                ["Último pedido", cliente.ultimo_pedido_numero ? `#${cliente.ultimo_pedido_numero}` : "—"],
+                ["Data da última compra", cliente.ultimo_pedido_em ? new Date(cliente.ultimo_pedido_em).toLocaleDateString("pt-BR") : "—"],
+                ["Valor do último pedido", cliente.ultimo_pedido_valor != null ? `R$ ${cliente.ultimo_pedido_valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "—"],
+                ["Próximo pedido estimado", cliente.proximo_pedido_estimado_em ? new Date(cliente.proximo_pedido_estimado_em).toLocaleDateString("pt-BR") : "—"],
+              ] as [string, string][]).map(([label, value]) => (
+                <div key={label} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {topProdutos.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                Top produtos{topProdutos.length > 8 ? ` — top 8 de ${topProdutos.length}` : ` — ${topProdutos.length} produtos`}
+              </div>
+              <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+                {topProdutos.slice(0, 8).map((produto, index) => (
+                  <div key={index} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: index < Math.min(topProdutos.length, 8) - 1 ? "1px solid var(--border)" : "none" }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#818cf8", flexShrink: 0 }}>
+                      {index + 1}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {String(produto.desPro || "—")}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>
+                        {String(produto.codPro || "—")}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
+                        {Number(produto.total_qtd || 0).toLocaleString("pt-BR")} un
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                        R$ {Number(produto.total_valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {topProdutos.length === 0 && (
+            <div style={{ padding: "20px 16px", textAlign: "center", color: "var(--muted)", fontSize: 13, background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12 }}>
+              Nenhum top produto consolidado.
+            </div>
+          )}
         </div>
       </div>
     </>
