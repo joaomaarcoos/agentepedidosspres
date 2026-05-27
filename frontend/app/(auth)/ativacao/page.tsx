@@ -108,181 +108,223 @@ function DetailDrawer({
   onClose: () => void;
 }) {
   const ai = parseAi(target.ai_reasoning);
+  const isApproved = target.status === "activation_approved" || ai?.decisao === "sim";
+  const initials = (target.customer_name || "C").split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
 
   return (
     <>
       <div
         onClick={onClose}
-        style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
-          zIndex: 40, backdropFilter: "blur(2px)",
-        }}
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 40, backdropFilter: "blur(2px)" }}
       />
       <div style={{
-        position: "fixed", right: 0, top: 0, bottom: 0, width: 680,
-        background: "var(--bg)", borderLeft: "1px solid var(--border)",
-        zIndex: 50, overflowY: "auto", padding: 32,
+        position: "fixed", right: 0, top: 0, bottom: 0, width: "min(680px, 96vw)",
+        background: "var(--surface)", borderLeft: "1px solid var(--border)",
+        zIndex: 50, display: "flex", flexDirection: "column",
+        boxShadow: "-8px 0 40px rgba(0,0,0,0.35)",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>
-              {target.customer_name || target.cpf_cnpj}
+
+        {/* gradient top bar */}
+        <div style={{
+          background: isApproved
+            ? "linear-gradient(135deg, #2a1500 0%, #1a0d00 100%)"
+            : "linear-gradient(135deg, #1a1228 0%, #100d1a 100%)",
+          padding: "24px 22px 20px",
+          position: "relative",
+          flexShrink: 0,
+        }}>
+          <button
+            onClick={onClose}
+            style={{
+              position: "absolute", top: 16, right: 16,
+              background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 8, padding: "6px 8px", cursor: "pointer",
+              color: "rgba(255,255,255,0.7)", display: "flex", alignItems: "center", lineHeight: 0,
+            }}
+          >
+            <X size={15} />
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+            <div style={{
+              width: 50, height: 50, borderRadius: 14, flexShrink: 0,
+              background: isApproved ? "rgba(251,146,60,0.2)" : "rgba(139,92,246,0.18)",
+              border: `2px solid ${isApproved ? "rgba(251,146,60,0.4)" : "rgba(139,92,246,0.35)"}`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 17, fontWeight: 800,
+              color: isApproved ? "#fb923c" : "#a78bfa",
+            }}>
+              {initials}
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <StatusBadge status={target.status} />
-              {ai?.tipo_abordagem && <TipoBadge tipo={ai.tipo_abordagem} />}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 3 }}>
+                {target.customer_name || target.cpf_cnpj}
+              </div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>
+                {target.cpf_cnpj}
+                {target.customer_phone && ` · 📱 ${target.customer_phone}`}
+              </div>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)" }}>
-            <X size={20} />
-          </button>
-        </div>
-
-        {/* Dados do cliente */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
-          {[
-            { label: "CPF/CNPJ", value: target.cpf_cnpj },
-            { label: "Telefone", value: target.customer_phone || "—" },
-            { label: "Último Pedido", value: fmtDate(target.last_order_date) },
-            { label: "Pedidos 30d", value: target.orders_count_30d ?? "—" },
-            { label: "Candidato desde", value: fmtDate(target.created_at) },
-            { label: "Atualizado", value: fmtDate(target.updated_at) },
-          ].map(({ label, value }) => (
-            <div key={label} style={{
-              background: "var(--surface)", border: "1px solid var(--border)",
-              borderRadius: 10, padding: "12px 14px",
-            }}>
-              <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
-                {label}
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                {String(value)}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Decisão da IA */}
-        {ai && (
-          <div style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 12, padding: 20, marginBottom: 20,
-          }}>
-            <div style={{ fontWeight: 700, fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>
-              Decisão da IA
-            </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                {ai.decisao === "sim"
-                  ? <CheckCircle2 size={16} color="var(--success)" />
-                  : <XCircle size={16} color="var(--error)" />}
-                <span style={{ fontSize: 13, fontWeight: 600, color: ai.decisao === "sim" ? "var(--success)" : "var(--error)" }}>
-                  {ai.decisao === "sim" ? "Abordar" : "Descartar"}
-                </span>
-              </div>
-              {ai.nivel_confianca && (
-                <span style={{ fontSize: 12, color: CONFIANCA_COLOR[ai.nivel_confianca] ?? "var(--muted)" }}>
-                  Confiança: {CONFIANCA_LABEL[ai.nivel_confianca] ?? ai.nivel_confianca}
-                </span>
-              )}
-              {ai.tipo_abordagem && <TipoBadge tipo={ai.tipo_abordagem} />}
-            </div>
-            {ai.motivo && (
-              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5, margin: 0 }}>
-                {ai.motivo}
-              </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <StatusBadge status={target.status} />
+            {ai?.tipo_abordagem && <TipoBadge tipo={ai.tipo_abordagem} />}
+            {ai?.nivel_confianca && (
+              <span style={{
+                padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                background: `${CONFIANCA_COLOR[ai.nivel_confianca] ?? "var(--muted)"}22`,
+                color: CONFIANCA_COLOR[ai.nivel_confianca] ?? "var(--muted)",
+                border: `1px solid ${CONFIANCA_COLOR[ai.nivel_confianca] ?? "var(--muted)"}44`,
+              }}>
+                {CONFIANCA_LABEL[ai.nivel_confianca] ?? ai.nivel_confianca}
+              </span>
             )}
           </div>
-        )}
+        </div>
 
-        {/* Mensagem sugerida */}
-        {ai?.mensagem && (
-          <div style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 12, padding: 20, marginBottom: 20,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <MessageSquare size={14} color="var(--accent)" />
-              <span style={{ fontWeight: 700, fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>
-                Mensagem Sugerida
-              </span>
-            </div>
-            <pre style={{
-              margin: 0, fontSize: 13, color: "var(--text)", whiteSpace: "pre-wrap",
-              fontFamily: "inherit", lineHeight: 1.6,
-              background: "var(--surface2)", borderRadius: 8, padding: 14,
-            }}>
-              {ai.mensagem}
-            </pre>
-          </div>
-        )}
+        {/* scrollable content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
 
-        {/* Top produtos */}
-        {(target.top_items_json?.length ?? 0) > 0 && (
-          <div style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 12, padding: 20, marginBottom: 20,
-          }}>
-            <div style={{ fontWeight: 700, fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
-              Produtos do Histórico
-            </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead>
-                <tr style={{ color: "var(--muted)" }}>
-                  {["Produto", "Aparições", "Qtd Total"].map(h => (
-                    <th key={h} style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {target.top_items_json!.map((item, i) => (
-                  <tr key={i} style={{ borderTop: "1px solid var(--border)" }}>
-                    <td style={{ padding: "6px 8px", color: "var(--text)" }}>
-                      {item.desPro} <span style={{ color: "var(--muted)", fontSize: 10 }}>[{item.codPro}]</span>
-                    </td>
-                    <td style={{ padding: "6px 8px", color: "var(--muted)" }}>{item.aparicoes}x</td>
-                    <td style={{ padding: "6px 8px", color: "var(--muted)" }}>{item.total_qtd}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Últimos 3 pedidos */}
-        {(target.last_3_orders_json?.length ?? 0) > 0 && (
-          <div style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 12, padding: 20,
-          }}>
-            <div style={{ fontWeight: 700, fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
-              Últimos 3 Pedidos
-            </div>
-            {target.last_3_orders_json!.map((p, i) => (
-              <div key={i} style={{
-                borderTop: i > 0 ? "1px solid var(--border)" : undefined,
-                paddingTop: i > 0 ? 12 : 0, paddingBottom: 12,
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>
-                    Pedido {p.numero || `#${i + 1}`} — {p.data}
-                  </span>
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>
-                    R$ {p.valor_total.toFixed(2)}
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.6 }}>
-                  {(p.itens || []).map((it, j) => (
-                    <span key={j}>
-                      {it.desPro} ×{it.qtdPed}
-                      {j < (p.itens?.length ?? 0) - 1 ? " · " : ""}
-                    </span>
-                  ))}
-                </div>
+          {/* info grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 8 }}>
+            {([
+              ["Último Pedido", fmtDate(target.last_order_date)],
+              ["Pedidos 30d", String(target.orders_count_30d ?? "—")],
+              ["Candidato desde", fmtDate(target.created_at)],
+              ["Atualizado", fmtDate(target.updated_at)],
+            ] as [string, string][]).map(([label, value]) => (
+              <div key={label} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{value}</div>
               </div>
             ))}
           </div>
-        )}
+
+          {/* AI analysis */}
+          {ai && (
+            <div style={{
+              borderRadius: 12, overflow: "hidden",
+              border: `1px solid ${isApproved ? "rgba(251,146,60,0.3)" : "var(--border)"}`,
+              background: isApproved ? "rgba(251,146,60,0.04)" : "var(--surface2)",
+            }}>
+              <div style={{ padding: "11px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>
+                  Análise da IA
+                </span>
+                {ai.decisao && (
+                  <span style={{
+                    marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5,
+                    fontSize: 11, fontWeight: 700,
+                    color: ai.decisao === "sim" ? "var(--success)" : "var(--error)",
+                  }}>
+                    {ai.decisao === "sim"
+                      ? <CheckCircle2 size={12} />
+                      : <XCircle size={12} />}
+                    {ai.decisao === "sim" ? "Abordar" : "Descartar"}
+                  </span>
+                )}
+              </div>
+              {ai.motivo && (
+                <div style={{ padding: "12px 18px" }}>
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--text)", lineHeight: 1.65 }}>{ai.motivo}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* WhatsApp message bubble */}
+          {ai?.mensagem && (
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+              <div style={{ padding: "11px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
+                <MessageSquare size={11} color="var(--muted)" />
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>
+                  Mensagem WhatsApp
+                </span>
+              </div>
+              <div style={{ padding: "14px 18px" }}>
+                <div style={{ background: "#1a2a1a", border: "1px solid #2d4a2d", borderRadius: "4px 12px 12px 12px", padding: "12px 14px", display: "inline-block", maxWidth: "100%" }}>
+                  <p style={{ margin: 0, fontSize: 13, color: "#e8f5e8", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {ai.mensagem}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* produtos do histórico */}
+          {(target.top_items_json?.length ?? 0) > 0 && (
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+              <div style={{ padding: "11px 18px", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>
+                  Produtos do Histórico
+                </span>
+              </div>
+              <div style={{ padding: "8px 0" }}>
+                {target.top_items_json!.map((item, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#818cf8", flexShrink: 0 }}>
+                      {i + 1}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 500, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {item.desPro}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>{item.codPro}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--warn)", background: "var(--warn)15", border: "1px solid var(--warn)33", borderRadius: 6, padding: "3px 8px" }}>
+                        {item.aparicoes}× pedidos
+                      </span>
+                      <span style={{ fontSize: 11, color: "var(--muted)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "3px 8px" }}>
+                        {item.total_qtd} un
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* últimos pedidos */}
+          {(target.last_3_orders_json?.length ?? 0) > 0 && (
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+              <div style={{ padding: "11px 18px", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 1, textTransform: "uppercase", color: "var(--muted)" }}>
+                  Últimos Pedidos
+                </span>
+              </div>
+              <div style={{ padding: "8px 0" }}>
+                {target.last_3_orders_json!.map((p, i) => (
+                  <div key={i} style={{ padding: "12px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "var(--accent)", background: "var(--accent)15", border: "1px solid var(--accent)33", borderRadius: 6, padding: "3px 10px", fontFamily: "monospace" }}>
+                        #{p.numero || i + 1}
+                      </span>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+                          R$ {p.valor_total.toFixed(2)}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--muted)" }}>{fmtDate(p.data)}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {(p.itens ?? []).map((it, j) => (
+                        <div key={j} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 7, padding: "6px 10px", gap: 8 }}>
+                          <span style={{ fontSize: 12, color: "var(--text)", minWidth: 0 }}>{it.desPro || it.codPro}</span>
+                          <div style={{ flexShrink: 0, display: "flex", gap: 8, alignItems: "center" }}>
+                            <span style={{ fontSize: 11, color: "var(--muted)" }}>{it.qtdPed} un</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
+                              R$ {it.vlrTotal.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

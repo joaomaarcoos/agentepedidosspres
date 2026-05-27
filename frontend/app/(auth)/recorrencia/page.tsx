@@ -213,6 +213,7 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
   const ai = parseAi(data.ai_reasoning);
   const { color: jColor, label: jLabel } = janelaHeat(data.days_until_predicted ?? null);
   const isApproved = data.ai_decision === "sim";
+  const initials = (data.customer_name || "C").split(" ").slice(0, 2).map((w: string) => w[0]).join("").toUpperCase();
 
   return (
     <>
@@ -228,55 +229,63 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
         width: "min(680px, 96vw)",
         background: "var(--surface)", borderLeft: "1px solid var(--border)",
         zIndex: 101, display: "flex", flexDirection: "column",
-        boxShadow: "-8px 0 32px rgba(0,0,0,0.35)",
+        boxShadow: "-8px 0 40px rgba(0,0,0,0.35)",
       }}>
 
-        {/* barra de cor no topo */}
+        {/* gradient top bar */}
         <div style={{
-          height: 3,
           background: isApproved
-            ? "linear-gradient(90deg, var(--success), var(--accent))"
-            : "var(--border)",
-        }} />
-
-        {/* header */}
-        <div style={{ padding: "18px 22px 16px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            ? "linear-gradient(135deg, #0d2818 0%, #0a1f13 100%)"
+            : "linear-gradient(135deg, #1a1228 0%, #100d1a 100%)",
+          padding: "24px 22px 20px",
+          position: "relative",
+          flexShrink: 0,
+        }}>
+          <button
+            onClick={onClose}
+            style={{
+              position: "absolute", top: 16, right: 16,
+              background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 8, padding: "6px 8px", cursor: "pointer",
+              color: "rgba(255,255,255,0.7)", display: "flex", alignItems: "center", lineHeight: 0,
+            }}
+          >
+            <X size={15} />
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+            <div style={{
+              width: 50, height: 50, borderRadius: 14, flexShrink: 0,
+              background: isApproved ? "rgba(34,197,94,0.2)" : "rgba(139,92,246,0.18)",
+              border: `2px solid ${isApproved ? "rgba(34,197,94,0.4)" : "rgba(139,92,246,0.35)"}`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 17, fontWeight: 800,
+              color: isApproved ? "#4ade80" : "#a78bfa",
+            }}>
+              {initials}
+            </div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 17, fontWeight: 800, color: "var(--text)", marginBottom: 8, lineHeight: 1.3 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 3 }}>
                 {data.customer_name || "—"}
               </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-                <StatusBadge status={data.status} />
-                <JanelaBadge days={data.days_until_predicted ?? null} />
-                {ai?.nivel_confianca && <ConfiancaBadge value={ai.nivel_confianca} />}
-              </div>
-              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "monospace" }}>{data.cpf_cnpj}</span>
-                {data.customer_phone && (
-                  <span style={{ fontSize: 12, color: "var(--muted)" }}>📱 {data.customer_phone}</span>
-                )}
-                {ai?.tabela_preco && (
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, color: "var(--accent)",
-                    background: "var(--accent)15", border: "1px solid var(--accent)33",
-                    borderRadius: 6, padding: "2px 8px",
-                  }}>
-                    Tabela {ai.tabela_preco}
-                  </span>
-                )}
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>
+                {data.cpf_cnpj}
+                {data.customer_phone && ` · 📱 ${data.customer_phone}`}
               </div>
             </div>
-            <button
-              onClick={onClose}
-              style={{
-                flexShrink: 0, background: "var(--surface2)", border: "1px solid var(--border)",
-                borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "var(--muted)",
-                lineHeight: 0,
-              }}
-            >
-              <X size={14} />
-            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <StatusBadge status={data.status} />
+            <JanelaBadge days={data.days_until_predicted ?? null} />
+            {ai?.nivel_confianca && <ConfiancaBadge value={ai.nivel_confianca} />}
+            {ai?.tabela_preco && (
+              <span style={{
+                fontSize: 11, fontWeight: 700, color: "var(--accent)",
+                background: "var(--accent)15", border: "1px solid var(--accent)33",
+                borderRadius: 6, padding: "2px 8px",
+              }}>
+                Tabela {ai.tabela_preco}
+              </span>
+            )}
           </div>
         </div>
 
