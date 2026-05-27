@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { Role, UserProfile } from "@/lib/types";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 const ROLES: Role[] = ["master_dev", "admin", "gestor", "representante"];
 const ELEVATED: Role[] = ["master_dev", "admin"];
@@ -47,6 +48,9 @@ async function getCurrentProfile() {
 }
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   const current = await getCurrentProfile();
   if ("error" in current) {
     return NextResponse.json({ error: current.error }, { status: current.status });
@@ -80,6 +84,9 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   const current = await getCurrentProfile();
   if ("error" in current) {
     return NextResponse.json({ error: current.error }, { status: current.status });

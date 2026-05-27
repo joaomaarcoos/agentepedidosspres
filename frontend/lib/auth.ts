@@ -1,6 +1,7 @@
 import type { Role, UserProfile } from "@/lib/types";
 
-export const PUBLIC_PATHS = ["/login", "/acesso-negado"];
+export const PUBLIC_PATHS = ["/login", "/acesso-negado", "/auth/callback"];
+export const PUBLIC_API_PATHS = ["/api/auth/login"];
 
 type RouteRule = {
   pattern: RegExp;
@@ -27,6 +28,26 @@ export const ROUTE_RULES: RouteRule[] = [
   { pattern: /^\/recorrencia/,      roles: ALL },
   { pattern: /^\/ativacao/,         roles: ALL },
   { pattern: /^\/perfil/,           roles: ALL },
+];
+
+export const API_ROUTE_RULES: RouteRule[] = [
+  { pattern: /^\/api\/admin/,          roles: ELEVATED },
+  { pattern: /^\/api\/agente-studio/,  roles: ELEVATED },
+  { pattern: /^\/api\/conexao/,        roles: ELEVATED },
+  { pattern: /^\/api\/revisaopedido/,  roles: ELEVATED },
+  { pattern: /^\/api\/settings/,       roles: ELEVATED },
+  { pattern: /^\/api\/pedidos\/cron/,  roles: ELEVATED },
+  { pattern: /^\/api\/pedidos\/sync/,  roles: GESTOR_UP },
+  { pattern: /^\/api\/produtos/,       roles: GESTOR_UP },
+  { pattern: /^\/api\/tabela-preco/,   roles: GESTOR_UP },
+  { pattern: /^\/api\/resultados/,     roles: GESTOR_UP },
+  { pattern: /^\/api\/logs/,           roles: GESTOR_UP },
+  { pattern: /^\/api\/pedidos/,        roles: ALL },
+  { pattern: /^\/api\/clientes/,       roles: ALL },
+  { pattern: /^\/api\/recorrencia/,    roles: ALL },
+  { pattern: /^\/api\/ativacao/,       roles: ALL },
+  { pattern: /^\/api\/perfil/,         roles: ALL },
+  { pattern: /^\/api\/status/,         roles: ALL },
 ];
 
 export function canAccess(profile: UserProfile | null, pathname: string): boolean {

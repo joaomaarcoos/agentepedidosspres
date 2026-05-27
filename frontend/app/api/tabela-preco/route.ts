@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { listTabelasPreco, getTabelaItens, syncTabelasPreco } from "@/lib/server/tabela-preco";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const auth = await requireApiRole(API_ROLES.GESTOR_UP);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const tabela = searchParams.get("tabela");
@@ -25,6 +29,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireApiRole(API_ROLES.GESTOR_UP);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const body = (await request.json().catch(() => ({}))) as { codigos?: string[] };
     const result = await syncTabelasPreco(body.codigos ?? ["201", "202"]);

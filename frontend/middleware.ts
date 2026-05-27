@@ -1,16 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { PUBLIC_PATHS, ROUTE_RULES } from "@/lib/auth";
+import { API_ROUTE_RULES, PUBLIC_API_PATHS, PUBLIC_PATHS, ROUTE_RULES } from "@/lib/auth";
 import type { UserProfile } from "@/lib/types";
+
+function isPathMatch(pathname: string, basePath: string) {
+  return pathname === basePath || pathname.startsWith(`${basePath}/`);
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Passa direto: paths públicos, internals do Next e arquivos estáticos
   if (
-    PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
+    PUBLIC_PATHS.some((p) => isPathMatch(pathname, p)) ||
+    PUBLIC_API_PATHS.some((p) => isPathMatch(pathname, p)) ||
+    isPathMatch(pathname, "/api/evolution/webhook") ||
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/api/") ||
     pathname.includes(".")
   ) {
     return NextResponse.next();
@@ -41,6 +46,10 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Nao autenticado." }, { status: 401 });
+    }
+
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", pathname);
@@ -56,12 +65,25 @@ export async function middleware(request: NextRequest) {
 
   if (!profile || !profile.ativo) {
     await supabase.auth.signOut();
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Usuario inativo ou sem perfil." }, { status: 403 });
+    }
+
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
   // Verifica permissão de rota
-  const rule = ROUTE_RULES.find((r) => r.pattern.test(pathname));
+  const rules = pathname.startsWith("/api/") ? API_ROUTE_RULES : ROUTE_RULES;
+  const rule = rules.find((r) => r.pattern.test(pathname));
+  if (pathname.startsWith("/api/") && !rule) {
+    return NextResponse.json({ error: "Rota de API nao autorizada." }, { status: 403 });
+  }
+
   if (rule && !rule.roles.includes(profile.role)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Sem permissao." }, { status: 403 });
+    }
+
     return NextResponse.redirect(new URL("/acesso-negado", request.url));
   }
 

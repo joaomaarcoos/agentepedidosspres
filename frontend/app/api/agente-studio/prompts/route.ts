@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { listPrompts, savePrompt } from "@/lib/server/agente-studio";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const prompts = listPrompts();
     return NextResponse.json({ prompts });
@@ -17,6 +21,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const { slug, content } = (await request.json()) as { slug: string; content: string };
     if (!slug || typeof slug !== "string" || !slug.trim()) {

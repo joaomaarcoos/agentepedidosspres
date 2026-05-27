@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runPythonJson } from "@/lib/server/python";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,6 +8,9 @@ export const dynamic = "force-dynamic";
 type PythonEnvelope<T> = { ok: true; data: T } | { ok: false; error: string };
 
 export async function POST(request: Request) {
+  const auth = await requireApiRole(API_ROLES.GESTOR_UP);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const body = await request.json().catch(() => ({}));
     const limit: number = Number(body.limit ?? 20);

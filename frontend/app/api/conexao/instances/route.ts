@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { listInstances, createInstance } from "@/lib/server/conexao";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const result = await listInstances();
     return NextResponse.json(result);
@@ -29,6 +33,9 @@ function buildWebhookUrl(request: Request): string {
 const DEFAULT_MSG_CALL = "No momento não consigo atender. Envie uma mensagem!";
 
 export async function POST(request: Request) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const body = await request.json();
     const { name } = body as { name: string };

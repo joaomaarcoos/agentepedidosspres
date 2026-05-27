@@ -13,10 +13,31 @@ type PythonEnvelope<T> = {
   error?: string;
 };
 
+function getWebhookToken(request: NextRequest) {
+  const auth = request.headers.get("authorization") || "";
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    return auth.slice(7).trim();
+  }
+
+  return request.headers.get("x-webhook-secret") || request.nextUrl.searchParams.get("token") || "";
+}
+
 export async function POST(request: NextRequest) {
   let tempDir: string | null = null;
 
   try {
+    const expectedToken = process.env.EVOLUTION_WEBHOOK_SECRET ?? process.env.EVOLUTION_API_KEY;
+    if (!expectedToken) {
+      return NextResponse.json(
+        { ok: false, error: "EVOLUTION_WEBHOOK_SECRET ou EVOLUTION_API_KEY nao configurado." },
+        { status: 503 }
+      );
+    }
+
+    if (getWebhookToken(request) !== expectedToken) {
+      return NextResponse.json({ ok: false, error: "Nao autorizado." }, { status: 401 });
+    }
+
     const payload = await request.json();
     tempDir = await mkdtemp(path.join(tmpdir(), "agente-pedidos-webhook-"));
     const payloadFile = path.join(tempDir, "payload.json");

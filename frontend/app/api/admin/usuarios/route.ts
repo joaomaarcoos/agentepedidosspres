@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { Role } from "@/lib/types";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 const ROLES: Role[] = ["master_dev", "admin", "gestor", "representante"];
 
@@ -10,6 +11,9 @@ function asString(value: unknown) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireApiRole(API_ROLES.MASTER);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   const supabase = createClient();
   const {
     data: { user },

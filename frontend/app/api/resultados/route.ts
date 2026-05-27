@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { listResultados } from "@/lib/server/resultados";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,6 +8,9 @@ export const dynamic = "force-dynamic";
 const VALID_TYPES = ["all", "recorrencia", "ativacao"];
 
 export async function GET(request: Request) {
+  const auth = await requireApiRole(API_ROLES.GESTOR_UP);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const targetType = (searchParams.get("target_type") ?? "all") as "all" | "recorrencia" | "ativacao";

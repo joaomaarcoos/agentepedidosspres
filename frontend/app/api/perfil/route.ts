@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 function asString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -22,6 +23,9 @@ function adminClient() {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireApiRole(API_ROLES.ALL);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   const supabase = createClient();
   const {
     data: { user },

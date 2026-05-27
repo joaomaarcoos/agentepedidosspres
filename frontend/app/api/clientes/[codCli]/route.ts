@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCliente } from "@/lib/server/clientes";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,9 @@ export async function GET(
   _request: Request,
   { params }: { params: { codCli: string } }
 ) {
+  const auth = await requireApiRole(API_ROLES.ALL);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   const codCli = Number(params.codCli);
   if (!Number.isFinite(codCli)) {
     return NextResponse.json({ error: "Parâmetro codCli inválido" }, { status: 400 });

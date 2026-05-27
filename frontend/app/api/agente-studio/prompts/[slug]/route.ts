@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { getPrompt, savePrompt, deletePrompt } from "@/lib/server/agente-studio";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: { slug: string } }) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const prompt = getPrompt(params.slug);
     if (!prompt) {
@@ -20,6 +24,9 @@ export async function GET(_req: Request, { params }: { params: { slug: string } 
 }
 
 export async function PUT(request: Request, { params }: { params: { slug: string } }) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const { content } = (await request.json()) as { content: string };
     if (typeof content !== "string") {
@@ -36,6 +43,9 @@ export async function PUT(request: Request, { params }: { params: { slug: string
 }
 
 export async function DELETE(_req: Request, { params }: { params: { slug: string } }) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     deletePrompt(params.slug);
     return NextResponse.json({ ok: true });

@@ -179,7 +179,7 @@ function fmtDate(raw: string | null | undefined): string {
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
-      padding: "11px 18px", borderBottom: "1px solid var(--border)",
+      padding: "0 0 9px", borderBottom: "1px solid var(--border)",
       display: "flex", alignItems: "center", gap: 8,
     }}>
       <span style={{
@@ -198,11 +198,12 @@ function MetricCard({ label, value, color, wide }: { label: string; value: strin
       background: "var(--surface2)", border: "1px solid var(--border)",
       borderRadius: 10, padding: "12px 16px",
       gridColumn: wide ? "span 2" : undefined,
+      minWidth: 0,
     }}>
       <div style={{ fontSize: 9, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 5 }}>
         {label}
       </div>
-      <div style={{ fontSize: 15, fontWeight: 800, color: color ?? "var(--text)", lineHeight: 1.2 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, color: color ?? "var(--text)", lineHeight: 1.2, wordBreak: "break-word" }}>
         {value}
       </div>
     </div>
@@ -226,7 +227,7 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
       />
       <div style={{
         position: "fixed", top: 0, right: 0, bottom: 0,
-        width: "min(680px, 96vw)",
+        width: "min(760px, 96vw)",
         background: "var(--surface)", borderLeft: "1px solid var(--border)",
         zIndex: 101, display: "flex", flexDirection: "column",
         boxShadow: "-8px 0 40px rgba(0,0,0,0.35)",
@@ -267,9 +268,9 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
               <div style={{ fontSize: 20, fontWeight: 800, color: "#fff", marginBottom: 3 }}>
                 {data.customer_name || "—"}
               </div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", fontFamily: "monospace" }}>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {data.cpf_cnpj}
-                {data.customer_phone && ` · 📱 ${data.customer_phone}`}
+                {data.customer_phone && ` - ${data.customer_phone}`}
               </div>
             </div>
           </div>
@@ -290,10 +291,10 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
         </div>
 
         {/* conteúdo scrollável */}
-        <div style={{ flex: 1, overflow: "auto", padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ flex: 1, overflow: "auto", padding: "20px 22px", display: "flex", flexDirection: "column", gap: 18 }}>
 
           {/* métricas */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))", gap: 8 }}>
             <MetricCard label="Tier" value={data.recurrence_tier ? TIER_LABEL[data.recurrence_tier] : "—"} />
             <MetricCard label="Pedidos 30d" value={String(data.orders_count_30d ?? "—")} />
             <MetricCard label="Intervalo médio" value={data.recurrence_interval_days != null ? `${data.recurrence_interval_days}d` : "—"} />
@@ -308,7 +309,7 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
           {/* decisão IA */}
           {ai?.motivo && (
             <div style={{
-              borderRadius: 12, overflow: "hidden",
+              borderRadius: 12, overflow: "visible",
               border: `1px solid ${isApproved ? "var(--success)44" : "var(--border)"}`,
               background: isApproved ? "var(--success)08" : "var(--surface2)",
             }}>
@@ -323,18 +324,18 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
 
           {/* mensagem pronta */}
           {ai?.mensagem && (
-            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+            <div style={{ borderRadius: 12, overflow: "visible", border: "1px solid var(--border)", background: "var(--surface2)" }}>
               <SectionTitle><MessageSquare size={11} style={{ display: "inline", marginRight: 5 }} />Mensagem WhatsApp</SectionTitle>
               <div style={{ padding: "14px 18px" }}>
                 <div style={{ display: "flex" }}>
                   <div style={{
                     background: "#1a2a1a", border: "1px solid #2d4a2d",
                     borderRadius: "4px 12px 12px 12px",
-                    padding: "12px 14px", maxWidth: "92%",
+                    padding: "12px 14px", maxWidth: "100%", minWidth: 0,
                   }}>
                     <p style={{
                       margin: 0, fontSize: 13, color: "#e8f5e8",
-                      lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                      lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
                     }}>
                       {ai.mensagem}
                     </p>
@@ -346,25 +347,27 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
 
           {/* pedido sugerido */}
           {(ai?.pedido_sugerido ?? []).length > 0 && (
-            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+            <div style={{ borderRadius: 12, overflow: "visible", border: "1px solid var(--border)", background: "var(--surface2)" }}>
               <SectionTitle>Pedido Sugerido</SectionTitle>
               <div style={{ padding: "8px 0" }}>
                 {ai!.pedido_sugerido!.map((item, i) => (
                   <div key={i} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "9px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined,
+                    display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(72px, auto)", alignItems: "center",
+                    padding: "12px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined,
                     gap: 12,
                   }}>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-                        {item.desPro}
+                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 700, marginBottom: 3, lineHeight: 1.35, wordBreak: "break-word" }}>
+                        {item.desPro || item.codPro}
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--accent)", fontFamily: "monospace" }}>{item.codPro}</div>
+                      {item.codPro && (
+                        <div style={{ fontSize: 11, color: "var(--accent)", fontFamily: "monospace" }}>{item.codPro}</div>
+                      )}
                     </div>
                     <div style={{
                       flexShrink: 0, background: "var(--accent)18", border: "1px solid var(--accent)44",
                       borderRadius: 8, padding: "4px 12px",
-                      fontSize: 13, fontWeight: 800, color: "var(--accent)", whiteSpace: "nowrap",
+                      fontSize: 13, fontWeight: 800, color: "var(--accent)", whiteSpace: "nowrap", justifySelf: "end",
                     }}>
                       {item.qtdPed} un
                     </div>
@@ -376,20 +379,22 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
 
           {/* produtos recorrentes */}
           {(data.top_items_json ?? []).length > 0 && (
-            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+            <div style={{ borderRadius: 12, overflow: "visible", border: "1px solid var(--border)", background: "var(--surface2)" }}>
               <SectionTitle>Produtos Recorrentes</SectionTitle>
               <div style={{ padding: "8px 0" }}>
                 {(data.top_items_json ?? []).map((item, i) => (
                   <div key={i} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "9px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined,
+                    display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(160px, auto)", alignItems: "center",
+                    padding: "12px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined,
                     gap: 12,
                   }}>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 600, marginBottom: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{item.desPro}</div>
-                      <div style={{ fontSize: 11, color: "var(--accent)", fontFamily: "monospace" }}>{item.codPro}</div>
+                      <div style={{ fontSize: 13, color: "var(--text)", fontWeight: 700, marginBottom: 3, lineHeight: 1.35, wordBreak: "break-word" }}>{item.desPro || item.codPro}</div>
+                      {item.codPro && (
+                        <div style={{ fontSize: 11, color: "var(--accent)", fontFamily: "monospace" }}>{item.codPro}</div>
+                      )}
                     </div>
-                    <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                    <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <span style={{
                         fontSize: 11, fontWeight: 700, color: "var(--warn)",
                         background: "var(--warn)15", border: "1px solid var(--warn)33",
@@ -413,11 +418,11 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
 
           {/* últimos pedidos */}
           {(data.last_3_orders_json ?? []).length > 0 && (
-            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", background: "var(--surface2)" }}>
+            <div style={{ borderRadius: 12, overflow: "visible", border: "1px solid var(--border)", background: "var(--surface2)" }}>
               <SectionTitle>Últimos Pedidos</SectionTitle>
               <div style={{ padding: "8px 0" }}>
                 {(data.last_3_orders_json ?? []).map((p, i) => (
-                  <div key={i} style={{ padding: "12px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
+                  <div key={i} style={{ padding: "14px 18px", borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                       <span style={{
                         fontSize: 12, fontWeight: 800, color: "var(--accent)",
@@ -433,17 +438,17 @@ function DetailDrawer({ data, onClose }: { data: RecorrenciaTarget; onClose: () 
                         <div style={{ fontSize: 11, color: "var(--muted)" }}>{fmtDate(p.data)}</div>
                       </div>
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {(p.itens ?? []).map((it, j) => (
                         <div key={j} style={{
-                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(150px, auto)", alignItems: "center",
                           background: "var(--surface)", border: "1px solid var(--border)",
-                          borderRadius: 7, padding: "6px 10px", gap: 8,
+                          borderRadius: 7, padding: "8px 10px", gap: 10,
                         }}>
-                          <span style={{ fontSize: 12, color: "var(--text)", minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                          <span style={{ fontSize: 12, color: "var(--text)", minWidth: 0, lineHeight: 1.35, wordBreak: "break-word" }}>
                             {it.desPro || it.codPro}
                           </span>
-                          <div style={{ flexShrink: 0, display: "flex", gap: 8, alignItems: "center" }}>
+                          <div style={{ flexShrink: 0, display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
                             <span style={{ fontSize: 11, color: "var(--muted)" }}>{it.qtdPed} un</span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent)" }}>
                               {it.vlrTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}

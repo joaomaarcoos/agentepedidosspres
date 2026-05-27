@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPedidoDetail } from "@/lib/server/revisaopedido";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +9,9 @@ export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const result = await getPedidoDetail(params.id);
     return NextResponse.json(result);

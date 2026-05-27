@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { listAtivacao } from "@/lib/server/ativacao";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,9 @@ const VALID_STATUSES = new Set([
 ]);
 
 export async function GET(request: Request) {
+  const auth = await requireApiRole(API_ROLES.ALL);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const statusParam = searchParams.get("status") ?? "";

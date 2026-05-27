@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { listPedidos } from "@/lib/server/revisaopedido";
+import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  if (isApiAuthFailure(auth)) return auth.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || undefined;
