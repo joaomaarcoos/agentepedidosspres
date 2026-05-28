@@ -7,7 +7,7 @@ Regras:
 - "##" pausa a IA por 5 horas.
 - "###" despausa imediatamente.
 - Pausa expirada e removida automaticamente no proximo evento.
-- O contexto enviado para a IA usa apenas as ultimas 10 mensagens salvas.
+- O contexto enviado para a IA usa apenas as ultimas 15 mensagens salvas.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 PAUSE_TRIGGER = "##"
 RESUME_TRIGGER = "###"
 PAUSE_HOURS = int(os.getenv("AI_PAUSE_HOURS", "5"))
-CONTEXT_MESSAGE_LIMIT = int(os.getenv("AI_CONTEXT_MESSAGE_LIMIT", "10"))
+CONTEXT_MESSAGE_LIMIT = int(os.getenv("AI_CONTEXT_MESSAGE_LIMIT", "15"))
 DEFAULT_MESSAGE_BUFFER_SECONDS = float(os.getenv("AI_MESSAGE_BUFFER_SECONDS", "5"))
 LOCAL_DATA_DIR = Path(__file__).resolve().parent.parent / ".tmp" / "data"
 CONVERSATIONS_TABLE = "ai_conversations"
