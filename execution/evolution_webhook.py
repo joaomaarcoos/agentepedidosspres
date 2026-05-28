@@ -181,6 +181,7 @@ def _evolution_config() -> tuple[str, str]:
 
 def send_whatsapp(phone: str, text: str, instance: str) -> dict:
     api_url, api_key = _evolution_config()
+    text = normalize_whatsapp_markdown(text)
     response = requests.post(
         f"{api_url}/message/sendText/{instance}",
         json={"number": f"{phone}@s.whatsapp.net", "text": text},
@@ -192,6 +193,13 @@ def send_whatsapp(phone: str, text: str, instance: str) -> dict:
         return response.json()
     except ValueError:
         return {"status_code": response.status_code, "text": response.text[:500]}
+
+
+def normalize_whatsapp_markdown(text: str) -> str:
+    text = str(text or "")
+    text = re.sub(r"\*\*([^\n*][^*]*?[^\n*])\*\*", r"*\1*", text)
+    text = re.sub(r"__([^\n_][^_]*?[^\n_])__", r"_\1_", text)
+    return text
 
 
 def split_reply(text: str, max_chars: int = REPLY_SPLIT_MAX_CHARS) -> list[str]:
