@@ -118,7 +118,6 @@ def mentions_order_context(messages: list[dict]) -> bool:
         "compra",
         "cotacao",
         "orcamento",
-        "caixa",
         "unidade",
         "garrafa",
         "copo",
@@ -184,8 +183,8 @@ def infer_entities(text: str) -> dict:
         "suco",
         "nectar",
     )
-    package_terms = ("garrafa", "copo", "bolsa", "concentrada", "caixa", "litro", "1l", "300ml")
-    quantities = re.findall(r"\b\d+(?:[,.]\d+)?\s*(?:caixas?|cx|unidades?|un|garrafas?|copos?|bolsas?)?\b", value)
+    package_terms = ("garrafa", "copo", "bolsa", "concentrada", "litro", "1l", "300ml", "200ml", "115ml")
+    quantities = re.findall(r"\b\d+(?:[,.]\d+)?\s*(?:unidades?|un|garrafas?|copos?|bolsas?)?\b", value)
     return {
         "products": [term for term in product_terms if term in value],
         "packages": [term for term in package_terms if term in value],
@@ -330,7 +329,7 @@ def advancement_question(classification: dict) -> str:
     if intent == "price_query" and products and not packages:
         return _stable_choice(
             (
-                "Voce quer ver esse item em garrafa, copo ou bag concentrada?",
+                "Voce quer ver esse item em garrafa, copo, bolsa ou bolsa concentrada?",
                 "Para eu te passar o valor certo, qual formato voce procura?",
                 "Esse produto pode ter variacao. Voce esta buscando qual embalagem?",
             ),
@@ -341,7 +340,7 @@ def advancement_question(classification: dict) -> str:
         return _stable_choice(
             (
                 "Voce quer opcoes para servir pronto ou para preparo com concentrado?",
-                "Me fala o formato que voce procura: garrafa, copo ou bag?",
+                "Me fala o formato que voce procura: bolsa, bolsa concentrada, copo ou garrafa?",
                 "Quer que eu monte uma sugestao com os sabores de maior saida?",
                 "E para consumo no local, revenda ou reposicao de estoque?",
             ),
@@ -353,7 +352,7 @@ def advancement_question(classification: dict) -> str:
             (
                 "Quer que eu monte uma sugestao inicial para o representante revisar?",
                 "Voce ja tem algum sabor em mente ou quer que eu sugira os de maior saida?",
-                "Voce costuma comprar em caixas ou quer comecar por uma quantidade menor?",
+                "Voce quer em bolsa, bolsa concentrada, copo ou garrafa?",
             ),
             seed,
         )
@@ -421,9 +420,9 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
             text = re.sub(r"\n*\s*Estou (a|à) disposi[cç][aã]o.*$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
             text = re.sub(r"\n*\s*Posso ajudar em mais alguma coisa\??.*$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
         advancement_terms = (
-            "bag",
+            "bolsa",
             "concentrado",
-            "caixa",
+            "bolsa",
             "garrafa",
             "copo",
             "quantas",
@@ -1027,7 +1026,7 @@ REGISTRAR_PEDIDO_TOOL: dict = {
                         "type": "object",
                         "properties": {
                             "nome": {"type": "string", "description": "Nome do produto"},
-                            "quantidade": {"type": "string", "description": "Quantidade (ex: 2 caixas, 10 unidades)"},
+                            "quantidade": {"type": "string", "description": "Quantidade (ex: 2 bolsas, 10 garrafas, 20 copos)"},
                         },
                         "required": ["nome", "quantidade"],
                     },
