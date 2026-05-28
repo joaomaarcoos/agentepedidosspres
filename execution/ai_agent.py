@@ -229,17 +229,6 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
             "has_order_context": has_order_context,
             "entities": entities,
         }
-    if is_simple_greeting(text):
-        return {
-            "intent": "greeting",
-            "confidence": 0.95,
-            "requires_ai": False,
-            "requires_human": False,
-            "out_of_scope": False,
-            "has_order_context": has_order_context,
-            "entities": entities,
-        }
-
     if contains_any(value, ("ultimo pedido", "ultima vez", "comprei antes", "pedi antes", "historico")):
         intent = "history_query"
     elif contains_any(value, ("repetir", "repete", "igual ao ultimo", "mesmo pedido")):
@@ -254,6 +243,8 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
         intent = "order_adjustment"
     elif entities["products"] or contains_any(value, ("quais tem", "quais voces tem", "opcoes", "sabores", "modelos", "embalagens")):
         intent = "product_query"
+    elif is_simple_greeting(text):
+        intent = "greeting"
     else:
         intent = "commercial_unknown"
 
@@ -311,25 +302,79 @@ def is_out_of_scope(text: str) -> bool:
 
 def scoped_redirect_reply(has_order_context: bool = False) -> str:
     if has_order_context:
-        return "Consigo te ajudar com assuntos da Sucos SPRES. Quer continuar o pedido que estavamos montando?"
-    return "Oi! Sou a Marcela, da Sucos SPRES. Consigo te ajudar com pedidos, produtos e precos. Quer montar um pedido ou consultar algum produto?"
+        return "Esse assunto foge um pouco do que eu consigo cuidar por aqui. Sobre a Sucos SPRES, quer seguir com o pedido que a gente estava montando?"
+    return "Esse assunto foge um pouco do atendimento da Sucos SPRES. Posso te ajudar com produtos, precos ou montar um pedido."
 
 
 def greeting_reply(has_order_context: bool = False) -> str:
     if has_order_context:
-        return "Oi! Sou a Marcela, da Sucos SPRES. Quer continuar seu pedido ou ajustar algum item?"
-    return "Oi! Sou a Marcela, da Sucos SPRES. Quer montar um pedido ou consultar algum produto?"
+        return "Oi! Aqui e a Marcela, da Sucos SPRES. A gente estava falando de pedido, quer continuar por ele?"
+    return "Oi! Aqui e a Marcela, da Sucos SPRES. Me fala o que voce esta precisando hoje."
+
+
+def _stable_choice(options: tuple[str, ...], seed: str) -> str:
+    if not options:
+        return ""
+    score = sum(ord(ch) for ch in seed or "")
+    return options[score % len(options)]
+
+
+def advancement_question(classification: dict) -> str:
+    intent = classification.get("intent") or ""
+    entities = classification.get("entities") or {}
+    products = entities.get("products") or []
+    packages = entities.get("packages") or []
+    quantities = entities.get("quantities") or []
+    seed = f"{intent}|{','.join(products)}|{','.join(packages)}|{','.join(quantities)}"
+
+    if intent == "price_query" and products and not packages:
+        return _stable_choice(
+            (
+                "Voce quer ver esse item em garrafa, copo ou bag concentrada?",
+                "Para eu te passar o valor certo, qual formato voce procura?",
+                "Esse produto pode ter variacao. Voce esta buscando qual embalagem?",
+            ),
+            seed,
+        )
+
+    if intent == "product_query":
+        return _stable_choice(
+            (
+                "Voce quer opcoes para servir pronto ou para preparo com concentrado?",
+                "Me fala o formato que voce procura: garrafa, copo ou bag?",
+                "Quer que eu monte uma sugestao com os sabores de maior saida?",
+                "E para consumo no local, revenda ou reposicao de estoque?",
+            ),
+            seed,
+        )
+
+    if intent in {"order_request", "order_adjustment", "commercial_unknown"}:
+        return _stable_choice(
+            (
+                "Quer que eu monte uma sugestao inicial para o representante revisar?",
+                "Voce ja tem algum sabor em mente ou quer que eu sugira os de maior saida?",
+                "Voce costuma comprar em caixas ou quer comecar por uma quantidade menor?",
+            ),
+            seed,
+        )
+
+    return _stable_choice(
+        (
+            "Quer que eu monte uma sugestao para o representante revisar?",
+            "Me fala o formato que voce procura que eu te ajudo a montar.",
+            "Quer seguir para um pedido ou prefere ver mais opcoes?",
+        ),
+        seed,
+    )
 
 
 def direct_reply_for_intent(classification: dict) -> str:
     intent = classification.get("intent")
     has_order_context = bool(classification.get("has_order_context"))
-    if intent in {"prompt_attack", "out_of_scope"}:
+    if intent == "prompt_attack":
         return scoped_redirect_reply(has_order_context)
     if intent == "complaint":
         return "Entendo. Vou te conectar com um atendente agora para resolver isso direto."
-    if intent == "greeting":
-        return greeting_reply(has_order_context)
     return ""
 
 
@@ -352,7 +397,7 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
     if not text:
         return ""
     intent = classification.get("intent")
-    if intent in {"prompt_attack", "out_of_scope"}:
+    if intent == "prompt_attack":
         return scoped_redirect_reply(has_order_context)
 
     lowered = _lower_ascii(text)
@@ -360,8 +405,8 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
     if verify_only or ("deixa eu verificar" in lowered and len(text) <= 90):
         entities = classification.get("entities") or {}
         if entities.get("products") and not entities.get("packages"):
-            return "Para eu te passar certinho, voce quer garrafa, copo ou bolsa concentrada?"
-        return "Nao tenho essa informacao completa aqui. Posso deixar como observacao para o representante validar?"
+            return advancement_question(classification)
+        return "Nao tenho essa informacao completa aqui comigo. Quer que eu deixe como observacao para o representante validar no pedido?"
     if classification.get("intent") in {"product_query", "commercial_unknown", "price_query"}:
         passive_closings = (
             "se precisar",
@@ -392,7 +437,7 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
         refreshed_lowered = _lower_ascii(text)
         has_advancement_question = "?" in text and any(term in refreshed_lowered for term in advancement_terms)
         if not has_advancement_question:
-            text = f"{text}\n\nVoce precisa de bag de suco concentrado, caixa de garrafas ou copos para consumo individual?"
+            text = f"{text}\n\n{advancement_question(classification)}"
     return text
 
 

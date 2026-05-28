@@ -116,6 +116,8 @@ def _decision_section(ctx: dict) -> str:
 
     linhas += [
         "Use esta decisao para responder de forma objetiva.",
+        "Nao trate a intencao como roteiro fixo; use-a apenas para escolher o rumo da conversa.",
+        "Varie a redacao e evite repetir a mesma pergunta em atendimentos diferentes.",
         "Se a intencao for preco_produto/price_query, priorize tabela de preco e derivacao.",
         "Se houver pedido em andamento, mantenha continuidade e nao reinicie a conversa.",
         "Se faltar embalagem, derivacao ou quantidade, pergunte somente o dado faltante.",
