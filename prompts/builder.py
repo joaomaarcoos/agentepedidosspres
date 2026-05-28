@@ -123,7 +123,8 @@ def _decision_section(ctx: dict) -> str:
         "Se faltar embalagem, derivacao ou quantidade, pergunte somente o dado faltante.",
         "Se houver mais de uma derivacao ou preco possivel para o item, confirme antes de calcular.",
         "Pode calcular total somente com produto, derivacao, quantidade e preco da tabela claramente definidos.",
-        "Depois que produtos e quantidades forem confirmados, registre para aprovacao do representante.",
+        "Se a mensagem atual adicionar, remover, trocar item ou fizer pergunta, mantenha o pedido aberto e nao registre.",
+        "Depois que o resumo completo for confirmado de forma clara pelo cliente, registre para aprovacao do representante.",
         "Nao pergunte sobre frete, pagamento, forma de pagamento, entrega ou prazo.",
     ]
     return "\n".join(linhas)
@@ -262,6 +263,7 @@ def _catalogo_section(produtos: list[dict]) -> str:
             "",
             "Estes são os produtos e preços desta tabela de preços específica do cliente.",
             "Use estes valores ao falar sobre preços — nunca invente valores fora desta lista.",
+            "A coluna Variação deve ser respeitada literalmente. Não renomeie nem converta variações.",
             "",
             "| Código | Produto | Variação | Qtd. Mín. | Preço | Desconto |",
             "|--------|---------|----------|-----------|-------|----------|",

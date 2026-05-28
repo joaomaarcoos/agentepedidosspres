@@ -377,6 +377,76 @@ def direct_reply_for_intent(classification: dict) -> str:
     return ""
 
 
+def is_final_order_confirmation(text: str) -> bool:
+    value = _lower_ascii(text)
+    if not value:
+        return False
+
+    adjustment_terms = (
+        "inclui",
+        "incluir",
+        "adiciona",
+        "adicionar",
+        "coloca",
+        "mais",
+        "faltou",
+        "tira",
+        "remove",
+        "troca",
+        "altera",
+        "muda",
+        "veja",
+    )
+    question_terms = (
+        "?",
+        "qual",
+        "quais",
+        "tamanho",
+        "tamanhos",
+        "preco",
+        "valor",
+        "como assim",
+    )
+    if contains_any(value, adjustment_terms) or contains_any(value, question_terms):
+        return False
+
+    confirmation_terms = (
+        "esta certo",
+        "ta certo",
+        "tudo certo",
+        "pode registrar",
+        "pode enviar",
+        "pode finalizar",
+        "pode fechar",
+        "confirmo",
+        "confirmado",
+        "fechado",
+        "isso mesmo",
+        "pode sim",
+        "sim pode",
+        "sim, pode",
+        "sim por favor",
+        "pode ser",
+    )
+    return contains_any(value, confirmation_terms)
+
+
+def order_confirmation_prompt(itens: list[dict] | None = None) -> str:
+    lines = ["Ainda nao registrei o pedido.", "", "So para confirmar, ficou assim:"]
+    for item in itens or []:
+        nome = normalize_text(item.get("nome")) or "Item"
+        quantidade = normalize_text(item.get("quantidade"))
+        if quantidade:
+            lines.append(f"- *{nome}*: {quantidade}")
+        else:
+            lines.append(f"- *{nome}*")
+    lines += [
+        "",
+        "Se estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante.",
+    ]
+    return "\n".join(lines)
+
+
 def update_commercial_state(state: dict | None, classification: dict, user_text: str) -> dict:
     state = {**(state or {})}
     intent = classification.get("intent", "")
@@ -406,6 +476,27 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
         if entities.get("products") and not entities.get("packages"):
             return advancement_question(classification)
         return "Nao tenho essa informacao completa aqui comigo. Quer que eu deixe como observacao para o representante validar no pedido?"
+
+    if not is_final_order_confirmation(classification.get("raw_text", "")):
+        premature_register_terms = (
+            "vou registrar isso",
+            "vou registrar esse pedido",
+            "pedido foi registrado",
+            "registrado para revisao",
+            "registrado para revisão",
+        )
+        if any(term in lowered for term in premature_register_terms):
+            text = re.sub(
+                r"\n*\s*(Vou registrar|Seu pedido foi registrado|Pedido registrado).*?(representante|revis[aã]o).*?(\n|$)",
+                "\n",
+                text,
+                flags=re.IGNORECASE | re.DOTALL,
+            ).strip()
+            if text:
+                text = f"{text}\n\nSe estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante."
+            else:
+                text = "Se estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante."
+            lowered = _lower_ascii(text)
 
     if classification.get("intent") in {"product_query", "commercial_unknown", "price_query"}:
         passive_closings = (
@@ -1100,6 +1191,8 @@ def generate_ai_reply(
         if tool_call.function.name == "registrar_pedido" and store and phone:
             try:
                 args = json.loads(tool_call.function.arguments)
+                if not is_final_order_confirmation(last_user_message or ""):
+                    return order_confirmation_prompt(args.get("itens", []))
                 order_id = store.save_order_for_review(
                     phone=phone,
                     conversation_id=conversation_id,
@@ -1199,6 +1292,7 @@ def process_inbound_message(
     previous_history = history[:-1] if history else []
     conversation_state = store.get_conversation_state(str(conversation["id"]))
     classification = classify_intent(normalized_text, previous_history, conversation_state)
+    classification["raw_text"] = normalized_text
     conversation_state = update_commercial_state(conversation_state, classification, normalized_text)
     store.save_conversation_state(str(conversation["id"]), conversation_state)
 
