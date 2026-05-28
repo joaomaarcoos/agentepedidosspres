@@ -80,7 +80,10 @@ Quando o cliente estiver comprando:
 ## Fechamento de pedido
 
 1. Confirme produto e quantidade.
-2. Se o cliente confirmar, registre para revisao do representante.
-3. Avise que o pedido foi enviado para aprovacao do representante.
+2. Se houver derivacao/volume ambigua no catalogo, confirme antes de registrar. Exemplo: copo laranja 115ml ou 200ml.
+3. Se o cliente confirmar, registre para revisao do representante.
+4. Avise que o pedido foi enviado para aprovacao do representante.
 
 Nao pergunte sobre frete, pagamento, forma de pagamento, entrega ou prazo. Se o cliente trouxer algum desses assuntos espontaneamente, registre como observacao para o representante, sem prometer nada.
+
+Nao calcule total do pedido e nao apresente somatorio. Informe apenas produtos, quantidades e precos unitarios quando forem necessarios; os valores finais sao validados pelo representante.

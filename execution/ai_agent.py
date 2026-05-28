@@ -406,6 +406,40 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
         if entities.get("products") and not entities.get("packages"):
             return advancement_question(classification)
         return "Nao tenho essa informacao completa aqui comigo. Quer que eu deixe como observacao para o representante validar no pedido?"
+
+    total_terms = (
+        "vou recalcular",
+        "recalcular o total",
+        "calcular o total",
+        "total do pedido",
+        "valor total",
+        "total:",
+    )
+    has_total_formula = bool(re.search(r"\b\d+\s*x\s*r\$", lowered))
+    has_total_money_line = bool(re.search(r"\btotal\b[^\n]{0,80}r\$", lowered))
+    if any(term in lowered for term in total_terms) or has_total_formula or has_total_money_line:
+        kept_lines: list[str] = []
+        for line in text.splitlines():
+            line_lower = _lower_ascii(line)
+            if any(term in line_lower for term in total_terms):
+                continue
+            if re.search(r"\b\d+\s*x\s*r\$", line_lower):
+                continue
+            if re.search(r"\btotal\b[^\n]{0,80}r\$", line_lower):
+                continue
+            kept_lines.append(line)
+
+        text = "\n".join(kept_lines).strip()
+        approval_note = (
+            "Vou registrar os produtos e quantidades para aprovacao do representante. "
+            "Ele valida os valores finais antes da confirmacao."
+        )
+        if text:
+            text = f"{text}\n\n{approval_note}"
+        else:
+            text = approval_note
+        lowered = _lower_ascii(text)
+
     if classification.get("intent") in {"product_query", "commercial_unknown", "price_query"}:
         passive_closings = (
             "se precisar",
@@ -1015,7 +1049,8 @@ REGISTRAR_PEDIDO_TOOL: dict = {
         "name": "registrar_pedido",
         "description": (
             "Registra o pedido confirmado do cliente para revisão do representante antes de enviar ao sistema. "
-            "Use assim que o cliente confirmar os produtos e quantidades desejados."
+            "Use assim que o cliente confirmar os produtos e quantidades desejados. "
+            "Nao calcule total do pedido; registre apenas itens, quantidades e observacoes espontaneas."
         ),
         "parameters": {
             "type": "object",

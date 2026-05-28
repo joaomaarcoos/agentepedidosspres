@@ -122,6 +122,7 @@ def _decision_section(ctx: dict) -> str:
         "Se houver pedido em andamento, mantenha continuidade e nao reinicie a conversa.",
         "Se faltar embalagem, derivacao ou quantidade, pergunte somente o dado faltante.",
         "Depois que produtos e quantidades forem confirmados, registre para aprovacao do representante.",
+        "Nao calcule, some ou recalcule total do pedido. O representante valida valores finais.",
         "Nao pergunte sobre frete, pagamento, forma de pagamento, entrega ou prazo.",
     ]
     return "\n".join(linhas)
@@ -165,7 +166,8 @@ def _customer_section(ctx: dict) -> str:
             pedidos,
             "",
             "Use estes dados para responder sobre historico, repetir pedido ou sugerir recompra.",
-            "Ao mencionar historico, preserve produto, derivacao/unidade quando existir, quantidade e valores informados.",
+            "Ao mencionar historico, preserve produto, derivacao/unidade quando existir e quantidade.",
+            "Nao use valores historicos para calcular ou prometer preco de pedido novo.",
         ]
 
     return "\n".join(linhas).strip()
@@ -324,9 +326,8 @@ def _fmt_recent_orders(orders: list[dict]) -> str:
     for order in orders[:4]:
         numero = order.get("num_ped") or "-"
         data = order.get("dat_emi") or "-"
-        total = _fmt_preco(order.get("order_total_value"))
         status = order.get("sit_ped") or "-"
-        linhas.append(f"- Pedido {numero} | data {data} | status {status} | total {total}")
+        linhas.append(f"- Pedido {numero} | data {data} | status {status}")
 
         items = order.get("items_json") or []
         if not isinstance(items, list):
@@ -336,14 +337,11 @@ def _fmt_recent_orders(orders: list[dict]) -> str:
             nome = item.get("desPro") or item.get("nome") or cod or "Produto"
             qtd = item.get("qtdPed") or item.get("quantidade") or "-"
             unidade = item.get("uniMed") or item.get("unidade") or ""
-            preco = _fmt_preco(item.get("preUni") or item.get("preco"))
-            total_item = _fmt_preco(item.get("vlrTotal") or item.get("valor_total"))
             detalhe = f"  - {nome}"
             if cod:
                 detalhe += f" [{cod}]"
             detalhe += f": qtd {qtd}"
             if unidade:
                 detalhe += f" {unidade}"
-            detalhe += f", unitario {preco}, total {total_item}"
             linhas.append(detalhe)
     return "\n".join(linhas)
