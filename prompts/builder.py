@@ -121,8 +121,9 @@ def _decision_section(ctx: dict) -> str:
         "Se a intencao for preco_produto/price_query, priorize tabela de preco e derivacao.",
         "Se houver pedido em andamento, mantenha continuidade e nao reinicie a conversa.",
         "Se faltar embalagem, derivacao ou quantidade, pergunte somente o dado faltante.",
+        "Se houver mais de uma derivacao ou preco possivel para o item, confirme antes de calcular.",
+        "Pode calcular total somente com produto, derivacao, quantidade e preco da tabela claramente definidos.",
         "Depois que produtos e quantidades forem confirmados, registre para aprovacao do representante.",
-        "Nao calcule, some ou recalcule total do pedido. O representante valida valores finais.",
         "Nao pergunte sobre frete, pagamento, forma de pagamento, entrega ou prazo.",
     ]
     return "\n".join(linhas)
