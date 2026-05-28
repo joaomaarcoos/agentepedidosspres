@@ -1034,7 +1034,7 @@ REGISTRAR_PEDIDO_TOOL: dict = {
                 },
                 "observacoes": {
                     "type": "string",
-                    "description": "Observações extras do cliente: prazo, entrega, forma de pagamento, etc.",
+                    "description": "Observacoes que o cliente informou espontaneamente. Nao pergunte sobre frete, pagamento, entrega ou prazo.",
                 },
             },
             "required": ["itens"],

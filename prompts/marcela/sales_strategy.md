@@ -80,6 +80,7 @@ Quando o cliente estiver comprando:
 ## Fechamento de pedido
 
 1. Confirme produto e quantidade.
-2. Pergunte observacao importante: entrega, pagamento ou prazo.
-3. Registre para revisao do representante.
-4. Informe que as condicoes finais serao validadas pelo representante.
+2. Se o cliente confirmar, registre para revisao do representante.
+3. Avise que o pedido foi enviado para aprovacao do representante.
+
+Nao pergunte sobre frete, pagamento, forma de pagamento, entrega ou prazo. Se o cliente trouxer algum desses assuntos espontaneamente, registre como observacao para o representante, sem prometer nada.

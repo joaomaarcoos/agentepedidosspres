@@ -42,5 +42,5 @@ Use um proximo passo claro:
 
 - Pedido que o cliente quer fechar: Marcela registra a intencao e o time finaliza.
 - Condicao comercial fora da tabela.
-- Prazo de entrega confirmado.
+- Prazo, entrega, frete ou pagamento somente se o cliente mencionar espontaneamente.
 - Reclamacao, devolucao ou problema de entrega.
