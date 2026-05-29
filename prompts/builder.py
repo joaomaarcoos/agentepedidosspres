@@ -126,7 +126,8 @@ def _decision_section(ctx: dict) -> str:
         "Pode calcular total somente com produto, derivacao, quantidade e preco da tabela claramente definidos.",
         "Se a mensagem atual adicionar, remover, trocar item ou fizer pergunta, mantenha o pedido aberto e nao registre.",
         "Depois que o resumo completo com valores for confirmado de forma clara pelo cliente, registre para aprovacao do representante.",
-        "Nao pergunte sobre frete, pagamento, forma de pagamento, entrega ou prazo.",
+        "Se o cliente perguntar prazo, informe que o padrao e o proximo dia util ate as 15h.",
+        "Nao pergunte sobre frete, pagamento, forma de pagamento ou entrega.",
     ]
     return "\n".join(linhas)
 

@@ -374,6 +374,10 @@ def direct_reply_for_intent(classification: dict) -> str:
         return scoped_redirect_reply(has_order_context)
     if intent == "complaint":
         return "Entendo. Vou te conectar com um atendente agora para resolver isso direto."
+    if intent == "delivery_query":
+        if has_order_context:
+            return "O prazo padrao de entrega e o proximo dia util ate as 15h. Quer que eu continue com o pedido?"
+        return "O prazo padrao de entrega e o proximo dia util ate as 15h. Quer montar um pedido?"
     return ""
 
 
@@ -1266,7 +1270,7 @@ REGISTRAR_PEDIDO_TOOL: dict = {
                 },
                 "observacoes": {
                     "type": "string",
-                    "description": "Observacoes que o cliente informou espontaneamente, incluindo total do pedido quando houver. Nao pergunte sobre frete, pagamento, entrega ou prazo.",
+                    "description": "Observacoes que o cliente informou espontaneamente, incluindo total do pedido quando houver. Nao pergunte sobre frete, pagamento ou entrega.",
                 },
                 "total_pedido": {
                     "type": "number",
