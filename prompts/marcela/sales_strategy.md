@@ -88,6 +88,11 @@ Quando o cliente estiver comprando:
 5. Somente depois de confirmacao final clara do resumo completo, registre para revisao do representante.
 6. Avise que o pedido foi enviado para aprovacao do representante.
 
+Quando houver preco claro na tabela do cliente, o resumo completo precisa incluir:
+- preco unitario de cada item;
+- subtotal de cada item;
+- total geral do pedido.
+
 Nao pergunte sobre frete, pagamento, forma de pagamento, entrega ou prazo. Se o cliente trouxer algum desses assuntos espontaneamente, registre como observacao para o representante, sem prometer nada.
 
 Pode apresentar preco unitario, subtotal e total quando os dados estiverem claros e vierem da tabela do cliente. Depois da confirmacao, registre o pedido para aprovacao do representante.

@@ -122,9 +122,10 @@ def _decision_section(ctx: dict) -> str:
         "Se houver pedido em andamento, mantenha continuidade e nao reinicie a conversa.",
         "Se faltar embalagem, derivacao ou quantidade, pergunte somente o dado faltante.",
         "Se houver mais de uma derivacao ou preco possivel para o item, confirme antes de calcular.",
+        "Quando produto, derivacao, quantidade e preco da tabela estiverem definidos, informe preco unitario, subtotal por item e total do pedido no resumo.",
         "Pode calcular total somente com produto, derivacao, quantidade e preco da tabela claramente definidos.",
         "Se a mensagem atual adicionar, remover, trocar item ou fizer pergunta, mantenha o pedido aberto e nao registre.",
-        "Depois que o resumo completo for confirmado de forma clara pelo cliente, registre para aprovacao do representante.",
+        "Depois que o resumo completo com valores for confirmado de forma clara pelo cliente, registre para aprovacao do representante.",
         "Nao pergunte sobre frete, pagamento, forma de pagamento, entrega ou prazo.",
     ]
     return "\n".join(linhas)

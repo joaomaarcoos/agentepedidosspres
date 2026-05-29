@@ -431,15 +431,42 @@ def is_final_order_confirmation(text: str) -> bool:
     return contains_any(value, confirmation_terms)
 
 
+def _format_brl(value: Any) -> str:
+    try:
+        return f"R$ {float(value):.2f}".replace(".", ",")
+    except (TypeError, ValueError):
+        return ""
+
+
 def order_confirmation_prompt(itens: list[dict] | None = None) -> str:
     lines = ["Ainda nao registrei o pedido.", "", "So para confirmar, ficou assim:"]
+    total = 0.0
+    has_subtotal = False
     for item in itens or []:
         nome = normalize_text(item.get("nome")) or "Item"
         quantidade = normalize_text(item.get("quantidade"))
+        preco_unitario = _format_brl(item.get("preco_unitario"))
+        subtotal_value = item.get("subtotal")
+        subtotal = _format_brl(subtotal_value)
+        try:
+            total += float(subtotal_value)
+            has_subtotal = True
+        except (TypeError, ValueError):
+            pass
+
+        parts = []
         if quantidade:
-            lines.append(f"- *{nome}*: {quantidade}")
+            parts.append(quantidade)
+        if preco_unitario:
+            parts.append(f"unit. {preco_unitario}")
+        if subtotal:
+            parts.append(f"subtotal {subtotal}")
+        if parts:
+            lines.append(f"- *{nome}*: {' | '.join(parts)}")
         else:
             lines.append(f"- *{nome}*")
+    if has_subtotal:
+        lines += ["", f"Total do pedido: *{_format_brl(total)}*"]
     lines += [
         "",
         "Se estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante.",
@@ -498,7 +525,20 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
                 text = "Se estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante."
             lowered = _lower_ascii(text)
 
-    if classification.get("intent") in {"product_query", "commercial_unknown", "price_query"}:
+    registered_order_terms = (
+        "pedido registrado",
+        "seu pedido foi registrado",
+        "registrado para revisao",
+        "registrado para revisão",
+        "pedido enviado para aprovacao",
+        "pedido enviado para aprovação",
+    )
+    should_skip_advancement = (
+        is_final_order_confirmation(classification.get("raw_text", ""))
+        or any(term in lowered for term in registered_order_terms)
+    )
+
+    if classification.get("intent") in {"product_query", "commercial_unknown", "price_query"} and not should_skip_advancement:
         passive_closings = (
             "se precisar",
             "e so avisar",
@@ -1108,7 +1148,8 @@ REGISTRAR_PEDIDO_TOOL: dict = {
         "description": (
             "Registra o pedido confirmado do cliente para revisão do representante antes de enviar ao sistema. "
             "Use assim que o cliente confirmar os produtos e quantidades desejados. "
-            "Registre itens, quantidades, precos calculados quando estiverem claros e observacoes espontaneas."
+            "Registre itens, quantidades, preco unitario, subtotal e total do pedido quando estiverem claros na tabela, "
+            "alem de observacoes espontaneas."
         ),
         "parameters": {
             "type": "object",
@@ -1120,14 +1161,20 @@ REGISTRAR_PEDIDO_TOOL: dict = {
                         "properties": {
                             "nome": {"type": "string", "description": "Nome do produto"},
                             "quantidade": {"type": "string", "description": "Quantidade (ex: 2 bolsas, 10 garrafas, 20 copos)"},
+                            "preco_unitario": {"type": "number", "description": "Preco unitario da tabela do cliente, quando claro"},
+                            "subtotal": {"type": "number", "description": "Quantidade vezes preco unitario, quando claro"},
                         },
                         "required": ["nome", "quantidade"],
                     },
-                    "description": "Lista de produtos e quantidades do pedido",
+                    "description": "Lista de produtos, quantidades, precos unitarios e subtotais do pedido",
                 },
                 "observacoes": {
                     "type": "string",
-                    "description": "Observacoes que o cliente informou espontaneamente, incluindo total calculado quando houver. Nao pergunte sobre frete, pagamento, entrega ou prazo.",
+                    "description": "Observacoes que o cliente informou espontaneamente, incluindo total do pedido quando houver. Nao pergunte sobre frete, pagamento, entrega ou prazo.",
+                },
+                "total_pedido": {
+                    "type": "number",
+                    "description": "Soma dos subtotais dos itens, quando todos os precos estiverem claros",
                 },
             },
             "required": ["itens"],
@@ -1202,7 +1249,17 @@ def generate_ai_reply(
                     mensagem_cliente=last_user_message or "",
                 )
                 tool_result = json.dumps(
-                    {"sucesso": True, "id": order_id, "mensagem": "Pedido registrado para revisão do representante."},
+                    {
+                        "sucesso": True,
+                        "id": order_id,
+                        "mensagem": "Pedido registrado para revisao do representante.",
+                        "itens": args.get("itens", []),
+                        "total_pedido": args.get("total_pedido"),
+                        "instrucao_resposta": (
+                            "Responda ao cliente com o resumo final incluindo preco unitario, "
+                            "subtotal por item e total geral quando esses valores estiverem nos itens."
+                        ),
+                    },
                     ensure_ascii=False,
                 )
                 logger.info("Pedido registrado para revisão: %s (telefone: %s)", order_id, phone)
