@@ -22,6 +22,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -43,10 +44,36 @@ CONVERSATIONS_TABLE = "ai_conversations"
 MESSAGES_TABLE = "ai_conversation_messages"
 STATE_TABLE = "system_settings"
 BUFFER_SETTING_KEY = "ai_message_buffer_seconds"
+LOCAL_TIMEZONE = ZoneInfo(os.getenv("AI_LOCAL_TIMEZONE", "America/Sao_Paulo"))
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def local_now() -> datetime:
+    return datetime.now(LOCAL_TIMEZONE)
+
+
+def format_local_datetime(value: datetime) -> str:
+    weekday_names = [
+        "segunda-feira",
+        "terca-feira",
+        "quarta-feira",
+        "quinta-feira",
+        "sexta-feira",
+        "sabado",
+        "domingo",
+    ]
+    return f"{weekday_names[value.weekday()]}, {value.strftime('%d/%m/%Y')} as {value.strftime('%H:%M')}"
+
+
+def next_business_day(value: datetime | None = None) -> datetime:
+    current = value or local_now()
+    candidate = current + timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    return candidate
 
 
 def iso_z(value: datetime) -> str:
@@ -234,6 +261,8 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
         intent = "repeat_order"
     elif contains_any(value, ("entrega", "entregar", "prazo", "chega hoje", "chega amanha")):
         intent = "delivery_query"
+    elif contains_any(value, ("que horas", "hora atual", "horario", "horário", "que dia e hoje", "que dia eh hoje", "data de hoje")):
+        intent = "time_query"
     elif contains_any(value, ("preco", "valor", "quanto custa", "quanto esta", "tabela")):
         intent = "price_query"
     elif contains_any(value, ("quero fazer um pedido", "fazer pedido", "montar pedido", "comprar", "pedido")):
@@ -278,13 +307,11 @@ def is_out_of_scope(text: str) -> bool:
         return False
 
     if re.search(r"\b(que|qual)\b.{0,16}\b(?:dia|d\s*i\s*a)\b.{0,24}\bhoje\b", value):
-        return True
+        return False
 
     out_patterns = (
         "quem e o presidente",
         "presidente do brasil",
-        "que dia e hoje",
-        "data de hoje",
         "previsao do tempo",
         "resultado do jogo",
         "cotacao do dolar",
@@ -293,8 +320,6 @@ def is_out_of_scope(text: str) -> bool:
         "programa em python",
         "codigo em",
         "noticia",
-        "que di a e hoje",
-        "que dia eh hoje",
     )
     return any(pattern in value for pattern in out_patterns)
 
@@ -375,9 +400,16 @@ def direct_reply_for_intent(classification: dict) -> str:
     if intent == "complaint":
         return "Entendo. Vou te conectar com um atendente agora para resolver isso direto."
     if intent == "delivery_query":
+        delivery_day = next_business_day()
+        delivery_text = f"{delivery_day.strftime('%d/%m/%Y')} ate as 15h"
         if has_order_context:
-            return "O prazo padrao de entrega e o proximo dia util ate as 15h. Quer que eu continue com o pedido?"
-        return "O prazo padrao de entrega e o proximo dia util ate as 15h. Quer montar um pedido?"
+            return f"O prazo padrao de entrega e o proximo dia util, {delivery_text}. Quer que eu continue com o pedido?"
+        return f"O prazo padrao de entrega e o proximo dia util, {delivery_text}. Quer montar um pedido?"
+    if intent == "time_query":
+        now = format_local_datetime(local_now())
+        if has_order_context:
+            return f"Agora e {now}. Quer seguir com o pedido?"
+        return f"Agora e {now}. Posso te ajudar com produtos, precos ou montar um pedido da Sucos SPRES."
     return ""
 
 

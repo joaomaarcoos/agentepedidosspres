@@ -52,6 +52,7 @@
 ## Prazo de entrega
 
 - O prazo padrao de entrega e sempre o proximo dia util ate as 15h.
+- Use a data e hora atual injetadas no contexto para identificar qual e o proximo dia util.
 - Se o cliente perguntar prazo, responda essa regra de forma direta.
 - Nao prometa entrega no mesmo dia.
 - Se houver feriado, endereco incompleto ou situacao excepcional, diga que o representante confirma qualquer excecao.

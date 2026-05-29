@@ -19,7 +19,9 @@ Chaves de context (todas opcionais):
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,7 @@ def _read(filename: str) -> str:
 def build_prompt(context: dict | None = None) -> str:
     parts = [_read(f) for f in _ordered_parts()]
     base = "\n\n---\n\n".join(p for p in parts if p)
+    base += f"\n\n---\n\n{_runtime_time_section()}"
 
     if not context:
         return base
@@ -78,6 +81,30 @@ def build_prompt(context: dict | None = None) -> str:
         base += f"\n\n---\n\n{customer_section}"
 
     return base
+
+
+def _runtime_time_section() -> str:
+    now = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    weekday_names = [
+        "segunda-feira",
+        "terca-feira",
+        "quarta-feira",
+        "quinta-feira",
+        "sexta-feira",
+        "sabado",
+        "domingo",
+    ]
+    return "\n".join([
+        "## DATA E HORA ATUAL",
+        "",
+        f"Data local: {now.strftime('%d/%m/%Y')}",
+        f"Hora local: {now.strftime('%H:%M')}",
+        f"Dia da semana: {weekday_names[now.weekday()]}",
+        "Fuso horario: America/Sao_Paulo",
+        "",
+        "Use esta data e hora para interpretar hoje, amanha, proximo dia util e prazo de entrega.",
+        "Nao invente outra data/hora.",
+    ])
 
 
 def _decision_section(ctx: dict) -> str:
