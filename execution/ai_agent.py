@@ -797,7 +797,7 @@ class AgentStore:
         observacoes: str,
         customer_name: str | None,
         mensagem_cliente: str,
-    ) -> str:
+    ) -> dict:
         order_id = str(uuid.uuid4())
         now = iso_z(utc_now())
         payload = {
@@ -814,17 +814,112 @@ class AgentStore:
         }
 
         if self.use_local:
+            rows = self._local_read("pedidos_revisao")
+            for index, row in enumerate(rows):
+                same_conversation = conversation_id and row.get("conversation_id") == conversation_id
+                same_phone = phone and row.get("cliente_telefone") == phone
+                if (same_conversation or same_phone) and row.get("status") in {"pendente", "em_revisao"}:
+                    updated = {
+                        **row,
+                        "cliente_nome": customer_name or row.get("cliente_nome"),
+                        "itens_json": itens,
+                        "observacoes": observacoes or "",
+                        "mensagem_cliente": mensagem_cliente or "",
+                        "updated_at": now,
+                    }
+                    rows[index] = updated
+                    self._local_write("pedidos_revisao", rows)
+                    return {"id": row.get("id", order_id), "action": "updated"}
             self._local_append("pedidos_revisao", payload)
-            return order_id
+            return {"id": order_id, "action": "created"}
 
         try:
+            existing_rows = []
+            lookup_filters = []
+            if conversation_id:
+                lookup_filters.append(("conversation_id", conversation_id))
+            if phone:
+                lookup_filters.append(("cliente_telefone", phone))
+
+            for field, value in lookup_filters:
+                existing = (
+                    self.client.table("pedidos_revisao")
+                    .select("id,status,created_at")
+                    .in_("status", ["pendente", "em_revisao"])
+                    .eq(field, value)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                existing_rows = existing.data or []
+                if existing_rows:
+                    break
+
+            if existing_rows:
+                existing_id = existing_rows[0]["id"]
+                update_payload = {
+                    "itens_json": itens,
+                    "observacoes": observacoes or "",
+                    "mensagem_cliente": mensagem_cliente or "",
+                    "updated_at": now,
+                }
+                if customer_name:
+                    update_payload["cliente_nome"] = customer_name
+                result = (
+                    self.client.table("pedidos_revisao")
+                    .update(update_payload)
+                    .eq("id", existing_id)
+                    .execute()
+                )
+                return {"id": (result.data or [{"id": existing_id}])[0].get("id", existing_id), "action": "updated"}
+
             result = self.client.table("pedidos_revisao").insert(payload).execute()
-            return (result.data or [payload])[0].get("id", order_id)
+            return {"id": (result.data or [payload])[0].get("id", order_id), "action": "created"}
         except Exception as exc:
             logger.warning("Falha ao salvar pedido_revisao; usando local: %s", exc)
             self.use_local = True
             self._local_append("pedidos_revisao", payload)
-            return order_id
+            return {"id": order_id, "action": "created"}
+
+    def get_open_order_for_review(self, phone: str, conversation_id: str | None = None) -> dict | None:
+        editable_statuses = {"pendente", "em_revisao"}
+        if self.use_local:
+            rows = self._local_read("pedidos_revisao")
+            matches = [
+                row for row in rows
+                if row.get("status") in editable_statuses
+                and (
+                    (conversation_id and row.get("conversation_id") == conversation_id)
+                    or (phone and row.get("cliente_telefone") == phone)
+                )
+            ]
+            matches.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
+            return matches[0] if matches else None
+
+        try:
+            lookup_filters = []
+            if conversation_id:
+                lookup_filters.append(("conversation_id", conversation_id))
+            if phone:
+                lookup_filters.append(("cliente_telefone", phone))
+
+            for field, value in lookup_filters:
+                result = (
+                    self.client.table("pedidos_revisao")
+                    .select("id,status,itens_json,observacoes,created_at,updated_at")
+                    .in_("status", list(editable_statuses))
+                    .eq(field, value)
+                    .order("updated_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                rows = result.data or []
+                if rows:
+                    return rows[0]
+            return None
+        except Exception as exc:
+            logger.warning("Falha ao buscar pedido em revisao aberto: %s", exc)
+            return None
 
     def recent_messages(self, conversation_id: str, limit: int = CONTEXT_MESSAGE_LIMIT) -> list[dict]:
         safe_limit = max(1, min(limit, 50))
@@ -1146,8 +1241,9 @@ REGISTRAR_PEDIDO_TOOL: dict = {
     "function": {
         "name": "registrar_pedido",
         "description": (
-            "Registra o pedido confirmado do cliente para revisão do representante antes de enviar ao sistema. "
+            "Registra ou atualiza o pedido confirmado do cliente para revisão do representante antes de enviar ao sistema. "
             "Use assim que o cliente confirmar os produtos e quantidades desejados. "
+            "Se ja houver pedido pendente ou em revisao para a conversa, a ferramenta atualiza esse pedido. "
             "Registre itens, quantidades, preco unitario, subtotal e total do pedido quando estiverem claros na tabela, "
             "alem de observacoes espontaneas."
         ),
@@ -1240,7 +1336,7 @@ def generate_ai_reply(
                 args = json.loads(tool_call.function.arguments)
                 if not is_final_order_confirmation(last_user_message or ""):
                     return order_confirmation_prompt(args.get("itens", []))
-                order_id = store.save_order_for_review(
+                order_result = store.save_order_for_review(
                     phone=phone,
                     conversation_id=conversation_id,
                     itens=args.get("itens", []),
@@ -1248,21 +1344,30 @@ def generate_ai_reply(
                     customer_name=customer_name or (module_context or {}).get("customer_name"),
                     mensagem_cliente=last_user_message or "",
                 )
+                order_id = order_result.get("id") if isinstance(order_result, dict) else str(order_result)
+                order_action = order_result.get("action") if isinstance(order_result, dict) else "created"
+                result_message = (
+                    "Pedido atualizado para revisao do representante."
+                    if order_action == "updated"
+                    else "Pedido registrado para revisao do representante."
+                )
                 tool_result = json.dumps(
                     {
                         "sucesso": True,
                         "id": order_id,
-                        "mensagem": "Pedido registrado para revisao do representante.",
+                        "acao": order_action,
+                        "mensagem": result_message,
                         "itens": args.get("itens", []),
                         "total_pedido": args.get("total_pedido"),
                         "instrucao_resposta": (
-                            "Responda ao cliente com o resumo final incluindo preco unitario, "
+                            "Responda ao cliente dizendo se o pedido foi registrado ou atualizado, "
+                            "com o resumo final incluindo preco unitario, "
                             "subtotal por item e total geral quando esses valores estiverem nos itens."
                         ),
                     },
                     ensure_ascii=False,
                 )
-                logger.info("Pedido registrado para revisão: %s (telefone: %s)", order_id, phone)
+                logger.info("Pedido %s para revisao: %s (telefone: %s)", order_action, order_id, phone)
             except Exception as exc:
                 logger.warning("Falha ao registrar pedido: %s", exc)
                 tool_result = json.dumps({"sucesso": False, "erro": str(exc)}, ensure_ascii=False)
@@ -1384,6 +1489,9 @@ def process_inbound_message(
         if recent_orders:
             module_context["recent_orders"] = recent_orders
     module_context = {**(module_context or {})}
+    open_review_order = store.get_open_order_for_review(safe_phone, str(conversation["id"]))
+    if open_review_order:
+        module_context["open_review_order"] = open_review_order
     module_context["classified_intent"] = classification
     module_context["conversation_state"] = conversation_state
     if codigo_tabela:

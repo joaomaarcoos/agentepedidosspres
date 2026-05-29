@@ -160,6 +160,19 @@ def _customer_section(ctx: dict) -> str:
             "",
         ]
 
+    pedido_aberto = _fmt_open_review_order(ctx.get("open_review_order") or {})
+    if pedido_aberto:
+        if not linhas:
+            linhas += ["## CONTEXTO DO CLIENTE IDENTIFICADO", ""]
+        linhas += [
+            "Pedido atualmente em revisao e ainda editavel:",
+            pedido_aberto,
+            "",
+            "Se o cliente pedir alteracao, ajuste este pedido e peca confirmacao do resumo completo.",
+            "Depois da confirmacao final, use a ferramenta para atualizar o mesmo pedido em revisao.",
+            "",
+        ]
+
     pedidos = _fmt_recent_orders(ctx.get("recent_orders") or [])
     if pedidos:
         if not linhas:
@@ -322,6 +335,35 @@ def _fmt_pedido_sugerido(items: list[dict]) -> str:
         if qtd:
             partes.append(f"quantidade sugerida {qtd}")
         linhas.append(f"- {'; '.join(partes)}")
+    return "\n".join(linhas)
+
+
+def _fmt_open_review_order(order: dict) -> str:
+    if not order:
+        return ""
+    linhas = [
+        f"- ID: {order.get('id') or '-'}",
+        f"- Status: {order.get('status') or '-'}",
+    ]
+    items = order.get("itens_json") or []
+    if isinstance(items, list) and items:
+        linhas.append("- Itens atuais:")
+        for item in items[:20]:
+            nome = item.get("nome") or item.get("produto") or item.get("desPro") or "Item"
+            qtd = item.get("quantidade") or item.get("qtdPed") or ""
+            detalhe = f"  - {nome}"
+            if qtd:
+                detalhe += f": {qtd}"
+            preco = item.get("preco_unitario") or item.get("preco") or item.get("preUni")
+            subtotal = item.get("subtotal") or item.get("vlrTotal")
+            if preco:
+                detalhe += f", unitario {_fmt_preco(preco)}"
+            if subtotal:
+                detalhe += f", subtotal {_fmt_preco(subtotal)}"
+            linhas.append(detalhe)
+    obs = order.get("observacoes")
+    if obs:
+        linhas.append(f"- Observacoes: {obs}")
     return "\n".join(linhas)
 
 

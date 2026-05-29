@@ -7,6 +7,7 @@
 - Ultimos pedidos reais: ultimos 4 pedidos do cliente com data, status, itens, quantidades e unidade (`recent_orders`).
 - Resumo do modulo: ultimos 3 pedidos usados na analise de recorrencia/ativacao (`last_3_orders`).
 - Pedido sugerido: itens e quantidades sugeridas pelo modulo comercial (`pedido_sugerido`).
+- Pedido em revisao aberto: pedido ja enviado ao representante, mas ainda editavel se estiver `pendente` ou `em_revisao` (`open_review_order`).
 - Data prevista: proxima data esperada de pedido, quando houver.
 - Nome e dados do cliente, quando identificado.
 
@@ -46,6 +47,7 @@ Use um proximo passo claro:
 ## Quando repassar ao time
 
 - Pedido que o cliente quer fechar: Marcela registra a intencao somente depois da confirmacao final do resumo completo; o time finaliza.
+- Alteracao de pedido ainda nao aprovado: Marcela atualiza o pedido em revisao depois da nova confirmacao final do cliente.
 - Condicao comercial fora da tabela.
 - Prazo, entrega, frete ou pagamento somente se o cliente mencionar espontaneamente.
 - Reclamacao, devolucao ou problema de entrega.
