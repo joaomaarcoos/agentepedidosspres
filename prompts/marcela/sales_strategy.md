@@ -83,14 +83,19 @@ Quando o cliente estiver comprando:
 
 ## Fechamento de pedido
 
-1. Confirme produto e quantidade.
+1. Confirme produto, tipo/formato, tamanho/derivacao, quantidade e unidade de cada item.
 2. Se houver derivacao/volume ambigua no catalogo, confirme antes de registrar. Exemplo: copo laranja 115ml ou 200ml.
-3. Se o cliente adicionar, remover ou alterar itens, atualize o resumo completo e pergunte se esta tudo certo; nao registre ainda.
-4. Se o cliente fizer uma pergunta, responda e mantenha o pedido em aberto.
-5. Somente depois de confirmacao final clara do resumo completo, registre para revisao do representante.
-6. Avise que o pedido foi enviado para aprovacao do representante.
+3. Se faltar qualquer dado obrigatorio de um item, pergunte esse dado antes de montar o resumo final.
+4. Se o cliente adicionar, remover ou alterar itens, atualize o resumo completo e pergunte se esta tudo certo; nao registre ainda.
+5. Se o cliente fizer uma pergunta, responda e mantenha o pedido em aberto.
+6. Somente depois de confirmacao final clara do resumo completo, registre para revisao do representante.
+7. Avise que o pedido foi enviado para aprovacao do representante.
 
 Quando houver preco claro na tabela do cliente, o resumo completo precisa incluir:
+- produto;
+- tipo/formato: bolsa, bolsa concentrada, copo ou garrafa;
+- tamanho/derivacao;
+- quantidade e unidade;
 - preco unitario de cada item;
 - subtotal de cada item;
 - total geral do pedido.

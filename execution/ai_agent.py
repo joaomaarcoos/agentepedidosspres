@@ -442,8 +442,11 @@ def order_confirmation_prompt(itens: list[dict] | None = None) -> str:
     total = 0.0
     has_subtotal = False
     for item in itens or []:
-        nome = normalize_text(item.get("nome")) or "Item"
-        quantidade = normalize_text(item.get("quantidade"))
+        nome = _item_value(item, "nome") or _item_value(item, "produto") or "Item"
+        tipo = _item_value(item, "tipo", "formato", "embalagem")
+        tamanho = _item_value(item, "tamanho", "derivacao", "variacao", "volume")
+        quantidade = _item_value(item, "quantidade")
+        unidade = _item_value(item, "unidade")
         preco_unitario = _format_brl(item.get("preco_unitario"))
         subtotal_value = item.get("subtotal")
         subtotal = _format_brl(subtotal_value)
@@ -454,8 +457,14 @@ def order_confirmation_prompt(itens: list[dict] | None = None) -> str:
             pass
 
         parts = []
+        if tipo:
+            parts.append(f"tipo {tipo}")
+        if tamanho:
+            parts.append(f"tamanho {tamanho}")
         if quantidade:
-            parts.append(quantidade)
+            parts.append(f"quantidade {quantidade}")
+        if unidade:
+            parts.append(f"unidade {unidade}")
         if preco_unitario:
             parts.append(f"unit. {preco_unitario}")
         if subtotal:
@@ -469,6 +478,57 @@ def order_confirmation_prompt(itens: list[dict] | None = None) -> str:
     lines += [
         "",
         "Se estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante.",
+    ]
+    return "\n".join(lines)
+
+
+def _item_value(item: dict, *keys: str) -> str:
+    for key in keys:
+        value = item.get(key)
+        if value is not None and normalize_text(value):
+            return normalize_text(value)
+    return ""
+
+
+def _missing_order_fields(itens: list[dict] | None) -> list[dict]:
+    missing: list[dict] = []
+    for index, item in enumerate(itens or [], start=1):
+        if not isinstance(item, dict):
+            missing.append({"item": index, "campos": ["produto", "tipo", "tamanho", "quantidade", "unidade"]})
+            continue
+
+        item_missing = []
+        if not _item_value(item, "produto", "nome"):
+            item_missing.append("produto")
+        if not _item_value(item, "tipo", "formato", "embalagem"):
+            item_missing.append("tipo")
+        if not _item_value(item, "tamanho", "derivacao", "variacao", "volume"):
+            item_missing.append("tamanho")
+        if not _item_value(item, "quantidade"):
+            item_missing.append("quantidade")
+        if not _item_value(item, "unidade"):
+            item_missing.append("unidade")
+        if item_missing:
+            missing.append({"item": index, "campos": item_missing})
+    return missing
+
+
+def missing_order_fields_prompt(itens: list[dict] | None) -> str:
+    missing = _missing_order_fields(itens)
+    lines = [
+        "Ainda nao consigo enviar esse pedido para aprovacao porque faltam dados obrigatorios.",
+        "",
+        "Para cada item preciso de: produto, tipo, tamanho, quantidade e unidade.",
+    ]
+    if missing:
+        lines.append("")
+        lines.append("Faltou:")
+        for entry in missing:
+            fields = ", ".join(entry["campos"])
+            lines.append(f"- Item {entry['item']}: {fields}")
+    lines += [
+        "",
+        "Me passe esses dados que eu atualizo o resumo completo antes de enviar para o representante.",
     ]
     return "\n".join(lines)
 
@@ -747,6 +807,10 @@ class AgentStore:
         customer_name: str | None,
         mensagem_cliente: str,
     ) -> dict:
+        missing_fields = _missing_order_fields(itens)
+        if missing_fields:
+            raise ValueError(f"Itens do pedido incompletos: {missing_fields}")
+
         order_id = str(uuid.uuid4())
         now = iso_z(utc_now())
         payload = {
@@ -1191,10 +1255,10 @@ REGISTRAR_PEDIDO_TOOL: dict = {
         "name": "registrar_pedido",
         "description": (
             "Registra ou atualiza o pedido confirmado do cliente para revisão do representante antes de enviar ao sistema. "
-            "Use assim que o cliente confirmar os produtos e quantidades desejados. "
+            "Use somente depois que o cliente confirmar o resumo completo. "
             "Se ja houver pedido pendente ou em revisao para a conversa, a ferramenta atualiza esse pedido. "
-            "Registre itens, quantidades, preco unitario, subtotal e total do pedido quando estiverem claros na tabela, "
-            "alem de observacoes espontaneas."
+            "Cada item deve ter produto, tipo/formato, tamanho/derivacao, quantidade e unidade. "
+            "Registre preco unitario, subtotal e total do pedido quando estiverem claros na tabela, alem de observacoes espontaneas."
         ),
         "parameters": {
             "type": "object",
@@ -1204,14 +1268,18 @@ REGISTRAR_PEDIDO_TOOL: dict = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "nome": {"type": "string", "description": "Nome do produto"},
-                            "quantidade": {"type": "string", "description": "Quantidade (ex: 2 bolsas, 10 garrafas, 20 copos)"},
+                            "produto": {"type": "string", "description": "Nome do produto/sabor, sem inventar variacao"},
+                            "tipo": {"type": "string", "description": "Formato comercial: bolsa, bolsa concentrada, copo ou garrafa"},
+                            "tamanho": {"type": "string", "description": "Tamanho/derivacao/volume exatamente como confirmado, ex: 200ml, 300ml, 1,7L, 5L"},
+                            "quantidade": {"type": "number", "description": "Quantidade numerica confirmada pelo cliente"},
+                            "unidade": {"type": "string", "description": "Unidade da quantidade, ex: unidades, copos, garrafas, bolsas"},
+                            "nome": {"type": "string", "description": "Nome completo opcional do item para exibicao"},
                             "preco_unitario": {"type": "number", "description": "Preco unitario da tabela do cliente, quando claro"},
                             "subtotal": {"type": "number", "description": "Quantidade vezes preco unitario, quando claro"},
                         },
-                        "required": ["nome", "quantidade"],
+                        "required": ["produto", "tipo", "tamanho", "quantidade", "unidade"],
                     },
-                    "description": "Lista de produtos, quantidades, precos unitarios e subtotais do pedido",
+                    "description": "Lista de itens confirmados com produto, tipo, tamanho, quantidade, unidade, precos unitarios e subtotais",
                 },
                 "observacoes": {
                     "type": "string",
@@ -1283,12 +1351,15 @@ def generate_ai_reply(
         if tool_call.function.name == "registrar_pedido" and store and phone:
             try:
                 args = json.loads(tool_call.function.arguments)
+                itens = args.get("itens", [])
+                if _missing_order_fields(itens):
+                    return missing_order_fields_prompt(itens)
                 if not is_final_order_confirmation(last_user_message or ""):
-                    return order_confirmation_prompt(args.get("itens", []))
+                    return order_confirmation_prompt(itens)
                 order_result = store.save_order_for_review(
                     phone=phone,
                     conversation_id=conversation_id,
-                    itens=args.get("itens", []),
+                    itens=itens,
                     observacoes=args.get("observacoes", ""),
                     customer_name=customer_name or (module_context or {}).get("customer_name"),
                     mensagem_cliente=last_user_message or "",
@@ -1306,7 +1377,7 @@ def generate_ai_reply(
                         "id": order_id,
                         "acao": order_action,
                         "mensagem": result_message,
-                        "itens": args.get("itens", []),
+                        "itens": itens,
                         "total_pedido": args.get("total_pedido"),
                         "instrucao_resposta": (
                             "Responda ao cliente dizendo se o pedido foi registrado ou atualizado, "
