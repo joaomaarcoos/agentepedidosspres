@@ -809,7 +809,7 @@ class AgentStore:
     ) -> dict:
         missing_fields = _missing_order_fields(itens)
         if missing_fields:
-            raise ValueError(f"Itens do pedido incompletos: {missing_fields}")
+            return {"id": None, "action": "blocked_missing_fields", "missing_fields": missing_fields}
 
         order_id = str(uuid.uuid4())
         now = iso_z(utc_now())
@@ -1366,6 +1366,8 @@ def generate_ai_reply(
                 )
                 order_id = order_result.get("id") if isinstance(order_result, dict) else str(order_result)
                 order_action = order_result.get("action") if isinstance(order_result, dict) else "created"
+                if order_action == "blocked_missing_fields":
+                    return missing_order_fields_prompt(itens)
                 result_message = (
                     "Pedido atualizado para revisao do representante."
                     if order_action == "updated"
