@@ -132,6 +132,42 @@ def _lower_ascii(value: str) -> str:
     return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
 
 
+def _product_text(row: dict) -> str:
+    return _lower_ascii(
+        " ".join(
+            str(row.get(key) or "")
+            for key in ("cod_produto", "nome_produto", "nome", "variacao", "derivacao")
+        )
+    )
+
+
+def detect_unavailable_requested_products(text: str, produtos: list[dict] | None) -> list[str]:
+    if not produtos:
+        return []
+
+    catalog_text = "\n".join(_product_text(row) for row in produtos)
+    normalized = _lower_ascii(text)
+    unavailable: list[str] = []
+
+    # Termos comuns que podem ser confundidos com abreviacoes/codigos internos.
+    # Ex.: "LAR" no codigo da tabela significa laranja, nunca limao.
+    known_terms = {"limao": "limão"}
+    for token, label in known_terms.items():
+        if token in normalized and token not in catalog_text:
+            unavailable.append(label)
+
+    return unavailable
+
+
+def unavailable_products_prompt(products: list[str]) -> str:
+    product_list = ", ".join(products)
+    return (
+        f"Esse produto nao consta na tabela disponivel: {product_list}. "
+        "Nao vou adicionar nem calcular esse item sem preco confirmado. "
+        "Posso deixar como observacao para o representante confirmar a disponibilidade?"
+    )
+
+
 def is_simple_greeting(text: str) -> bool:
     value = _lower_ascii(text).strip(" .,!?\n\t")
     return value in {
@@ -546,6 +582,19 @@ def missing_order_fields_prompt(itens: list[dict] | None) -> str:
         "Me passe esses dados que eu atualizo o resumo completo antes de enviar para o representante.",
     ]
     return "\n".join(lines)
+
+
+def _unavailable_order_items(itens: list[dict] | None, produtos: list[dict] | None) -> list[str]:
+    unavailable: list[str] = []
+    for item in itens or []:
+        if not isinstance(item, dict):
+            continue
+        item_text = " ".join(
+            _item_value(item, key)
+            for key in ("produto", "nome", "tipo", "tamanho", "derivacao", "variacao", "volume")
+        )
+        unavailable.extend(detect_unavailable_requested_products(item_text, produtos))
+    return sorted(set(unavailable))
 
 
 def update_commercial_state(state: dict | None, classification: dict, user_text: str) -> dict:
@@ -1373,6 +1422,9 @@ def generate_ai_reply(
                 itens = args.get("itens", [])
                 if _missing_order_fields(itens):
                     return missing_order_fields_prompt(itens)
+                unavailable_items = _unavailable_order_items(itens, produtos)
+                if unavailable_items:
+                    return unavailable_products_prompt(unavailable_items)
                 if not is_final_order_confirmation(last_user_message or ""):
                     return order_confirmation_prompt(itens)
                 order_result = store.save_order_for_review(
@@ -1542,6 +1594,19 @@ def process_inbound_message(
         produtos = store.get_produtos_tabela(codigo_tabela)
     else:
         produtos = store.get_produtos()
+
+    unavailable_requested = detect_unavailable_requested_products(normalized_text, produtos)
+    if unavailable_requested:
+        reply = unavailable_products_prompt(unavailable_requested)
+        store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_guardrail"})
+        return {
+            "action": "catalog_guardrail_reply",
+            "should_reply": True,
+            "reply": reply,
+            "context_messages": len(history),
+            "intent": classification.get("intent"),
+        }
+
     reply = generate_ai_reply(
         history,
         module_context=module_context,
