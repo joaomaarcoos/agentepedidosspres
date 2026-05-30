@@ -366,90 +366,13 @@ def scoped_redirect_reply(has_order_context: bool = False) -> str:
     return "Esse assunto foge um pouco do atendimento da Sucos SPRES. Posso te ajudar com produtos, precos ou montar um pedido."
 
 
-def greeting_reply(has_order_context: bool = False) -> str:
-    if has_order_context:
-        return "Oi! Aqui e a Marcela, da Sucos SPRES. A gente estava falando de pedido, quer continuar por ele?"
-    return "Oi! Aqui e a Marcela, da Sucos SPRES. Me fala o que voce esta precisando hoje."
-
-
-def _stable_choice(options: tuple[str, ...], seed: str) -> str:
-    if not options:
-        return ""
-    score = sum(ord(ch) for ch in seed or "")
-    return options[score % len(options)]
-
-
-def advancement_question(classification: dict) -> str:
-    intent = classification.get("intent") or ""
-    entities = classification.get("entities") or {}
-    products = entities.get("products") or []
-    packages = entities.get("packages") or []
-    quantities = entities.get("quantities") or []
-    seed = f"{intent}|{','.join(products)}|{','.join(packages)}|{','.join(quantities)}"
-
-    if intent == "price_query" and products and not packages:
-        return _stable_choice(
-            (
-                "Voce quer ver esse item em garrafa, copo, bolsa ou bolsa concentrada?",
-                "Para eu te passar o valor certo, qual formato voce procura?",
-                "Esse produto pode ter variacao. Voce esta buscando qual embalagem?",
-            ),
-            seed,
-        )
-
-    if intent == "product_query":
-        return _stable_choice(
-            (
-                "Voce quer opcoes para servir pronto ou para preparo com concentrado?",
-                "Me fala o formato que voce procura: bolsa, bolsa concentrada, copo ou garrafa?",
-                "Quer que eu monte uma sugestao com os sabores de maior saida?",
-                "E para consumo no local, revenda ou reposicao de estoque?",
-            ),
-            seed,
-        )
-
-    if intent in {"order_request", "order_adjustment", "commercial_unknown"}:
-        return _stable_choice(
-            (
-                "Quer que eu monte uma sugestao inicial para o representante revisar?",
-                "Voce ja tem algum sabor em mente ou quer que eu sugira os de maior saida?",
-                "Voce quer em bolsa, bolsa concentrada, copo ou garrafa?",
-            ),
-            seed,
-        )
-
-    return _stable_choice(
-        (
-            "Quer que eu monte uma sugestao para o representante revisar?",
-            "Me fala o formato que voce procura que eu te ajudo a montar.",
-            "Quer seguir para um pedido ou prefere ver mais opcoes?",
-        ),
-        seed,
-    )
-
-
 def direct_reply_for_intent(classification: dict) -> str:
     intent = classification.get("intent")
     has_order_context = bool(classification.get("has_order_context"))
     if intent == "prompt_attack":
         return scoped_redirect_reply(has_order_context)
-    if intent == "disengage":
-        if has_order_context:
-            return "Combinado. Fico por aqui. Se quiser retomar ou ajustar o pedido depois, e so me chamar."
-        return "Combinado. Fico por aqui. Se precisar de produtos ou pedidos da Sucos SPRES, e so me chamar."
     if intent == "complaint":
         return "Entendo. Vou te conectar com um atendente agora para resolver isso direto."
-    if intent == "delivery_query":
-        delivery_day = next_business_day()
-        delivery_text = f"{delivery_day.strftime('%d/%m/%Y')} ate as 15h"
-        if has_order_context:
-            return f"O prazo padrao de entrega e o proximo dia util, {delivery_text}. Quer que eu continue com o pedido?"
-        return f"O prazo padrao de entrega e o proximo dia util, {delivery_text}. Quer montar um pedido?"
-    if intent == "time_query":
-        now = format_local_datetime(local_now())
-        if has_order_context:
-            return f"Agora e {now}. Quer seguir com o pedido?"
-        return f"Agora e {now}. Posso te ajudar com produtos, precos ou montar um pedido da Sucos SPRES."
     return ""
 
 
@@ -575,13 +498,6 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
         return scoped_redirect_reply(has_order_context)
 
     lowered = _lower_ascii(text)
-    verify_only = re.fullmatch(r"(deixa eu verificar( isso)?( aqui)?( pra voce| para voce)?[.!]*)", lowered.strip())
-    if verify_only or ("deixa eu verificar" in lowered and len(text) <= 90):
-        entities = classification.get("entities") or {}
-        if entities.get("products") and not entities.get("packages"):
-            return advancement_question(classification)
-        return "Nao tenho essa informacao completa aqui comigo. Quer que eu deixe como observacao para o representante validar no pedido?"
-
     if not is_final_order_confirmation(classification.get("raw_text", "")):
         premature_register_terms = (
             "vou registrar isso",
@@ -603,65 +519,7 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
                 text = "Se estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante."
             lowered = _lower_ascii(text)
 
-    registered_order_terms = (
-        "pedido registrado",
-        "seu pedido foi registrado",
-        "registrado para revisao",
-        "registrado para revisão",
-        "pedido enviado para aprovacao",
-        "pedido enviado para aprovação",
-    )
-    confirmation_flow_terms = (
-        "pode registrar",
-        "se estiver tudo certo",
-        "esta tudo certo",
-        "está tudo certo",
-        "só para confirmar",
-        "so para confirmar",
-        "confirmar o pedido",
-        "total do pedido",
-        "total geral",
-    )
-    should_skip_advancement = (
-        is_final_order_confirmation(classification.get("raw_text", ""))
-        or any(term in lowered for term in registered_order_terms)
-        or any(term in lowered for term in confirmation_flow_terms)
-        or "?" in text
-    )
-
-    if classification.get("intent") in {"product_query", "commercial_unknown", "price_query"} and not should_skip_advancement:
-        passive_closings = (
-            "se precisar",
-            "e so avisar",
-            "é só avisar",
-            "estou a disposicao",
-            "estou à disposicao",
-            "posso ajudar em mais alguma coisa",
-        )
-        if any(closing in lowered for closing in passive_closings):
-            text = re.sub(r"\n*\s*Se precisar.*$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
-            text = re.sub(r"\n*\s*Estou (a|à) disposi[cç][aã]o.*$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
-            text = re.sub(r"\n*\s*Posso ajudar em mais alguma coisa\??.*$", "", text, flags=re.IGNORECASE | re.DOTALL).strip()
-        advancement_terms = (
-            "bolsa",
-            "concentrado",
-            "bolsa",
-            "garrafa",
-            "copo",
-            "quantas",
-            "quantidade",
-            "montar",
-            "separar",
-            "pedido",
-            "sugestao",
-            "sugestão",
-        )
-        refreshed_lowered = _lower_ascii(text)
-        has_advancement_question = "?" in text
-        if not has_advancement_question:
-            text = f"{text}\n\n{advancement_question(classification)}"
     return text
-
 
 class AgentStore:
     def __init__(self) -> None:
