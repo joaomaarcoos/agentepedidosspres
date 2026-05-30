@@ -204,7 +204,7 @@ def _customer_section(ctx: dict) -> str:
             "",
         ]
 
-    pedidos = _fmt_recent_orders(ctx.get("recent_orders") or [])
+    pedidos = _fmt_recent_orders(ctx.get("recent_orders") or [], ctx.get("produtos") or [])
     if pedidos:
         if not linhas:
             linhas += ["## CONTEXTO DO CLIENTE IDENTIFICADO", ""]
@@ -213,7 +213,7 @@ def _customer_section(ctx: dict) -> str:
             pedidos,
             "",
             "Use estes dados para responder sobre historico, repetir pedido ou sugerir recompra.",
-            "Ao mencionar historico, preserve produto, derivacao/unidade quando existir e quantidade.",
+            "Ao mencionar historico ou repetir pedido, preserve produto, formato e tamanho/derivacao quando existirem. Exemplo: copo laranja 115ml, copo uva 200ml, garrafa caju 900ml.",
             "Nao use valores historicos para calcular ou prometer preco de pedido novo.",
         ]
 
@@ -295,6 +295,57 @@ def _fmt_preco(valor) -> str:
         return "-"
 
 
+def _display_variation(value) -> str:
+    raw = str(value or "").strip()
+    upper = raw.upper()
+    if upper == "05L":
+        return "5L"
+    if upper == "1L7":
+        return "1,7L"
+    if upper.isdigit():
+        return f"{int(upper)}ml"
+    return raw
+
+
+def _product_format_from_name(name: str) -> str:
+    upper = _norm_text(name)
+    if "BOLSA" in upper and "CONCENTRADO" in upper:
+        return "bolsa concentrada"
+    if "BOLSA" in upper:
+        return "bolsa"
+    if "COPO" in upper:
+        return "copo"
+    if "GARRAFA" in upper:
+        return "garrafa"
+    if "GALAO" in upper:
+        return "galao"
+    return "outros"
+
+
+def _format_size_summary(produtos: list[dict]) -> str:
+    grouped: dict[str, set[str]] = {}
+    for p in produtos:
+        name = p.get("nome_produto") or p.get("nome") or ""
+        variation = p.get("variacao") or p.get("derivacao") or ""
+        if not name or not variation:
+            continue
+        fmt = _product_format_from_name(name)
+        if fmt == "outros":
+            continue
+        grouped.setdefault(fmt, set()).add(_display_variation(variation))
+
+    if not grouped:
+        return ""
+
+    order = ["copo", "garrafa", "bolsa", "bolsa concentrada", "galao"]
+    lines = ["Resumo de formatos e tamanhos disponiveis nesta tabela:"]
+    for fmt in order:
+        sizes = sorted(grouped.get(fmt, []))
+        if sizes:
+            lines.append(f"- {fmt}: {', '.join(sizes)}")
+    return "\n".join(lines)
+
+
 def _catalogo_section(produtos: list[dict]) -> str:
     if not produtos:
         return ""
@@ -311,10 +362,13 @@ def _catalogo_section(produtos: list[dict]) -> str:
             "A coluna Variação deve ser respeitada literalmente. Não renomeie nem converta variações.",
             "Não deduza sabores por código ou abreviação. Exemplo: LAR significa laranja; não existe limão se a tabela não listar limão.",
             "Se o cliente pedir produto ou sabor ausente da tabela, não adicione ao pedido e não calcule preço.",
-            "",
-            "| Código | Produto | Variação | Qtd. Mín. | Preço | Desconto |",
-            "|--------|---------|----------|-----------|-------|----------|",
+        "",
+        "| Código | Produto | Variação | Qtd. Mín. | Preço | Desconto |",
+        "|--------|---------|----------|-----------|-------|----------|",
         ]
+        summary = _format_size_summary(produtos)
+        if summary:
+            linhas += ["", summary, ""]
         for p in produtos:
             cod = p.get("cod_produto", "")
             nome = p.get("nome_produto", "")
@@ -401,8 +455,55 @@ def _fmt_open_review_order(order: dict) -> str:
     return "\n".join(linhas)
 
 
-def _fmt_recent_orders(orders: list[dict]) -> str:
+def _norm_text(value) -> str:
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).strip().upper()
+
+
+def _norm_price(value) -> float | None:
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def _catalog_match(item: dict, produtos: list[dict]) -> dict | None:
+    cod = _norm_text(item.get("codPro") or item.get("cod_produto"))
+    if not cod:
+        return None
+
+    candidates = [
+        row for row in produtos
+        if _norm_text(row.get("cod_produto")) == cod
+    ]
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    item_price = _norm_price(item.get("preUni") or item.get("preco_unitario") or item.get("preco"))
+    if item_price is not None:
+        for row in candidates:
+            for key in ("preco", "preco_base", "preco_inst_299"):
+                row_price = _norm_price(row.get(key))
+                if row_price is not None and abs(row_price - item_price) <= 0.01:
+                    return row
+
+    item_variation = _norm_text(item.get("variacao") or item.get("derivacao") or item.get("tamanho"))
+    if item_variation:
+        for row in candidates:
+            row_variation = _norm_text(row.get("variacao") or row.get("derivacao"))
+            if row_variation == item_variation:
+                return row
+
+    return None
+
+
+def _fmt_recent_orders(orders: list[dict], produtos: list[dict] | None = None) -> str:
     linhas = []
+    produtos = produtos or []
     for order in orders[:4]:
         numero = order.get("num_ped") or "-"
         data = order.get("dat_emi") or "-"
@@ -413,11 +514,29 @@ def _fmt_recent_orders(orders: list[dict]) -> str:
         if not isinstance(items, list):
             continue
         for item in items[:12]:
+            catalog_item = _catalog_match(item, produtos)
             cod = item.get("codPro") or item.get("cod_produto") or ""
-            nome = item.get("desPro") or item.get("nome") or cod or "Produto"
+            nome = (
+                (catalog_item or {}).get("nome_produto")
+                or (catalog_item or {}).get("nome")
+                or item.get("desPro")
+                or item.get("nome")
+                or cod
+                or "Produto"
+            )
+            variacao = (
+                (catalog_item or {}).get("variacao")
+                or (catalog_item or {}).get("derivacao")
+                or item.get("variacao")
+                or item.get("derivacao")
+                or item.get("tamanho")
+                or ""
+            )
             qtd = item.get("qtdPed") or item.get("quantidade") or "-"
             unidade = item.get("uniMed") or item.get("unidade") or ""
             detalhe = f"  - {nome}"
+            if variacao:
+                detalhe += f" | derivacao/tamanho {variacao}"
             if cod:
                 detalhe += f" [{cod}]"
             detalhe += f": qtd {qtd}"

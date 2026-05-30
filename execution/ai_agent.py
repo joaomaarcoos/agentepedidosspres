@@ -162,9 +162,8 @@ def detect_unavailable_requested_products(text: str, produtos: list[dict] | None
 def unavailable_products_prompt(products: list[str]) -> str:
     product_list = ", ".join(products)
     return (
-        f"Esse produto nao consta na tabela disponivel: {product_list}. "
-        "Nao vou adicionar nem calcular esse item sem preco confirmado. "
-        "Posso deixar como observacao para o representante confirmar a disponibilidade?"
+        f"De {product_list} eu nao tenho na tabela aqui. "
+        "Posso seguir com outro sabor que esteja disponivel?"
     )
 
 
@@ -428,7 +427,7 @@ def direct_reply_for_intent(classification: dict) -> str:
 
 
 def is_final_order_confirmation(text: str) -> bool:
-    value = _lower_ascii(text)
+    value = _lower_ascii(text).strip(" .,!?\n\t")
     if not value:
         return False
 
@@ -459,6 +458,28 @@ def is_final_order_confirmation(text: str) -> bool:
     )
     if contains_any(value, adjustment_terms) or contains_any(value, question_terms):
         return False
+
+    short_confirmations = {
+        "s",
+        "sim",
+        "ok",
+        "okay",
+        "blz",
+        "beleza",
+        "isso",
+        "isso mesmo",
+        "certo",
+        "certinho",
+        "confirmado",
+        "pode",
+        "pode sim",
+        "manda",
+        "fecha",
+        "fechado",
+        "aprovado",
+    }
+    if value in short_confirmations:
+        return True
 
     confirmation_terms = (
         "esta certo",
@@ -528,7 +549,7 @@ def order_confirmation_prompt(itens: list[dict] | None = None) -> str:
         lines += ["", f"Total do pedido: *{_format_brl(total)}*"]
     lines += [
         "",
-        "Se estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante.",
+        "Se estiver tudo certo, me confirma por aqui que eu envio para aprovacao do representante.",
     ]
     return "\n".join(lines)
 
@@ -638,9 +659,9 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
                 flags=re.IGNORECASE | re.DOTALL,
             ).strip()
             if text:
-                text = f"{text}\n\nSe estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante."
+                text = f"{text}\n\nSe estiver tudo certo, me confirma por aqui que eu envio para aprovacao do representante."
             else:
-                text = "Se estiver tudo certo, me responda com *pode registrar* que eu envio para aprovacao do representante."
+                text = "Se estiver tudo certo, me confirma por aqui que eu envio para aprovacao do representante."
             lowered = _lower_ascii(text)
 
     return text
