@@ -197,6 +197,32 @@ def is_prompt_attack(text: str) -> bool:
     return any(pattern in value for pattern in patterns)
 
 
+def is_disengagement(text: str) -> bool:
+    value = _lower_ascii(text)
+    if not value:
+        return False
+    patterns = (
+        "nao obrigado",
+        "nao, obrigado",
+        "não obrigado",
+        "não, obrigado",
+        "obrigado, nao",
+        "obrigada, nao",
+        "ja falei que nao",
+        "já falei que não",
+        "poxa, ja falei",
+        "poxa, já falei",
+        "ate logo",
+        "até logo",
+        "tchau",
+        "encerrar",
+        "pode parar",
+        "nao quero mais",
+        "não quero mais",
+    )
+    return any(pattern in value for pattern in patterns)
+
+
 def infer_entities(text: str) -> dict:
     value = _lower_ascii(text)
     product_terms = (
@@ -232,6 +258,16 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
             "requires_ai": False,
             "requires_human": False,
             "out_of_scope": True,
+            "has_order_context": has_order_context,
+            "entities": entities,
+        }
+    if is_disengagement(text):
+        return {
+            "intent": "disengage",
+            "confidence": 0.95,
+            "requires_ai": False,
+            "requires_human": False,
+            "out_of_scope": False,
             "has_order_context": has_order_context,
             "entities": entities,
         }
@@ -271,7 +307,7 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
         intent = "order_adjustment"
     elif entities["products"] or contains_any(value, ("quais tem", "quais voces tem", "opcoes", "sabores", "modelos", "embalagens")):
         intent = "product_query"
-    elif is_simple_greeting(text):
+    elif is_simple_greeting(text) or (len(value) <= 40 and contains_any(value, ("fala", "e ai", "e aí"))):
         intent = "greeting"
     else:
         intent = "commercial_unknown"
@@ -397,6 +433,10 @@ def direct_reply_for_intent(classification: dict) -> str:
     has_order_context = bool(classification.get("has_order_context"))
     if intent == "prompt_attack":
         return scoped_redirect_reply(has_order_context)
+    if intent == "disengage":
+        if has_order_context:
+            return "Combinado. Fico por aqui. Se quiser retomar ou ajustar o pedido depois, e so me chamar."
+        return "Combinado. Fico por aqui. Se precisar de produtos ou pedidos da Sucos SPRES, e so me chamar."
     if intent == "complaint":
         return "Entendo. Vou te conectar com um atendente agora para resolver isso direto."
     if intent == "delivery_query":
@@ -515,6 +555,8 @@ def update_commercial_state(state: dict | None, classification: dict, user_text:
     intent = classification.get("intent", "")
     if intent in {"order_request", "repeat_order", "order_adjustment", "price_query", "product_query"}:
         state["order_in_progress"] = True
+    if intent == "disengage":
+        state["order_in_progress"] = False
     if intent in {"complaint", "out_of_scope", "prompt_attack"}:
         state["order_in_progress"] = bool(state.get("order_in_progress"))
     state["last_intent"] = intent
@@ -569,9 +611,22 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
         "pedido enviado para aprovacao",
         "pedido enviado para aprovação",
     )
+    confirmation_flow_terms = (
+        "pode registrar",
+        "se estiver tudo certo",
+        "esta tudo certo",
+        "está tudo certo",
+        "só para confirmar",
+        "so para confirmar",
+        "confirmar o pedido",
+        "total do pedido",
+        "total geral",
+    )
     should_skip_advancement = (
         is_final_order_confirmation(classification.get("raw_text", ""))
         or any(term in lowered for term in registered_order_terms)
+        or any(term in lowered for term in confirmation_flow_terms)
+        or "?" in text
     )
 
     if classification.get("intent") in {"product_query", "commercial_unknown", "price_query"} and not should_skip_advancement:
@@ -602,7 +657,7 @@ def sanitize_ai_reply(reply: str, classification: dict, has_order_context: bool)
             "sugestão",
         )
         refreshed_lowered = _lower_ascii(text)
-        has_advancement_question = "?" in text and any(term in refreshed_lowered for term in advancement_terms)
+        has_advancement_question = "?" in text
         if not has_advancement_question:
             text = f"{text}\n\n{advancement_question(classification)}"
     return text
