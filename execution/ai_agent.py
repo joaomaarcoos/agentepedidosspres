@@ -39,6 +39,12 @@ RESUME_TRIGGER = "###"
 PAUSE_HOURS = int(os.getenv("AI_PAUSE_HOURS", "5"))
 CONTEXT_MESSAGE_LIMIT = int(os.getenv("AI_CONTEXT_MESSAGE_LIMIT", "15"))
 DEFAULT_MESSAGE_BUFFER_SECONDS = float(os.getenv("AI_MESSAGE_BUFFER_SECONDS", "5"))
+AVAILABLE_PRICE_TABLES = {
+    code.strip()
+    for code in os.getenv("AVAILABLE_PRICE_TABLES", "201,202").split(",")
+    if code.strip()
+}
+FALLBACK_PRICE_TABLE = os.getenv("FALLBACK_PRICE_TABLE", "201").strip()
 LOCAL_DATA_DIR = Path(__file__).resolve().parent.parent / ".tmp" / "data"
 CONVERSATIONS_TABLE = "ai_conversations"
 MESSAGES_TABLE = "ai_conversation_messages"
@@ -98,6 +104,15 @@ def normalize_phone(value: str | None) -> str:
 
 def normalize_text(value: str | None) -> str:
     return str(value or "").strip()
+
+
+def resolve_price_table(codigo_tabela: str | None) -> tuple[str | None, bool]:
+    codigo = str(codigo_tabela or "").strip()
+    if codigo and codigo in AVAILABLE_PRICE_TABLES:
+        return codigo, False
+    if FALLBACK_PRICE_TABLE:
+        return FALLBACK_PRICE_TABLE, bool(codigo)
+    return codigo or None, False
 
 
 def _safe_float_setting(value: Any, default: float) -> float:
@@ -1161,7 +1176,11 @@ class AgentStore:
                 .order("cod_produto")
                 .execute()
             )
-            return result.data or []
+            return [
+                row
+                for row in (result.data or [])
+                if str(row.get("nome_produto") or "").strip()
+            ]
         except Exception as exc:
             logger.warning("Falha ao buscar itens da tabela %s: %s", codigo_tabela, exc)
             return []
@@ -1494,7 +1513,8 @@ def process_inbound_message(
 
     module_context = store.get_module_context(safe_phone)
     customer = store.get_customer_for_phone(safe_phone)
-    codigo_tabela = (customer or {}).get("tabela_preco_codigo") or store.get_tabela_preco_for_phone(safe_phone)
+    codigo_tabela_original = (customer or {}).get("tabela_preco_codigo") or store.get_tabela_preco_for_phone(safe_phone)
+    codigo_tabela, fallback_tabela_aplicado = resolve_price_table(codigo_tabela_original)
     recent_orders = store.get_recent_orders_for_customer(customer, limit=4)
     if customer or recent_orders:
         module_context = {**(module_context or {})}
@@ -1502,7 +1522,9 @@ def process_inbound_message(
             module_context["customer_profile"] = {
                 "nome": customer.get("nome") or customer.get("fantasia") or customer.get("razao_social"),
                 "cod_cli": customer.get("cod_cli") or customer.get("cpf_cnpj"),
-                "tabela_preco_codigo": customer.get("tabela_preco_codigo"),
+                "tabela_preco_codigo": codigo_tabela,
+                "tabela_preco_codigo_original": codigo_tabela_original,
+                "tabela_preco_fallback_aplicado": fallback_tabela_aplicado,
                 "tabela_preco_nome": customer.get("tabela_preco_nome"),
                 "cidade": customer.get("cidade"),
                 "uf": customer.get("uf"),

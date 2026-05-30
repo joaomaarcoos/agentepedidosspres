@@ -92,16 +92,17 @@ def _upsert_tabela_preco_clientes(pedidos: list[dict]) -> None:
     from supabase import create_client
     client = create_client(url, key)
 
-    # cpf_cnpj em clic_clientes = str(cod_cli) — mantém o mais recente por cliente
+    # clic_clientes é indexada por documento (cpf_cnpj), a mesma chave usada em
+    # clic_pedidos_integrados e nos fluxos de recorrência.
     customer_map: dict[str, dict] = {}
     for pedido in pedidos:
-        cod_cli = pedido.get("codCli")
+        cpf_cnpj = re.sub(r"\D", "", str(pedido.get("cpfCnpj") or ""))
         tabela_codigo = pedido.get("tabelaPreco")
-        if not cod_cli or not tabela_codigo:
+        if not cpf_cnpj or not tabela_codigo:
             continue
         telefone = re.sub(r"\D", "", str(pedido.get("telefone") or ""))
-        customer_map[str(cod_cli)] = {
-            "cpf_cnpj": str(cod_cli),
+        customer_map[cpf_cnpj] = {
+            "cpf_cnpj": cpf_cnpj,
             "tabela_preco_codigo": tabela_codigo,
             "tabela_preco_nome": pedido.get("tabelaPrecoNome"),
             "tabelas_especiais_json": pedido.get("tabelasEspeciais") or None,

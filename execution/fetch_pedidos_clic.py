@@ -11,6 +11,7 @@ Uso:
 import os
 import sys
 import logging
+import re
 from datetime import datetime, timedelta
 
 # Adiciona o diretorio execution ao path para imports locais
@@ -102,6 +103,17 @@ def _parse_pedidos(raw_pedidos: list | dict, data_limite: datetime) -> list[dict
 
         # Extrai codigo do cliente (backoffice.codigo ou _id)
         cliente = raw.get('cliente') or {}
+        cpf_cnpj = re.sub(r'\D', '', str(
+            cliente.get('cpfCnpj') or
+            cliente.get('cpf_cnpj') or
+            cliente.get('numeroDocumento') or
+            cliente.get('documento') or
+            cliente.get('cnpj') or
+            cliente.get('cpf') or
+            raw.get('cpf_cnpj') or
+            raw.get('cpfCnpj') or
+            ''
+        ))
         cod_cli = _safe_int(
             cliente.get('backoffice', {}).get('codigo') or
             cliente.get('codigo') or
@@ -142,6 +154,7 @@ def _parse_pedidos(raw_pedidos: list | dict, data_limite: datetime) -> list[dict
         pedido = {
             'numPed': _safe_int(raw.get('numero') or raw.get('_id')),
             'codCli': cod_cli,
+            'cpfCnpj': cpf_cnpj or None,
             'codRep': cod_rep,
             'datEmi': dat_emi.strftime('%Y-%m-%d') if dat_emi else None,
             'sitPed': str(sit_ped or ''),
