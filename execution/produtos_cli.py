@@ -22,6 +22,30 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY") or "").strip()
+PRICE_TABLE_CODES = ("201", "202")
+
+
+def _text(value) -> str:
+    return str(value or "").strip()
+
+
+def _price_map(client) -> dict[tuple[str, str], dict[str, float | None]]:
+    rows = (
+        client.table("tabelas_preco_itens")
+        .select("codigo_tabela, cod_produto, variacao, preco")
+        .in_("codigo_tabela", list(PRICE_TABLE_CODES))
+        .execute()
+        .data
+        or []
+    )
+    prices: dict[tuple[str, str], dict[str, float | None]] = {}
+    for row in rows:
+        key = (_text(row.get("cod_produto")).upper(), _text(row.get("variacao")).upper())
+        table_code = _text(row.get("codigo_tabela"))
+        if not key[0] or not table_code:
+            continue
+        prices.setdefault(key, {})[table_code] = row.get("preco")
+    return prices
 
 
 def fetch_produtos(filial: str | None = None, busca: str | None = None) -> list[dict]:
@@ -41,6 +65,12 @@ def fetch_produtos(filial: str | None = None, busca: str | None = None) -> list[
         query = query.eq("filial", filial)
     result = query.execute()
     rows: list[dict] = result.data or []
+    prices = _price_map(client)
+
+    for row in rows:
+        key = (_text(row.get("cod_produto")).upper(), _text(row.get("derivacao")).upper())
+        row["preco_tabela_201"] = prices.get(key, {}).get("201")
+        row["preco_tabela_202"] = prices.get(key, {}).get("202")
 
     if busca:
         termo = busca.lower()

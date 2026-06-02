@@ -6,6 +6,8 @@ export interface Produto {
   derivacao: string;
   preco_base: number | null;
   preco_inst_299: number | null;
+  preco_tabela_201?: number | null;
+  preco_tabela_202?: number | null;
   ativo: boolean;
   created_at: string;
   updated_at: string;

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import { Package, RefreshCw, Search, X } from "lucide-react";
@@ -48,7 +48,7 @@ const CAT_COLORS: Record<string, string> = {
   Copo: "#8b5cf6",
   "Bolsa Conc.": "#f59e0b",
   Bolsa: "#10b981",
-  Galão: "#ef4444",
+  "Galão": "#ef4444",
 };
 
 export default function ProdutosPage() {
@@ -116,7 +116,7 @@ export default function ProdutosPage() {
               <input
                 value={buscaInput}
                 onChange={(e) => setBuscaInput(e.target.value)}
-                placeholder="Buscar por nome ou código..."
+                placeholder="Buscar por nome ou cÃ³digo..."
                 style={{
                   width: "100%",
                   padding: "8px 32px 8px 32px",
@@ -241,12 +241,12 @@ export default function ProdutosPage() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["Código", "Produto", "Deriv.", "Preço Base", "Preço Inst.299"].map((h) => (
+                      {["Código", "Produto", "Deriv.", "Tabela 201", "Tabela 202"].map((h) => (
                         <th
                           key={h}
                           style={{
                             padding: "10px 16px",
-                            textAlign: h.startsWith("Preço") ? "right" : "left",
+                            textAlign: h.startsWith("Tabela") ? "right" : "left",
                             color: "var(--muted)",
                             fontWeight: 500,
                             fontSize: 11,
@@ -281,10 +281,10 @@ export default function ProdutosPage() {
                           {p.derivacao || "-"}
                         </td>
                         <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--text)" }}>
-                          {fmtPreco(p.preco_base)}
+                          {fmtPreco(p.preco_tabela_201 ?? null)}
                         </td>
                         <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--accent)", fontWeight: 600 }}>
-                          {fmtPreco(p.preco_inst_299)}
+                          {fmtPreco(p.preco_tabela_202 ?? null)}
                         </td>
                       </tr>
                     ))}
@@ -302,3 +302,4 @@ export default function ProdutosPage() {
     </div>
   );
 }
+
