@@ -130,7 +130,7 @@ def cmd_list(status: str | None, page: int, page_size: int) -> dict:
     total = len(all_rows) if not status else stats.get(status, 0)
 
     query = db.table("pedidos_revisao").select(
-        "id, cliente_nome, cliente_telefone, itens_json, observacoes, status, created_at, updated_at, revisado_em"
+        "id, protocolo, origem, clic_num_ped, cliente_nome, cliente_telefone, itens_json, observacoes, status, created_at, updated_at, revisado_em"
     )
     if status:
         query = query.eq("status", status)

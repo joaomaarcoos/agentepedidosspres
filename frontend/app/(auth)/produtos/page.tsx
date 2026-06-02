@@ -24,6 +24,50 @@ function fmtPreco(v: number | null): string {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+type ProdutoAgrupado = {
+  id: string;
+  cod_produto: string;
+  nome: string;
+  derivacoes: Produto[];
+};
+
+function groupProdutos(items: Produto[]): ProdutoAgrupado[] {
+  const grouped = new Map<string, ProdutoAgrupado>();
+  for (const item of items) {
+    const key = `${item.cod_produto}::${item.nome}`.toUpperCase();
+    const current = grouped.get(key);
+    if (current) {
+      current.derivacoes.push(item);
+    } else {
+      grouped.set(key, {
+        id: item.id,
+        cod_produto: item.cod_produto,
+        nome: item.nome,
+        derivacoes: [item],
+      });
+    }
+  }
+  return Array.from(grouped.values()).map((item) => ({
+    ...item,
+    derivacoes: item.derivacoes.sort((a, b) => String(a.derivacao || "").localeCompare(String(b.derivacao || ""))),
+  }));
+}
+
+function fmtDerivacoes(items: Produto[]) {
+  return items.map((item) => item.derivacao || "-").join(", ");
+}
+
+function fmtPrecosTabela(items: Produto[], field: "preco_tabela_201" | "preco_tabela_202") {
+  const values = items
+    .map((item) => {
+      const preco = item[field] ?? null;
+      if (preco == null) return "";
+      return items.length > 1 ? `${item.derivacao || "-"}: ${fmtPreco(preco)}` : fmtPreco(preco);
+    })
+    .filter(Boolean);
+  return values.length ? values.join(" | ") : "-";
+}
+
 function Badge({ label, color }: { label: string; color: string }) {
   return (
     <span
@@ -87,7 +131,9 @@ export default function ProdutosPage() {
     load();
   }
 
-  const groups = produtos.reduce<Record<string, Produto[]>>((acc, p) => {
+  const produtosAgrupados = groupProdutos(produtos);
+
+  const groups = produtosAgrupados.reduce<Record<string, ProdutoAgrupado[]>>((acc, p) => {
     const cat = categoria(p.cod_produto);
     (acc[cat] = acc[cat] || []).push(p);
     return acc;
@@ -95,7 +141,7 @@ export default function ProdutosPage() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <Header title={`Produtos${produtos.length > 0 ? ` (${produtos.length})` : ""}`} />
+      <Header title={`Produtos${produtosAgrupados.length > 0 ? ` (${produtosAgrupados.length})` : ""}`} />
 
       <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
         {/* Barra de busca */}
@@ -201,7 +247,7 @@ export default function ProdutosPage() {
           <div style={{ color: "var(--muted)", fontSize: 14, textAlign: "center", marginTop: 60 }}>
             Carregando...
           </div>
-        ) : produtos.length === 0 ? (
+        ) : produtosAgrupados.length === 0 ? (
           <div
             style={{
               display: "flex",
@@ -278,13 +324,13 @@ export default function ProdutosPage() {
                           {p.nome}
                         </td>
                         <td style={{ padding: "10px 16px", color: "var(--muted)" }}>
-                          {p.derivacao || "-"}
+                          {fmtDerivacoes(p.derivacoes)}
                         </td>
                         <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--text)" }}>
-                          {fmtPreco(p.preco_tabela_201 ?? null)}
+                          {fmtPrecosTabela(p.derivacoes, "preco_tabela_201")}
                         </td>
                         <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--accent)", fontWeight: 600 }}>
-                          {fmtPreco(p.preco_tabela_202 ?? null)}
+                          {fmtPrecosTabela(p.derivacoes, "preco_tabela_202")}
                         </td>
                       </tr>
                     ))}

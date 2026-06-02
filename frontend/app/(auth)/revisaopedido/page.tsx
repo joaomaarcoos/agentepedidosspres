@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -19,8 +19,8 @@ import {
   XCircle,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
-import { revisaoPedidoApi } from "@/lib/api";
-import type { PedidoRevisao, PedidoRevisaoItem, PedidoRevisaoListResponse, PedidoRevisaoStatus } from "@/lib/types";
+import { produtosApi, revisaoPedidoApi } from "@/lib/api";
+import type { PedidoRevisao, PedidoRevisaoItem, PedidoRevisaoListResponse, PedidoRevisaoStatus, Produto } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,7 +28,7 @@ import type { PedidoRevisao, PedidoRevisaoItem, PedidoRevisaoListResponse, Pedid
 
 const STATUS_LABEL: Record<PedidoRevisaoStatus, string> = {
   pendente: "Pendente",
-  em_revisao: "Em RevisÃ£o",
+  em_revisao: "Em Revisão",
   pedido_feito: "Pedido Feito",
   cancelado: "Cancelado",
 };
@@ -62,7 +62,65 @@ function itemNome(item: PedidoRevisao["itens_json"][number]) {
 }
 
 function itemQuantidade(item: PedidoRevisao["itens_json"][number]) {
-  return [item.quantidade, item.unidade].filter(Boolean).join(" ") || "â€”";
+  return [item.quantidade, item.unidade].filter(Boolean).join(" ") || "-";
+}
+
+function pedidoProtocolo(pedido: PedidoRevisao) {
+  return pedido.protocolo || `SP-${pedido.id.slice(0, 8).toUpperCase()}`;
+}
+
+function normalizeKey(value?: string | null) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function productOptionValue(produto: Produto) {
+  return `${normalizeKey(produto.cod_produto)}::${normalizeKey(produto.derivacao)}`;
+}
+
+function selectedProductValue(item: PedidoRevisaoItem) {
+  const code = normalizeKey(item.cod_produto);
+  if (!code) return "";
+  const variation = normalizeKey(item.derivacao || item.tamanho || item.variacao || item.volume);
+  return `${code}::${variation}`;
+}
+
+function inferTipoFromName(nome: string) {
+  const value = normalizeKey(nome);
+  if (value.includes("BOLSA") && value.includes("CONC")) return "bolsa concentrada";
+  if (value.includes("BOLSA")) return "bolsa";
+  if (value.includes("COPO")) return "copo";
+  if (value.includes("GARRAFA")) return "garrafa";
+  if (value.includes("GALAO") || value.includes("GALÃO")) return "galão";
+  return "";
+}
+
+function defaultUnitForType(tipo: string) {
+  const value = normalizeKey(tipo);
+  if (value.includes("COPO")) return "copos";
+  if (value.includes("GARRAFA")) return "garrafas";
+  if (value.includes("BOLSA")) return "bolsas";
+  if (value.includes("GALAO") || value.includes("GALÃO")) return "galões";
+  return "unidades";
+}
+
+function productLabel(produto: Produto) {
+  const derivacao = produto.derivacao ? ` - ${produto.derivacao}` : "";
+  return `${produto.cod_produto} | ${produto.nome}${derivacao}`;
+}
+
+function itemFromProduct(produto: Produto): Partial<PedidoRevisaoItem> {
+  const tipo = inferTipoFromName(produto.nome);
+  return {
+    cod_produto: produto.cod_produto,
+    nome: produto.nome,
+    produto: produto.nome,
+    tipo,
+    tamanho: produto.derivacao,
+    derivacao: produto.derivacao,
+    variacao: produto.derivacao,
+    unidade: defaultUnitForType(tipo),
+    preco_unitario: produto.preco_tabela_201 ?? produto.preco_tabela_202 ?? produto.preco_base ?? undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -71,18 +129,37 @@ function itemQuantidade(item: PedidoRevisao["itens_json"][number]) {
 
 function DetailModal({
   pedido,
+  produtos,
   onClose,
   onSetStatus,
   onUpdate,
   loading,
 }: {
   pedido: PedidoRevisao;
+  produtos: Produto[];
   onClose: () => void;
   onSetStatus: (status: PedidoRevisaoStatus) => void;
   onUpdate: (payload: { itens_json: PedidoRevisaoItem[]; observacoes: string }) => void;
   loading: boolean;
 }) {
   const color = STATUS_COLOR[pedido.status];
+  const productOptions = useMemo(
+    () => {
+      const unique = new Map<string, Produto>();
+      produtos
+        .filter((produto) => produto.ativo !== false)
+        .forEach((produto) => {
+          const key = productOptionValue(produto);
+          if (!unique.has(key)) unique.set(key, produto);
+        });
+      return Array.from(unique.values()).sort((a, b) => productLabel(a).localeCompare(productLabel(b), "pt-BR"));
+    },
+    [produtos]
+  );
+  const productsByValue = useMemo(
+    () => new Map(productOptions.map((produto) => [productOptionValue(produto), produto])),
+    [productOptions]
+  );
   const [editing, setEditing] = useState(false);
   const [editItems, setEditItems] = useState<PedidoRevisaoItem[]>(pedido.itens_json.map((item) => ({ ...item })));
   const [editObservacoes, setEditObservacoes] = useState(pedido.observacoes || "");
@@ -92,7 +169,7 @@ function DetailModal({
   }
 
   function addEditItem() {
-    setEditItems((items) => [...items, { nome: "", quantidade: "" }]);
+    setEditItems((items) => [...items, { nome: "", quantidade: "", unidade: "unidades" }]);
   }
 
   function removeEditItem(index: number) {
@@ -103,10 +180,12 @@ function DetailModal({
     const itens_json = editItems
       .map((item) => ({
         ...item,
-        nome: String(item.nome || "").trim(),
+        nome: String(item.nome || item.produto || "").trim(),
+        produto: String(item.produto || item.nome || "").trim(),
+        unidade: String(item.unidade || "").trim(),
         quantidade: typeof item.quantidade === "string" ? item.quantidade.trim() : item.quantidade,
       }))
-      .filter((item) => item.nome || item.produto || item.quantidade);
+      .filter((item) => item.cod_produto || item.nome || item.produto || item.quantidade);
     onUpdate({ itens_json, observacoes: editObservacoes });
     setEditing(false);
   }
@@ -147,7 +226,10 @@ function DetailModal({
               {pedido.cliente_nome || "Cliente"}
             </div>
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
-              {fmtPhone(pedido.cliente_telefone)} Â· {fmtDate(pedido.created_at)}
+              {fmtPhone(pedido.cliente_telefone)} · {fmtDate(pedido.created_at)}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--accent)", marginTop: 4, fontWeight: 700 }}>
+              Protocolo {pedidoProtocolo(pedido)}
             </div>
           </div>
           <span
@@ -180,29 +262,55 @@ function DetailModal({
                     <div
                       key={i}
                       style={{
-                        display: "grid", gridTemplateColumns: "1fr 140px 34px", gap: 8, alignItems: "center",
+                        display: "grid", gridTemplateColumns: "minmax(240px, 1fr) 96px 116px 34px", gap: 8, alignItems: "center",
                         background: "var(--surface2)", borderRadius: 8, padding: 8,
                         border: "1px solid var(--border)",
                       }}
                     >
-                      <input
-                        value={item.nome ?? itemNome(item)}
-                        onChange={(e) => updateEditItem(i, { nome: e.target.value })}
-                        placeholder="Nome do produto"
+                      <select
+                        value={productsByValue.has(selectedProductValue(item)) ? selectedProductValue(item) : `manual:${i}`}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (!value || value.startsWith("manual:")) return;
+                          const produto = productsByValue.get(value);
+                          if (produto) updateEditItem(i, itemFromProduct(produto));
+                        }}
                         style={{
                           background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
                           padding: "8px 10px", color: "var(--text)", fontSize: 13, outline: "none",
                         }}
-                      />
+                      >
+                        {!productsByValue.has(selectedProductValue(item)) && (
+                          <option value={`manual:${i}`}>{itemNome(item) || "Selecione o produto"}</option>
+                        )}
+                        <option value="">Selecione o produto</option>
+                        {productOptions.map((produto) => (
+                          <option key={productOptionValue(produto)} value={productOptionValue(produto)}>
+                            {productLabel(produto)}
+                          </option>
+                        ))}
+                      </select>
                       <input
                         value={String(item.quantidade ?? "")}
                         onChange={(e) => updateEditItem(i, { quantidade: e.target.value })}
-                        placeholder="Quantidade"
+                        placeholder="Qtd."
                         style={{
                           background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
                           padding: "8px 10px", color: "var(--text)", fontSize: 13, outline: "none",
                         }}
                       />
+                      <select
+                        value={String(item.unidade || "unidades")}
+                        onChange={(e) => updateEditItem(i, { unidade: e.target.value })}
+                        style={{
+                          background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
+                          padding: "8px 10px", color: "var(--text)", fontSize: 13, outline: "none",
+                        }}
+                      >
+                        {["unidades", "copos", "garrafas", "bolsas", "galões"].map((unit) => (
+                          <option key={unit} value={unit}>{unit}</option>
+                        ))}
+                      </select>
                       <button
                         onClick={() => removeEditItem(i)}
                         disabled={loading}
@@ -259,17 +367,17 @@ function DetailModal({
             </div>
           </section>
 
-          {/* ObservaÃ§Ãµes */}
+          {/* Observações */}
           {(pedido.observacoes || editing) && (
             <section>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-                ObservaÃ§Ãµes
+                Observações
               </div>
               {editing ? (
                 <textarea
                   value={editObservacoes}
                   onChange={(e) => setEditObservacoes(e.target.value)}
-                  placeholder="ObservaÃ§Ãµes do pedido"
+                  placeholder="Observações do pedido"
                   rows={3}
                   style={{
                     width: "100%", resize: "vertical", background: "var(--surface2)", borderRadius: 8,
@@ -308,11 +416,11 @@ function DetailModal({
             </section>
           )}
 
-          {/* HistÃ³rico da conversa */}
+          {/* Histórico da conversa */}
           {pedido.conversation_messages && pedido.conversation_messages.length > 0 && (
             <section>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
-                HistÃ³rico da Conversa ({pedido.conversation_messages.length} mensagens)
+                Histórico da Conversa ({pedido.conversation_messages.length} mensagens)
               </div>
               <div
                 style={{
@@ -382,7 +490,7 @@ function DetailModal({
                     cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1,
                   }}
                 >
-                  Cancelar ediÃ§Ã£o
+                  Cancelar edição
                 </button>
                 <button
                   onClick={saveEdit}
@@ -396,7 +504,7 @@ function DetailModal({
                   }}
                 >
                   {loading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Save size={14} />}
-                  Salvar ediÃ§Ã£o
+                  Salvar edição
                 </button>
               </>
             ) : (
@@ -479,6 +587,9 @@ function PedidoCard({
           <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text)" }}>
             {pedido.cliente_nome || "Cliente"}
           </div>
+          <div style={{ fontSize: 11, color: "var(--accent)", marginTop: 2, fontWeight: 700 }}>
+            {pedidoProtocolo(pedido)}
+          </div>
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
             <Phone size={10} />
             {fmtPhone(pedido.cliente_telefone)}
@@ -532,6 +643,7 @@ export default function RevisaoPedidoPage() {
   const [selected, setSelected] = useState<PedidoRevisao | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [produtos, setProdutos] = useState<Produto[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -548,6 +660,17 @@ export default function RevisaoPedidoPage() {
   }, [activeTab]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadProdutos = useCallback(async () => {
+    try {
+      const result = await produtosApi.list();
+      setProdutos(result.produtos ?? []);
+    } catch (err) {
+      console.error("Erro ao carregar produtos para edição de pedido", err);
+    }
+  }, []);
+
+  useEffect(() => { loadProdutos(); }, [loadProdutos]);
 
   async function handleSetStatus(status: PedidoRevisaoStatus) {
     if (!selected) return;
@@ -582,7 +705,7 @@ export default function RevisaoPedidoPage() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <Header title="RevisÃ£o de Pedidos" />
+      <Header title="Revisão de Pedidos" />
 
       <div style={{ flex: 1, overflow: "auto", padding: 28 }}>
 
@@ -674,7 +797,7 @@ export default function RevisaoPedidoPage() {
           >
             <Package size={28} color="var(--muted)" />
             {activeTab === "pendente"
-              ? "Nenhum pedido aguardando revisÃ£o."
+              ? "Nenhum pedido aguardando revisão."
               : `Nenhum pedido com status "${STATUS_LABEL[activeTab as PedidoRevisaoStatus] ?? activeTab}".`}
           </div>
         )}
@@ -690,6 +813,7 @@ export default function RevisaoPedidoPage() {
       {selected && (
         <DetailModal
           pedido={selected}
+          produtos={produtos}
           onClose={() => setSelected(null)}
           onSetStatus={handleSetStatus}
           onUpdate={handleUpdatePedido}

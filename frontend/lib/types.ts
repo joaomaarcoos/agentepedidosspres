@@ -33,6 +33,7 @@ export interface PromptFile {
 export type PedidoRevisaoStatus = "pendente" | "em_revisao" | "pedido_feito" | "cancelado";
 
 export interface PedidoRevisaoItem {
+  cod_produto?: string;
   nome?: string;
   produto?: string;
   tipo?: string;
@@ -49,6 +50,9 @@ export interface PedidoRevisaoItem {
 
 export interface PedidoRevisao {
   id: string;
+  protocolo?: string | null;
+  origem?: string | null;
+  clic_num_ped?: string | null;
   conversation_id?: string | null;
   cliente_nome?: string | null;
   cliente_telefone: string;

@@ -195,14 +195,30 @@ def _customer_section(ctx: dict) -> str:
         if not linhas:
             linhas += ["## CONTEXTO DO CLIENTE IDENTIFICADO", ""]
         linhas += [
-            "Pedido atualmente em revisao e ainda editavel:",
+            "Pedido interno mais recente em revisao e ainda editavel:",
             pedido_aberto,
             "",
             "Este pedido ainda nao e um pedido real finalizado; nao use como resposta para 'ultimo pedido' ou historico de compras.",
-            "Se o cliente pedir alteracao, ajuste este pedido e peca confirmacao do resumo completo.",
+            "Ele tem protocolo interno proprio e ainda nao tem numero do Clic Vendas.",
+            "Se o cliente pedir alteracao deste pedido/protocolo, ajuste este pedido e peca confirmacao do resumo completo.",
+            "Se o cliente disser que quer novo/outro pedido, crie um novo protocolo em vez de atualizar este.",
             "Antes de adicionar ou alterar item, confirme produto, tipo/formato e tamanho/derivacao.",
             "Se o cliente citar apenas sabor/produto generico e houver mais de um item possivel, pergunte qual item exato deve mudar.",
-            "Depois da confirmacao final, use a ferramenta para atualizar o mesmo pedido em revisao.",
+            "Depois da confirmacao final, use a ferramenta com acao='editar' para atualizar o mesmo pedido em revisao.",
+            "",
+        ]
+
+    pedidos_abertos = _fmt_open_review_orders(ctx.get("open_review_orders") or [])
+    if pedidos_abertos:
+        if not linhas:
+            linhas += ["## CONTEXTO DO CLIENTE IDENTIFICADO", ""]
+        linhas += [
+            "Pedidos internos abertos pelo atendimento, ainda nao enviados ao Clic Vendas:",
+            pedidos_abertos,
+            "",
+            "Use estes protocolos para diferenciar pedidos internos pendentes dos pedidos reais do Clic Vendas.",
+            "Quando o cliente mencionar protocolo SP-..., altere exatamente esse protocolo.",
+            "Quando o cliente pedir novo/outro pedido, mantenha os protocolos existentes e registre um novo com acao='criar'.",
             "",
         ]
 
@@ -357,50 +373,40 @@ def _catalogo_section(produtos: list[dict]) -> str:
 
     if is_tabela:
         linhas = [
-            "## TABELA DE PREÇOS DO CLIENTE",
+            "## OPCOES COMERCIAIS DISPONIVEIS",
             "",
-            "Estes são os produtos e preços desta tabela de preços específica do cliente.",
-            "Use estes valores ao falar sobre preços — nunca invente valores fora desta lista.",
-            "A coluna Variação deve ser respeitada literalmente. Não renomeie nem converta variações.",
-            "Não deduza sabores por código ou abreviação. Exemplo: LAR significa laranja; não existe limão se a tabela não listar limão.",
-            "Se o cliente pedir produto ou sabor ausente da tabela, não adicione ao pedido e não calcule preço.",
-        "",
-        "| Código | Produto | Variação | Qtd. Mín. | Preço | Desconto |",
-        "|--------|---------|----------|-----------|-------|----------|",
+            "Use estes produtos, tamanhos e preços para responder. Nunca invente valores fora desta lista.",
+            "Estes dados sao internos: nao diga numero/nome de tabela, codigo interno, quantidade minima ou desconto.",
+            "Ao responder ao cliente, use linguagem comercial curta: produto + formato/tamanho + preco quando necessario.",
+            "Se o cliente pedir produto ou sabor ausente da lista, nao adicione ao pedido e nao calcule preco.",
+            "",
         ]
         summary = _format_size_summary(produtos)
         if summary:
             linhas += ["", summary, ""]
         for p in produtos:
-            cod = p.get("cod_produto", "")
             nome = p.get("nome_produto", "")
-            variacao = p.get("variacao") or "-"
+            variacao = _display_variation(p.get("variacao") or "-")
             qtd_min = p.get("quantidade_minima") or "-"
             preco = _fmt_preco(p.get("preco"))
-            desc = p.get("desconto")
-            desc_str = f"{float(desc):.1f}%".replace(".", ",") if desc else "-"
-            linhas.append(f"| {cod} | {nome} | {variacao} | {qtd_min} | {preco} | {desc_str} |")
+            linhas.append(f"- {nome} | tamanho {variacao} | preco {preco}")
     else:
         linhas = [
-            "## CATÁLOGO DE PRODUTOS DISPONÍVEIS",
+            "## OPCOES COMERCIAIS DISPONIVEIS",
             "",
             "Use estas informações quando o cliente perguntar sobre produtos, preços ou disponibilidade.",
-            "Preço base = tabela padrão. Preço Inst.299 = tabela instalação 299.",
-            "Não deduza sabores por código ou abreviação. Se o produto ou sabor não aparecer na lista, não adicione ao pedido e não calcule preço.",
+            "Nao diga numero/nome de tabela, codigo interno, quantidade minima ou desconto.",
+            "Nao deduza sabores por codigo ou abreviacao. Se o produto ou sabor nao aparecer na lista, nao adicione ao pedido e nao calcule preco.",
             "",
-            "| Código | Produto | Deriv. | Preço Base | Preço Inst.299 |",
-            "|--------|---------|--------|------------|----------------|",
         ]
         for p in produtos:
-            cod = p.get("cod_produto", "")
             nome = p.get("nome", "")
-            deriv = p.get("derivacao") or "-"
+            deriv = _display_variation(p.get("derivacao") or "-")
             base_str = _fmt_preco(p.get("preco_base"))
-            inst_str = _fmt_preco(p.get("preco_inst_299"))
-            linhas.append(f"| {cod} | {nome} | {deriv} | {base_str} | {inst_str} |")
+            linhas.append(f"- {nome} | tamanho {deriv} | preco {base_str}")
 
     linhas.append("")
-    linhas.append("Ao citar preços, use sempre os valores da tabela acima. Nunca invente preços.")
+    linhas.append("Ao citar precos, use apenas os valores acima. Nunca invente precos e nunca exponha dados internos.")
     return "\n".join(linhas)
 
 
@@ -432,7 +438,9 @@ def _fmt_open_review_order(order: dict) -> str:
     if not order:
         return ""
     linhas = [
+        f"- Protocolo interno: {order.get('protocolo') or '-'}",
         f"- ID: {order.get('id') or '-'}",
+        f"- Origem: {order.get('origem') or 'ia_whatsapp'}",
         f"- Status: {order.get('status') or '-'}",
     ]
     items = order.get("itens_json") or []
@@ -460,6 +468,24 @@ def _fmt_open_review_order(order: dict) -> str:
     obs = order.get("observacoes")
     if obs:
         linhas.append(f"- Observacoes: {obs}")
+    return "\n".join(linhas)
+
+
+def _fmt_open_review_orders(orders: list[dict]) -> str:
+    linhas = []
+    for order in orders[:5]:
+        protocolo = order.get("protocolo") or order.get("id") or "-"
+        status = order.get("status") or "-"
+        created = order.get("created_at") or "-"
+        items = order.get("itens_json") or []
+        resumo = []
+        if isinstance(items, list):
+            for item in items[:4]:
+                nome = item.get("nome") or item.get("produto") or item.get("desPro") or "Item"
+                qtd = item.get("quantidade") or item.get("qtdPed") or ""
+                unidade = item.get("unidade") or item.get("uniMed") or ""
+                resumo.append(f"{nome} ({' '.join(str(part) for part in (qtd, unidade) if part)})")
+        linhas.append(f"- {protocolo} | status {status} | criado {created} | itens: {', '.join(resumo) or '-'}")
     return "\n".join(linhas)
 
 

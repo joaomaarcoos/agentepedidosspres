@@ -141,6 +141,338 @@ def _product_text(row: dict) -> str:
     )
 
 
+def _catalog_name(row: dict) -> str:
+    return normalize_text(row.get("nome_produto") or row.get("nome") or "")
+
+
+def _catalog_variation(row: dict) -> str:
+    return normalize_text(row.get("variacao") or row.get("derivacao") or "")
+
+
+def _catalog_product_type(row: dict) -> str:
+    name = _lower_ascii(_catalog_name(row))
+    if "bolsa" in name and ("concentr" in name or "conc" in name):
+        return "bolsa concentrada"
+    if "bolsa" in name:
+        return "bolsa"
+    if "copo" in name:
+        return "copo"
+    if "garrafa" in name:
+        return "garrafa"
+    if "galao" in name:
+        return "galao"
+    return ""
+
+
+def _display_variation(value: str) -> str:
+    raw = normalize_text(value)
+    upper = raw.upper()
+    if upper == "05L":
+        return "5L"
+    if upper == "1L7":
+        return "1,7L"
+    if upper.isdigit():
+        return f"{int(upper)}ml"
+    return raw
+
+
+def _public_variation(value: str) -> str:
+    raw = normalize_text(value)
+    upper = raw.upper()
+    if upper in {"05L", "5L", "1L7"} or "ML" in upper or re.fullmatch(r"\d+", upper):
+        return _display_variation(raw)
+    if re.fullmatch(r"\d+(?:,\d+|\.\d+)?L", upper):
+        return raw.replace(".", ",")
+    return ""
+
+
+def _public_product_label(row: dict) -> str:
+    name = _catalog_name(row)
+    value = _lower_ascii(name)
+    public_tokens = []
+    ignored = {
+        "suco",
+        "nectar",
+        "copo",
+        "garrafa",
+        "bolsa",
+        "conc",
+        "concentrada",
+        "concentrado",
+        "integral",
+        "152700",
+        "152698",
+        "152699",
+    }
+    for token in re.findall(r"[a-z0-9]+", value):
+        if token in ignored:
+            continue
+        if token.isdigit() and len(token) >= 4:
+            continue
+        public_tokens.append(token)
+    return " ".join(public_tokens).title() or name.title()
+
+
+def _catalog_flavor_tokens(row: dict) -> set[str]:
+    name = _lower_ascii(_catalog_name(row))
+    ignored = {
+        "suco",
+        "nectar",
+        "nectar",
+        "copo",
+        "garrafa",
+        "bolsa",
+        "concentrada",
+        "concentrado",
+        "integral",
+        "com",
+        "sem",
+        "polpa",
+        "unidade",
+        "unidades",
+        "ml",
+        "litro",
+        "litros",
+    }
+    tokens = set(re.findall(r"[a-z0-9]+", name))
+    return {token for token in tokens if len(token) >= 4 and token not in ignored and not token.isdigit()}
+
+
+def _catalog_options_for_token(token: str, produtos: list[dict] | None) -> list[dict]:
+    wanted = _lower_ascii(token)
+    if not wanted or not produtos:
+        return []
+    matches = []
+    for row in produtos:
+        if wanted in _catalog_flavor_tokens(row) or wanted in _lower_ascii(_catalog_name(row)):
+            matches.append(row)
+    return matches
+
+
+def _format_catalog_options(rows: list[dict]) -> str:
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        product_type = _catalog_product_type(row) or "produto"
+        variation = _display_variation(_catalog_variation(row)) or "-"
+        grouped.setdefault((product_type, variation), []).append(row)
+    parts = []
+    for product_type, variation in sorted(grouped):
+        sample = grouped[(product_type, variation)][0]
+        price = _format_brl(sample.get("preco") or sample.get("preco_base") or sample.get("preco_tabela_201"))
+        suffix = f" ({price})" if price else ""
+        public_variation = _public_variation(variation)
+        if product_type == "produto":
+            label = f"opcao {public_variation}".strip()
+        else:
+            label = f"{product_type} {public_variation or variation}".strip()
+        parts.append(f"{label}{suffix}")
+    return ", ".join(parts)
+
+
+def _format_catalog_options_lines(rows: list[dict]) -> list[str]:
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        product_type = _catalog_product_type(row) or "produto"
+        variation = _display_variation(_catalog_variation(row)) or "-"
+        grouped.setdefault((product_type, variation), []).append(row)
+
+    lines = []
+    for product_type, variation in sorted(grouped):
+        sample = grouped[(product_type, variation)][0]
+        price = _format_brl(sample.get("preco") or sample.get("preco_base") or sample.get("preco_tabela_201"))
+        suffix = f" - {price}" if price else ""
+        public_variation = _public_variation(variation)
+        if product_type == "produto":
+            label = f"opcao {public_variation}".strip()
+        else:
+            label = f"{product_type} {public_variation or variation}".strip()
+        lines.append(f"- {label}{suffix}")
+    return lines
+
+
+def _requested_type_from_text(text: str) -> str:
+    value = _lower_ascii(text)
+    if "bolsa" in value and ("concentrada" in value or "concentrado" in value or "conc" in value):
+        return "bolsa concentrada"
+    if "bolsa" in value:
+        return "bolsa"
+    if "copo" in value:
+        return "copo"
+    if "garrafa" in value:
+        return "garrafa"
+    if "galao" in value or "galão" in value:
+        return "galao"
+    return ""
+
+
+def _requested_size_from_text(text: str) -> str:
+    value = _lower_ascii(text)
+    match = re.search(r"\b(115|200|300|900)\s*(?:ml)?\b", value)
+    if match:
+        return _norm_size(match.group(1))
+    if re.search(r"\b(?:1\s*,?\s*7|1l7)\s*l?\b", value):
+        return "1.7l"
+    if re.search(r"\b(?:05|5)\s*l\b", value):
+        return "5l"
+    return ""
+
+
+def _filter_catalog_options_by_request(rows: list[dict], text: str) -> list[dict]:
+    requested_type = _requested_type_from_text(text)
+    requested_size = _requested_size_from_text(text)
+    filtered = []
+    for row in rows:
+        row_type = _lower_ascii(_catalog_product_type(row))
+        row_size = _norm_size(_display_variation(_catalog_variation(row)))
+        type_ok = not requested_type or requested_type in row_type or row_type in requested_type
+        size_ok = not requested_size or requested_size == row_size
+        if type_ok and size_ok:
+            filtered.append(row)
+    return filtered
+
+
+def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[str]:
+    value = _lower_ascii(text)
+    if not produtos:
+        return []
+    if not (
+        _has_order_adjustment_terms(text)
+        or contains_any(value, ("quero", "produto", "produtos", "preco", "valor", "tem", "voces tem", "vocês tem"))
+        or infer_entities(text).get("quantities")
+    ):
+        return []
+
+    stop = {
+        "adicione",
+        "adicionar",
+        "adiciona",
+        "inclui",
+        "incluir",
+        "coloca",
+        "tambem",
+        "também",
+        "tamb",
+        "quero",
+        "queria",
+        "pedido",
+        "produto",
+        "produtos",
+        "unidade",
+        "unidades",
+        "copo",
+        "copos",
+        "garrafa",
+        "garrafas",
+        "bolsa",
+        "bolsas",
+        "concentrada",
+        "concentrado",
+        "tamanho",
+        "tamanhos",
+        "preco",
+        "valor",
+        "mais",
+        "menos",
+        "novo",
+        "outro",
+        "mesmo",
+        "anterior",
+        "revisao",
+        "protocolo",
+        "para",
+        "com",
+        "sem",
+        "de",
+        "da",
+        "do",
+        "das",
+        "dos",
+        "uma",
+        "uns",
+        "que",
+        "qual",
+        "quais",
+    }
+    tokens = re.findall(r"[a-z0-9]+", value)
+    candidates = []
+    for token in tokens:
+        if len(token) < 4 or any(ch.isdigit() for ch in token) or token in stop:
+            continue
+        if re.fullmatch(r"\d+(?:ml|l)?", token):
+            continue
+        candidates.append(token)
+    return list(dict.fromkeys(candidates))
+
+
+def catalog_guard_prompt(text: str, produtos: list[dict] | None) -> str:
+    requested = _requested_catalog_tokens(text, produtos)
+    if not requested:
+        return ""
+
+    unavailable = []
+    ambiguous_lines = []
+    invalid_lines = []
+    request_has_type = bool(_requested_type_from_text(text))
+    request_has_size = bool(_requested_size_from_text(text))
+    for token in requested:
+        options = _catalog_options_for_token(token, produtos)
+        if not options:
+            unavailable.append(token)
+            continue
+        narrowed_options = _filter_catalog_options_by_request(options, text)
+        if (request_has_type or request_has_size) and not narrowed_options:
+            invalid_lines.append(f"- {token}: nao existe nessa combinacao. Opcoes reais: {_format_catalog_options(options)}")
+            continue
+        option_text = _format_catalog_options(narrowed_options or options)
+        if option_text and (not request_has_type or not request_has_size):
+            ambiguous_lines.append(f"- {token}: {option_text}")
+
+    if unavailable or invalid_lines:
+        lines = []
+        if unavailable:
+            lines.append(f"Nao encontrei {', '.join(unavailable)} na tabela de produtos disponivel para voce.")
+        if invalid_lines:
+            lines += ["Essa combinacao de produto/tipo/tamanho nao consta na tabela:", *invalid_lines]
+        if ambiguous_lines:
+            lines += ["", "Dos outros produtos citados, tenho estas opcoes:", *ambiguous_lines]
+        lines.append("Posso seguir com algum produto que aparece na tabela?")
+        return "\n".join(lines)
+
+    if ambiguous_lines:
+        return "\n".join(
+            [
+                "Para eu nao adicionar produto errado, confirma qual tipo e tamanho voce quer?",
+                "",
+                *ambiguous_lines,
+                "",
+                "Me diga a opcao e a quantidade para eu atualizar o resumo.",
+            ]
+        )
+
+    return ""
+
+
+def product_options_reply(text: str, produtos: list[dict] | None) -> str:
+    requested = _requested_catalog_tokens(text, produtos)
+    if not requested:
+        return ""
+
+    lines: list[str] = []
+    for token in requested[:4]:
+        options = _catalog_options_for_token(token, produtos)
+        if not options:
+            lines.append(f"Nao encontrei {token} nas opcoes disponiveis.")
+            continue
+        lines.append(f"Para {token}, tenho estas opcoes:")
+        lines.extend(_format_catalog_options_lines(options))
+        lines.append("")
+
+    if not lines:
+        return ""
+    lines.append("Qual formato e tamanho voce quer?")
+    return "\n".join(lines).strip()
+
+
 def detect_unavailable_requested_products(text: str, produtos: list[dict] | None) -> list[str]:
     if not produtos:
         return []
@@ -160,11 +492,15 @@ def detect_unavailable_requested_products(text: str, produtos: list[dict] | None
 
 
 def unavailable_products_prompt(products: list[str]) -> str:
-    product_list = ", ".join(products)
-    return (
-        f"De {product_list} eu nao tenho na tabela aqui. "
-        "Posso seguir com outro sabor que esteja disponivel?"
-    )
+    lines = ["Nao posso adicionar produto fora da tabela disponível."]
+    if products:
+        lines += ["", "Itens que nao conferem com a tabela:"]
+        lines.extend(f"- {product}" for product in products[:8])
+    lines += [
+        "",
+        "Me confirme um produto, tipo/formato e tamanho que aparecam na tabela para eu atualizar o pedido.",
+    ]
+    return "\n".join(lines)
 
 
 def is_full_product_list_request(text: str, classification: dict) -> bool:
@@ -172,6 +508,8 @@ def is_full_product_list_request(text: str, classification: dict) -> bool:
         return False
 
     value = _lower_ascii(text)
+    if _requested_catalog_tokens(text, [{"nome_produto": token} for token in re.findall(r"[a-z0-9]+", value)]):
+        return False
     if value.strip(" .,!?\n\t") in {"produto", "produtos", "os produtos"}:
         return True
 
@@ -549,33 +887,22 @@ def full_product_catalog_reply(produtos: list[dict] | None, codigo_tabela: str |
     if not produtos:
         return "Nao encontrei a lista de produtos disponivel aqui agora. Posso deixar para o representante validar?"
 
-    is_tabela = "nome_produto" in (produtos[0] if produtos else {})
-    title = (
-        f"Segue a lista completa de produtos da tabela {codigo_tabela}:"
-        if is_tabela and codigo_tabela
-        else "Segue a lista completa de produtos disponiveis:"
-    )
-    lines = [title, ""]
-
+    grouped: dict[str, list[dict]] = {}
     for item in produtos:
-        cod = normalize_text(item.get("cod_produto"))
-        if is_tabela:
-            nome = normalize_text(item.get("nome_produto")) or "Produto"
-            variacao = normalize_text(item.get("variacao")) or "-"
-            qtd_min = normalize_text(item.get("quantidade_minima")) or "-"
-            preco = _format_catalog_price(item.get("preco"))
-            lines.append(f"- {cod} | {nome} | variacao {variacao} | qtd. min. {qtd_min} | {preco}")
-        else:
-            nome = normalize_text(item.get("nome")) or "Produto"
-            derivacao = normalize_text(item.get("derivacao")) or "-"
-            preco_base = _format_catalog_price(item.get("preco_base"))
-            preco_inst = _format_catalog_price(item.get("preco_inst_299"))
-            lines.append(f"- {cod} | {nome} | deriv. {derivacao} | base {preco_base} | inst.299 {preco_inst}")
+        label = _public_product_label(item)
+        if not label:
+            continue
+        grouped.setdefault(label, []).append(item)
+
+    lines = ["Estas sao as opcoes disponiveis:", ""]
+    for label in sorted(grouped):
+        options = _format_catalog_options(grouped[label])
+        if options:
+            lines.append(f"- {label}: {options}")
 
     lines += [
         "",
-        f"Total: {len(produtos)} produtos.",
-        "Qual formato ou quantidade voce quer cotar: bolsa, bolsa concentrada, copo ou garrafa?",
+        "Qual produto, formato e tamanho voce quer cotar?",
     ]
     return "\n".join(lines)
 
@@ -651,12 +978,48 @@ def _has_order_adjustment_terms(text: str) -> bool:
             "inclui",
             "incluir",
             "adiciona",
+            "adicione",
             "adicionar",
             "mais",
             "menos",
             "tira",
             "remove",
             "remover",
+        ),
+    )
+
+
+def _wants_new_order(text: str) -> bool:
+    value = _lower_ascii(text)
+    return contains_any(
+        value,
+        (
+            "novo pedido",
+            "fazer outro pedido",
+            "lancar outro pedido",
+            "lançar outro pedido",
+            "abrir outro pedido",
+            "criar outro pedido",
+            "mais um pedido",
+            "outro pedido",
+        ),
+    )
+
+
+def _mentions_repeat_previous_order(text: str) -> bool:
+    value = _lower_ascii(text)
+    return contains_any(
+        value,
+        (
+            "mesmo pedido anterior",
+            "mesmo pedido de antes",
+            "pedido anterior",
+            "ultimo pedido",
+            "último pedido",
+            "repetir",
+            "repete",
+            "igual ao ultimo",
+            "igual ao último",
         ),
     )
 
@@ -742,6 +1105,8 @@ def _matching_open_order_items(text: str, open_review_order: dict | None) -> lis
 
 
 def product_specifics_guard_prompt(text: str, open_review_order: dict | None) -> str:
+    if _wants_new_order(text) or _mentions_repeat_previous_order(text):
+        return ""
     if not _has_order_adjustment_terms(text) and not infer_entities(text).get("quantities"):
         return ""
     if _has_product_type(text) and _has_product_size(text):
@@ -829,12 +1194,66 @@ def _unavailable_order_items(itens: list[dict] | None, produtos: list[dict] | No
     for item in itens or []:
         if not isinstance(item, dict):
             continue
-        item_text = " ".join(
-            _item_value(item, key)
-            for key in ("produto", "nome", "tipo", "tamanho", "derivacao", "variacao", "volume")
-        )
-        unavailable.extend(detect_unavailable_requested_products(item_text, produtos))
+        if not _catalog_item_exists(item, produtos):
+            label = _display_item_name(item)
+            options = _catalog_options_for_item(item, produtos)
+            if options:
+                unavailable.append(f"{label} (opcoes reais: {_format_catalog_options(options)})")
+            else:
+                unavailable.append(label)
     return sorted(set(unavailable))
+
+
+def _norm_size(value: str) -> str:
+    raw = _lower_ascii(value).replace(" ", "").replace(",", ".")
+    if raw in {"05l", "5l", "5.0l"}:
+        return "5l"
+    if raw in {"1l7", "1.7l", "17l"}:
+        return "1.7l"
+    match = re.fullmatch(r"(\d+)(?:ml)?", raw)
+    if match:
+        return f"{int(match.group(1))}ml"
+    return raw
+
+
+def _catalog_options_for_item(item: dict, produtos: list[dict] | None) -> list[dict]:
+    if not produtos:
+        return []
+    text = _lower_ascii(" ".join(_item_value(item, key) for key in ("produto", "nome")))
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9]+", text)
+        if len(token) >= 4 and token not in {"suco", "nectar", "copo", "garrafa", "bolsa", "concentrada", "concentrado"}
+    ]
+    if not tokens:
+        return []
+    matches: list[dict] = []
+    for row in produtos:
+        row_tokens = _catalog_flavor_tokens(row)
+        row_text = _product_text(row)
+        if any(token in row_tokens or token in row_text for token in tokens):
+            matches.append(row)
+    return matches
+
+
+def _catalog_item_exists(item: dict, produtos: list[dict] | None) -> bool:
+    if not produtos:
+        return True
+    candidates = _catalog_options_for_item(item, produtos)
+    if not candidates:
+        return False
+
+    wanted_type = _lower_ascii(_item_value(item, "tipo", "formato", "embalagem"))
+    wanted_size = _norm_size(_item_value(item, "tamanho", "derivacao", "variacao", "volume"))
+
+    for row in candidates:
+        row_type = _lower_ascii(_catalog_product_type(row))
+        row_size = _norm_size(_display_variation(_catalog_variation(row)))
+        type_ok = not wanted_type or wanted_type in row_type or row_type in wanted_type
+        size_ok = not wanted_size or wanted_size == row_size
+        if type_ok and size_ok:
+            return True
+    return False
 
 
 def _display_item_name(item: dict) -> str:
@@ -1133,6 +1552,8 @@ class AgentStore:
         observacoes: str,
         customer_name: str | None,
         mensagem_cliente: str,
+        acao: str = "editar",
+        protocolo: str | None = None,
     ) -> dict:
         missing_fields = _missing_order_fields(itens)
         if missing_fields:
@@ -1141,8 +1562,11 @@ class AgentStore:
         itens = _normalize_order_items(itens)
         order_id = str(uuid.uuid4())
         now = iso_z(utc_now())
+        protocolo_interno = self._generate_order_protocol(now)
         payload = {
             "id": order_id,
+            "protocolo": protocolo_interno,
+            "origem": "ia_whatsapp",
             "cliente_telefone": phone,
             "cliente_nome": customer_name,
             "conversation_id": conversation_id,
@@ -1153,15 +1577,33 @@ class AgentStore:
             "created_at": now,
             "updated_at": now,
         }
+        should_create = normalize_text(acao).lower() in {"criar", "novo", "new", "create"}
+        target_protocol = normalize_text(protocolo).upper()
 
         if self.use_local:
             rows = self._local_read("pedidos_revisao")
-            for index, row in enumerate(rows):
-                same_conversation = conversation_id and row.get("conversation_id") == conversation_id
-                same_phone = phone and row.get("cliente_telefone") == phone
-                if (same_conversation or same_phone) and row.get("status") in {"pendente", "em_revisao"}:
+            if not should_create:
+                candidates = []
+                for index, row in enumerate(rows):
+                    if row.get("status") not in {"pendente", "em_revisao"}:
+                        continue
+                    same_protocol = target_protocol and normalize_text(row.get("protocolo")).upper() == target_protocol
+                    same_conversation = conversation_id and row.get("conversation_id") == conversation_id
+                    same_phone = phone and row.get("cliente_telefone") == phone
+                    if same_protocol or (not target_protocol and (same_conversation or same_phone)):
+                        candidates.append((index, row))
+                if not target_protocol and len(candidates) > 1:
+                    return {
+                        "id": None,
+                        "action": "blocked_ambiguous_order",
+                        "open_orders": [row for _, row in candidates[:5]],
+                    }
+                if candidates:
+                    index, row = candidates[0]
                     updated = {
                         **row,
+                        "protocolo": row.get("protocolo") or self._generate_order_protocol(str(row.get("created_at") or now)),
+                        "origem": row.get("origem") or "ia_whatsapp",
                         "cliente_nome": customer_name or row.get("cliente_nome"),
                         "itens_json": itens,
                         "observacoes": observacoes or "",
@@ -1172,31 +1614,47 @@ class AgentStore:
                     }
                     rows[index] = updated
                     self._local_write("pedidos_revisao", rows)
-                    return {"id": row.get("id", order_id), "action": "updated"}
+                    return {"id": row.get("id", order_id), "protocolo": updated["protocolo"], "action": "updated"}
             self._local_append("pedidos_revisao", payload)
-            return {"id": order_id, "action": "created"}
+            return {"id": order_id, "protocolo": protocolo_interno, "action": "created"}
 
         try:
             existing_rows = []
-            lookup_filters = []
-            if conversation_id:
-                lookup_filters.append(("conversation_id", conversation_id))
-            if phone:
-                lookup_filters.append(("cliente_telefone", phone))
+            if not should_create:
+                if target_protocol:
+                    existing = (
+                        self.client.table("pedidos_revisao")
+                        .select("id,protocolo,status,created_at")
+                        .in_("status", ["pendente", "em_revisao"])
+                        .eq("protocolo", target_protocol)
+                        .limit(1)
+                        .execute()
+                    )
+                    existing_rows = existing.data or []
+                else:
+                    rows_by_id: dict[str, dict] = {}
+                    lookup_filters = []
+                    if conversation_id:
+                        lookup_filters.append(("conversation_id", conversation_id))
+                    if phone:
+                        lookup_filters.append(("cliente_telefone", phone))
 
-            for field, value in lookup_filters:
-                existing = (
-                    self.client.table("pedidos_revisao")
-                    .select("id,status,created_at")
-                    .in_("status", ["pendente", "em_revisao"])
-                    .eq(field, value)
-                    .order("created_at", desc=True)
-                    .limit(1)
-                    .execute()
-                )
-                existing_rows = existing.data or []
-                if existing_rows:
-                    break
+                    for field, value in lookup_filters:
+                        existing = (
+                            self.client.table("pedidos_revisao")
+                            .select("id,protocolo,status,created_at")
+                            .in_("status", ["pendente", "em_revisao"])
+                            .eq(field, value)
+                            .order("updated_at", desc=True)
+                            .limit(5)
+                            .execute()
+                        )
+                        for row in existing.data or []:
+                            rows_by_id[str(row.get("id"))] = row
+                    existing_rows = list(rows_by_id.values())
+                    existing_rows.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+                    if len(existing_rows) > 1:
+                        return {"id": None, "action": "blocked_ambiguous_order", "open_orders": existing_rows[:5]}
 
             if existing_rows:
                 existing_id = existing_rows[0]["id"]
@@ -1216,18 +1674,30 @@ class AgentStore:
                     .eq("id", existing_id)
                     .execute()
                 )
-                return {"id": (result.data or [{"id": existing_id}])[0].get("id", existing_id), "action": "updated"}
+                row = (result.data or [{"id": existing_id, "protocolo": existing_rows[0].get("protocolo")}])[0]
+                return {"id": row.get("id", existing_id), "protocolo": row.get("protocolo"), "action": "updated"}
 
             result = self.client.table("pedidos_revisao").insert(payload).execute()
-            return {"id": (result.data or [payload])[0].get("id", order_id), "action": "created"}
+            row = (result.data or [payload])[0]
+            return {"id": row.get("id", order_id), "protocolo": row.get("protocolo", protocolo_interno), "action": "created"}
         except Exception as exc:
             logger.warning("Falha ao salvar pedido_revisao; usando local: %s", exc)
             self.use_local = True
             self._local_append("pedidos_revisao", payload)
-            return {"id": order_id, "action": "created"}
+            return {"id": order_id, "protocolo": protocolo_interno, "action": "created"}
+
+    def _generate_order_protocol(self, created_at: str | None = None) -> str:
+        parsed = parse_dt(created_at)
+        local_date = (parsed.astimezone(LOCAL_TIMEZONE) if parsed else local_now()).strftime("%y%m%d")
+        return f"SP-{local_date}-{uuid.uuid4().hex[:6].upper()}"
 
     def get_open_order_for_review(self, phone: str, conversation_id: str | None = None) -> dict | None:
+        matches = self.get_open_orders_for_review(phone, conversation_id, limit=1)
+        return matches[0] if matches else None
+
+    def get_open_orders_for_review(self, phone: str, conversation_id: str | None = None, limit: int = 5) -> list[dict]:
         editable_statuses = {"pendente", "em_revisao"}
+        safe_limit = max(1, min(limit, 10))
         if self.use_local:
             rows = self._local_read("pedidos_revisao")
             matches = [
@@ -1239,9 +1709,10 @@ class AgentStore:
                 )
             ]
             matches.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
-            return matches[0] if matches else None
+            return matches[:safe_limit]
 
         try:
+            rows_by_id: dict[str, dict] = {}
             lookup_filters = []
             if conversation_id:
                 lookup_filters.append(("conversation_id", conversation_id))
@@ -1251,20 +1722,21 @@ class AgentStore:
             for field, value in lookup_filters:
                 result = (
                     self.client.table("pedidos_revisao")
-                    .select("id,status,itens_json,observacoes,created_at,updated_at")
+                    .select("id,protocolo,origem,status,itens_json,observacoes,created_at,updated_at")
                     .in_("status", list(editable_statuses))
                     .eq(field, value)
                     .order("updated_at", desc=True)
-                    .limit(1)
+                    .limit(safe_limit)
                     .execute()
                 )
-                rows = result.data or []
-                if rows:
-                    return rows[0]
-            return None
+                for row in result.data or []:
+                    rows_by_id[str(row.get("id"))] = row
+            rows = list(rows_by_id.values())
+            rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
+            return rows[:safe_limit]
         except Exception as exc:
-            logger.warning("Falha ao buscar pedido em revisao aberto: %s", exc)
-            return None
+            logger.warning("Falha ao buscar pedidos em revisao abertos: %s", exc)
+            return []
 
     def recent_messages(self, conversation_id: str, limit: int = CONTEXT_MESSAGE_LIMIT) -> list[dict]:
         safe_limit = max(1, min(limit, 50))
@@ -1592,7 +2064,8 @@ REGISTRAR_PEDIDO_TOOL: dict = {
         "description": (
             "Registra ou atualiza o pedido confirmado do cliente para revisão do representante antes de enviar ao sistema. "
             "Use somente depois que o cliente confirmar o resumo completo. "
-            "Se ja houver pedido pendente ou em revisao para a conversa, a ferramenta atualiza esse pedido. "
+            "Use acao='criar' quando o cliente pediu novo/outro pedido, mesmo que ja exista pedido pendente. "
+            "Use acao='editar' somente quando o cliente quer alterar um pedido interno ja em revisao; informe o protocolo quando disponivel. "
             "Cada item deve ter produto, tipo/formato, tamanho/derivacao, quantidade e unidade. "
             "Registre preco unitario, subtotal e total do pedido quando estiverem claros na tabela, alem de observacoes espontaneas."
         ),
@@ -1624,6 +2097,15 @@ REGISTRAR_PEDIDO_TOOL: dict = {
                 "total_pedido": {
                     "type": "number",
                     "description": "Soma dos subtotais dos itens, quando todos os precos estiverem claros",
+                },
+                "acao": {
+                    "type": "string",
+                    "enum": ["criar", "editar"],
+                    "description": "criar para abrir um novo protocolo interno; editar para alterar pedido pendente/em revisao existente.",
+                },
+                "protocolo": {
+                    "type": "string",
+                    "description": "Protocolo interno SP-... do pedido a editar, quando o cliente estiver alterando um pedido em revisao existente.",
                 },
             },
             "required": ["itens"],
@@ -1695,6 +2177,9 @@ def generate_ai_reply(
                     return unavailable_products_prompt(unavailable_items)
                 if not is_final_order_confirmation(last_user_message or ""):
                     return order_confirmation_prompt(itens)
+                acao = normalize_text(args.get("acao") or "").lower()
+                if acao not in {"criar", "editar"}:
+                    acao = "criar" if _wants_new_order(last_user_message or "") else "editar"
                 order_result = store.save_order_for_review(
                     phone=phone,
                     conversation_id=conversation_id,
@@ -1702,11 +2187,25 @@ def generate_ai_reply(
                     observacoes=args.get("observacoes", ""),
                     customer_name=customer_name or (module_context or {}).get("customer_name"),
                     mensagem_cliente=last_user_message or "",
+                    acao=acao,
+                    protocolo=args.get("protocolo"),
                 )
                 order_id = order_result.get("id") if isinstance(order_result, dict) else str(order_result)
+                order_protocol = order_result.get("protocolo") if isinstance(order_result, dict) else ""
                 order_action = order_result.get("action") if isinstance(order_result, dict) else "created"
                 if order_action == "blocked_missing_fields":
                     return missing_order_fields_prompt(itens)
+                if order_action == "blocked_ambiguous_order":
+                    open_orders = order_result.get("open_orders") if isinstance(order_result, dict) else []
+                    lines = [
+                        "Encontrei mais de um pedido interno em aberto para voce.",
+                        "Para eu nao alterar o pedido errado, me confirma qual protocolo quer editar:",
+                        "",
+                    ]
+                    for order in open_orders[:5]:
+                        lines.append(f"- {order.get('protocolo') or order.get('id')} ({order.get('status') or 'em aberto'})")
+                    lines += ["", "Se preferir, tambem posso abrir um novo pedido separado."]
+                    return "\n".join(lines)
                 result_message = (
                     "Pedido atualizado para revisao do representante."
                     if order_action == "updated"
@@ -1716,19 +2215,21 @@ def generate_ai_reply(
                     {
                         "sucesso": True,
                         "id": order_id,
+                        "protocolo": order_protocol,
                         "acao": order_action,
                         "mensagem": result_message,
                         "itens": itens,
                         "total_pedido": args.get("total_pedido"),
                         "instrucao_resposta": (
                             "Responda ao cliente dizendo se o pedido foi registrado ou atualizado, "
+                            "informe o protocolo interno do pedido, "
                             "com o resumo final incluindo preco unitario, "
                             "subtotal por item e total geral quando esses valores estiverem nos itens."
                         ),
                     },
                     ensure_ascii=False,
                 )
-                logger.info("Pedido %s para revisao: %s (telefone: %s)", order_action, order_id, phone)
+                logger.info("Pedido %s para revisao: %s / %s (telefone: %s)", order_action, order_id, order_protocol, phone)
             except Exception as exc:
                 logger.warning("Falha ao registrar pedido: %s", exc)
                 tool_result = json.dumps({"sucesso": False, "erro": str(exc)}, ensure_ascii=False)
@@ -1853,8 +2354,10 @@ def process_inbound_message(
         if recent_orders:
             module_context["recent_orders"] = recent_orders
     module_context = {**(module_context or {})}
-    open_review_order = store.get_open_order_for_review(safe_phone, str(conversation["id"]))
-    if open_review_order:
+    open_review_orders = store.get_open_orders_for_review(safe_phone, str(conversation["id"]), limit=5)
+    open_review_order = open_review_orders[0] if open_review_orders else None
+    if open_review_orders:
+        module_context["open_review_orders"] = open_review_orders
         module_context["open_review_order"] = open_review_order
     module_context["classified_intent"] = classification
     module_context["conversation_state"] = conversation_state
@@ -1863,9 +2366,20 @@ def process_inbound_message(
     else:
         produtos = store.get_produtos()
 
-    unavailable_requested = detect_unavailable_requested_products(normalized_text, produtos)
-    if unavailable_requested:
-        reply = unavailable_products_prompt(unavailable_requested)
+    option_reply = product_options_reply(normalized_text, produtos) if classification.get("intent") == "product_query" else ""
+    if option_reply:
+        store.add_message(str(conversation["id"]), "assistant", option_reply, payload_json={"source": "catalog_options"})
+        return {
+            "action": "catalog_options_reply",
+            "should_reply": True,
+            "reply": option_reply,
+            "context_messages": len(history),
+            "intent": classification.get("intent"),
+        }
+
+    catalog_reply = catalog_guard_prompt(normalized_text, produtos)
+    if catalog_reply:
+        reply = catalog_reply
         store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_guardrail"})
         return {
             "action": "catalog_guardrail_reply",
