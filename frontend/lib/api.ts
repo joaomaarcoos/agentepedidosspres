@@ -280,6 +280,11 @@ export const revisaoPedidoApi = {
   },
   detail: (id: string) =>
     api.get<import("./types").PedidoRevisao>(`/api/revisaopedido/${id}`),
+  update: (
+    id: string,
+    body: { itens_json: import("./types").PedidoRevisaoItem[]; observacoes: string }
+  ) =>
+    api.patch<import("./types").PedidoRevisao>(`/api/revisaopedido/${id}`, body),
   setStatus: (id: string, status: import("./types").PedidoRevisaoStatus) =>
     api.post<import("./types").PedidoRevisao>(`/api/revisaopedido/${id}/status`, { status }),
 };

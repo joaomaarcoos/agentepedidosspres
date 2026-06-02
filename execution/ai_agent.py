@@ -167,6 +167,37 @@ def unavailable_products_prompt(products: list[str]) -> str:
     )
 
 
+def is_full_product_list_request(text: str, classification: dict) -> bool:
+    if classification.get("intent") != "product_query":
+        return False
+
+    value = _lower_ascii(text)
+    if value.strip(" .,!?\n\t") in {"produto", "produtos", "os produtos"}:
+        return True
+
+    return contains_any(
+        value,
+        (
+            "quais tem",
+            "quais voces tem",
+            "quais produtos",
+            "produtos tem",
+            "manda os produtos",
+            "mande os produtos",
+            "mandar os produtos",
+            "todos os produtos",
+            "ver produtos",
+            "lista de produtos",
+            "catalogo",
+            "opcoes",
+            "opcoes de produto",
+            "sabores",
+            "modelos",
+            "embalagens",
+        ),
+    )
+
+
 def is_simple_greeting(text: str) -> bool:
     value = _lower_ascii(text).strip(" .,!?\n\t")
     return value in {
@@ -355,7 +386,7 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
         intent = "order_request"
     elif state.get("order_in_progress") and contains_any(value, ("tira", "remove", "coloca", "inclui", "mais", "menos", "troca", "altera")):
         intent = "order_adjustment"
-    elif entities["products"] or contains_any(value, ("quais tem", "quais voces tem", "opcoes", "sabores", "modelos", "embalagens")):
+    elif entities["products"] or contains_any(value, ("produto", "produtos", "quais tem", "quais voces tem", "opcoes", "sabores", "modelos", "embalagens")):
         intent = "product_query"
     elif is_simple_greeting(text) or (len(value) <= 40 and contains_any(value, ("fala", "e ai", "e aí"))):
         intent = "greeting"
@@ -509,6 +540,46 @@ def _format_brl(value: Any) -> str:
         return ""
 
 
+def _format_catalog_price(value: Any) -> str:
+    formatted = _format_brl(value)
+    return formatted or "-"
+
+
+def full_product_catalog_reply(produtos: list[dict] | None, codigo_tabela: str | None = None) -> str:
+    if not produtos:
+        return "Nao encontrei a lista de produtos disponivel aqui agora. Posso deixar para o representante validar?"
+
+    is_tabela = "nome_produto" in (produtos[0] if produtos else {})
+    title = (
+        f"Segue a lista completa de produtos da tabela {codigo_tabela}:"
+        if is_tabela and codigo_tabela
+        else "Segue a lista completa de produtos disponiveis:"
+    )
+    lines = [title, ""]
+
+    for item in produtos:
+        cod = normalize_text(item.get("cod_produto"))
+        if is_tabela:
+            nome = normalize_text(item.get("nome_produto")) or "Produto"
+            variacao = normalize_text(item.get("variacao")) or "-"
+            qtd_min = normalize_text(item.get("quantidade_minima")) or "-"
+            preco = _format_catalog_price(item.get("preco"))
+            lines.append(f"- {cod} | {nome} | variacao {variacao} | qtd. min. {qtd_min} | {preco}")
+        else:
+            nome = normalize_text(item.get("nome")) or "Produto"
+            derivacao = normalize_text(item.get("derivacao")) or "-"
+            preco_base = _format_catalog_price(item.get("preco_base"))
+            preco_inst = _format_catalog_price(item.get("preco_inst_299"))
+            lines.append(f"- {cod} | {nome} | deriv. {derivacao} | base {preco_base} | inst.299 {preco_inst}")
+
+    lines += [
+        "",
+        f"Total: {len(produtos)} produtos.",
+        "Qual formato ou quantidade voce quer cotar: bolsa, bolsa concentrada, copo ou garrafa?",
+    ]
+    return "\n".join(lines)
+
+
 def order_confirmation_prompt(itens: list[dict] | None = None) -> str:
     lines = ["Ainda nao registrei o pedido.", "", "So para confirmar, ficou assim:"]
     total = 0.0
@@ -559,6 +630,154 @@ def _item_value(item: dict, *keys: str) -> str:
         value = item.get(key)
         if value is not None and normalize_text(value):
             return normalize_text(value)
+    return ""
+
+
+def _has_order_adjustment_terms(text: str) -> bool:
+    value = _lower_ascii(text)
+    return contains_any(
+        value,
+        (
+            "troca",
+            "troque",
+            "altera",
+            "alterar",
+            "muda",
+            "mude",
+            "corrige",
+            "corrigir",
+            "quantidade",
+            "coloca",
+            "inclui",
+            "incluir",
+            "adiciona",
+            "adicionar",
+            "mais",
+            "menos",
+            "tira",
+            "remove",
+            "remover",
+        ),
+    )
+
+
+def _has_product_type(text: str) -> bool:
+    value = _lower_ascii(text)
+    return contains_any(value, ("copo", "garrafa", "bolsa", "concentrada", "galao", "galão"))
+
+
+def _has_product_size(text: str) -> bool:
+    value = _lower_ascii(text)
+    return bool(
+        re.search(r"\b(?:115|200|300|900)\s*(?:ml)?\b", value)
+        or re.search(r"\b(?:1\s*,?\s*7|1l7)\s*l?\b", value)
+        or re.search(r"\b(?:05|5)\s*l\b", value)
+    )
+
+
+def _order_item_label(item: dict) -> str:
+    explicit = _item_value(item, "nome")
+    if explicit:
+        return explicit
+
+    produto = _item_value(item, "produto", "desPro")
+    tipo = _item_value(item, "tipo", "formato", "embalagem")
+    tamanho = _item_value(item, "tamanho", "derivacao", "variacao", "volume")
+    return " ".join(part for part in (tipo, produto, tamanho) if part).strip()
+
+
+def _meaningful_user_tokens(text: str) -> list[str]:
+    value = _lower_ascii(text)
+    stop = {
+        "mantenha",
+        "todos",
+        "so",
+        "só",
+        "troque",
+        "troca",
+        "quantidade",
+        "para",
+        "unidade",
+        "unidades",
+        "pedido",
+        "produto",
+        "produtos",
+        "coloca",
+        "inclui",
+        "adiciona",
+        "altera",
+        "muda",
+        "mais",
+        "menos",
+        "de",
+        "da",
+        "do",
+        "das",
+        "dos",
+        "a",
+        "o",
+        "e",
+    }
+    tokens = re.findall(r"[a-z0-9]+", value)
+    return [token for token in tokens if len(token) >= 4 and token not in stop and not token.isdigit()]
+
+
+def _matching_open_order_items(text: str, open_review_order: dict | None) -> list[dict]:
+    items = (open_review_order or {}).get("itens_json") or []
+    if not isinstance(items, list):
+        return []
+
+    tokens = _meaningful_user_tokens(text)
+    if not tokens:
+        return []
+
+    matches: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        label = _lower_ascii(_order_item_label(item))
+        if label and any(token in label for token in tokens):
+            matches.append(item)
+    return matches
+
+
+def product_specifics_guard_prompt(text: str, open_review_order: dict | None) -> str:
+    if not _has_order_adjustment_terms(text) and not infer_entities(text).get("quantities"):
+        return ""
+    if _has_product_type(text) and _has_product_size(text):
+        return ""
+
+    matches = _matching_open_order_items(text, open_review_order)
+    if len(matches) > 1:
+        lines = [
+            "Para eu nao alterar o item errado, me confirma qual deles voce quer ajustar:",
+            "",
+        ]
+        for item in matches[:8]:
+            label = _order_item_label(item) or "Item"
+            qtd = _item_value(item, "quantidade", "qtdPed")
+            unidade = _item_value(item, "unidade", "uniMed")
+            suffix = f" - atual: {' '.join(part for part in (qtd, unidade) if part)}" if qtd or unidade else ""
+            lines.append(f"- {label}{suffix}")
+        lines += [
+            "",
+            "Me diga o tipo/formato e o tamanho, por exemplo: garrafa laranja 900ml ou copo laranja 200ml.",
+        ]
+        return "\n".join(lines)
+
+    has_product = bool(infer_entities(text).get("products")) or bool(_meaningful_user_tokens(text))
+    if has_product and (not _has_product_type(text) or not _has_product_size(text)):
+        missing = []
+        if not _has_product_type(text):
+            missing.append("tipo/formato")
+        if not _has_product_size(text):
+            missing.append("tamanho")
+        return (
+            "Para eu montar o pedido certo, preciso confirmar "
+            f"{' e '.join(missing)} antes de adicionar ou alterar esse produto. "
+            "Voce quer copo, garrafa, bolsa ou bolsa concentrada? E qual tamanho?"
+        )
+
     return ""
 
 
@@ -616,6 +835,29 @@ def _unavailable_order_items(itens: list[dict] | None, produtos: list[dict] | No
         )
         unavailable.extend(detect_unavailable_requested_products(item_text, produtos))
     return sorted(set(unavailable))
+
+
+def _display_item_name(item: dict) -> str:
+    explicit = _item_value(item, "nome")
+    if explicit:
+        return explicit
+
+    produto = _item_value(item, "produto", "desPro")
+    tipo = _item_value(item, "tipo", "formato", "embalagem")
+    tamanho = _item_value(item, "tamanho", "derivacao", "variacao", "volume")
+    parts = [part for part in (tipo, produto, tamanho) if part]
+    return " ".join(parts).strip().upper() or produto or "Item"
+
+
+def _normalize_order_items(itens: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    for item in itens:
+        if not isinstance(item, dict):
+            continue
+        row = {**item}
+        row["nome"] = _display_item_name(row)
+        normalized.append(row)
+    return normalized
 
 
 def update_commercial_state(state: dict | None, classification: dict, user_text: str) -> dict:
@@ -896,6 +1138,7 @@ class AgentStore:
         if missing_fields:
             return {"id": None, "action": "blocked_missing_fields", "missing_fields": missing_fields}
 
+        itens = _normalize_order_items(itens)
         order_id = str(uuid.uuid4())
         now = iso_z(utc_now())
         payload = {
@@ -923,6 +1166,8 @@ class AgentStore:
                         "itens_json": itens,
                         "observacoes": observacoes or "",
                         "mensagem_cliente": mensagem_cliente or "",
+                        "status": "pendente",
+                        "revisado_em": None,
                         "updated_at": now,
                     }
                     rows[index] = updated
@@ -959,6 +1204,8 @@ class AgentStore:
                     "itens_json": itens,
                     "observacoes": observacoes or "",
                     "mensagem_cliente": mensagem_cliente or "",
+                    "status": "pendente",
+                    "revisado_em": None,
                     "updated_at": now,
                 }
                 if customer_name:
@@ -1622,6 +1869,28 @@ def process_inbound_message(
         store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_guardrail"})
         return {
             "action": "catalog_guardrail_reply",
+            "should_reply": True,
+            "reply": reply,
+            "context_messages": len(history),
+            "intent": classification.get("intent"),
+        }
+
+    specifics_reply = product_specifics_guard_prompt(normalized_text, open_review_order)
+    if specifics_reply:
+        store.add_message(str(conversation["id"]), "assistant", specifics_reply, payload_json={"source": "product_specifics_guard"})
+        return {
+            "action": "product_specifics_guard_reply",
+            "should_reply": True,
+            "reply": specifics_reply,
+            "context_messages": len(history),
+            "intent": classification.get("intent"),
+        }
+
+    if is_full_product_list_request(normalized_text, classification):
+        reply = full_product_catalog_reply(produtos, codigo_tabela=codigo_tabela)
+        store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_full_list"})
+        return {
+            "action": "catalog_full_list_reply",
             "should_reply": True,
             "reply": reply,
             "context_messages": len(history),

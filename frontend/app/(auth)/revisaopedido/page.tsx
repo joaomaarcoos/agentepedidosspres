@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -7,17 +7,20 @@ import {
   ChevronUp,
   Clock,
   Loader2,
-  MessageSquare,
   Package,
+  Pencil,
   Phone,
+  Plus,
   RefreshCw,
+  Save,
+  Trash2,
   User,
   X,
   XCircle,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { revisaoPedidoApi } from "@/lib/api";
-import type { PedidoRevisao, PedidoRevisaoListResponse, PedidoRevisaoStatus } from "@/lib/types";
+import type { PedidoRevisao, PedidoRevisaoItem, PedidoRevisaoListResponse, PedidoRevisaoStatus } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,7 +28,7 @@ import type { PedidoRevisao, PedidoRevisaoListResponse, PedidoRevisaoStatus } fr
 
 const STATUS_LABEL: Record<PedidoRevisaoStatus, string> = {
   pendente: "Pendente",
-  em_revisao: "Em Revisão",
+  em_revisao: "Em RevisÃ£o",
   pedido_feito: "Pedido Feito",
   cancelado: "Cancelado",
 };
@@ -49,6 +52,19 @@ function fmtPhone(phone: string) {
   return phone;
 }
 
+function itemNome(item: PedidoRevisao["itens_json"][number]) {
+  const nome = item.nome?.trim();
+  if (nome) return nome;
+  const tipo = item.tipo || item.formato;
+  const produto = item.produto;
+  const tamanho = item.tamanho || item.derivacao || item.variacao || item.volume;
+  return [tipo, produto, tamanho].filter(Boolean).join(" ").toUpperCase() || "Item";
+}
+
+function itemQuantidade(item: PedidoRevisao["itens_json"][number]) {
+  return [item.quantidade, item.unidade].filter(Boolean).join(" ") || "â€”";
+}
+
 // ---------------------------------------------------------------------------
 // Detail Modal
 // ---------------------------------------------------------------------------
@@ -57,14 +73,49 @@ function DetailModal({
   pedido,
   onClose,
   onSetStatus,
+  onUpdate,
   loading,
 }: {
   pedido: PedidoRevisao;
   onClose: () => void;
   onSetStatus: (status: PedidoRevisaoStatus) => void;
+  onUpdate: (payload: { itens_json: PedidoRevisaoItem[]; observacoes: string }) => void;
   loading: boolean;
 }) {
   const color = STATUS_COLOR[pedido.status];
+  const [editing, setEditing] = useState(false);
+  const [editItems, setEditItems] = useState<PedidoRevisaoItem[]>(pedido.itens_json.map((item) => ({ ...item })));
+  const [editObservacoes, setEditObservacoes] = useState(pedido.observacoes || "");
+
+  function updateEditItem(index: number, patch: Partial<PedidoRevisaoItem>) {
+    setEditItems((items) => items.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  }
+
+  function addEditItem() {
+    setEditItems((items) => [...items, { nome: "", quantidade: "" }]);
+  }
+
+  function removeEditItem(index: number) {
+    setEditItems((items) => items.filter((_, i) => i !== index));
+  }
+
+  function saveEdit() {
+    const itens_json = editItems
+      .map((item) => ({
+        ...item,
+        nome: String(item.nome || "").trim(),
+        quantidade: typeof item.quantidade === "string" ? item.quantidade.trim() : item.quantidade,
+      }))
+      .filter((item) => item.nome || item.produto || item.quantidade);
+    onUpdate({ itens_json, observacoes: editObservacoes });
+    setEditing(false);
+  }
+
+  useEffect(() => {
+    setEditItems(pedido.itens_json.map((item) => ({ ...item })));
+    setEditObservacoes(pedido.observacoes || "");
+    setEditing(false);
+  }, [pedido.id, pedido.itens_json, pedido.observacoes]);
 
   return (
     <div
@@ -96,7 +147,7 @@ function DetailModal({
               {pedido.cliente_nome || "Cliente"}
             </div>
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
-              {fmtPhone(pedido.cliente_telefone)} · {fmtDate(pedido.created_at)}
+              {fmtPhone(pedido.cliente_telefone)} Â· {fmtDate(pedido.created_at)}
             </div>
           </div>
           <span
@@ -123,46 +174,119 @@ function DetailModal({
               Itens do Pedido
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {pedido.itens_json.map((item, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                    background: "var(--surface2)", borderRadius: 8, padding: "8px 12px",
-                    border: "1px solid var(--border)",
-                  }}
-                >
-                  <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>{item.nome}</span>
-                  <span
+              {editing ? (
+                <>
+                  {editItems.map((item, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "grid", gridTemplateColumns: "1fr 140px 34px", gap: 8, alignItems: "center",
+                        background: "var(--surface2)", borderRadius: 8, padding: 8,
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      <input
+                        value={item.nome ?? itemNome(item)}
+                        onChange={(e) => updateEditItem(i, { nome: e.target.value })}
+                        placeholder="Nome do produto"
+                        style={{
+                          background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
+                          padding: "8px 10px", color: "var(--text)", fontSize: 13, outline: "none",
+                        }}
+                      />
+                      <input
+                        value={String(item.quantidade ?? "")}
+                        onChange={(e) => updateEditItem(i, { quantidade: e.target.value })}
+                        placeholder="Quantidade"
+                        style={{
+                          background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
+                          padding: "8px 10px", color: "var(--text)", fontSize: 13, outline: "none",
+                        }}
+                      />
+                      <button
+                        onClick={() => removeEditItem(i)}
+                        disabled={loading}
+                        title="Remover item"
+                        style={{
+                          height: 34, borderRadius: 7, border: "1px solid rgba(239,68,68,0.25)",
+                          background: "rgba(239,68,68,0.08)", color: "var(--error)", cursor: loading ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={addEditItem}
+                    disabled={loading}
                     style={{
-                      fontSize: 12, fontWeight: 700, color: "var(--accent)",
-                      background: "rgba(99,102,241,0.1)", borderRadius: 5, padding: "2px 8px",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                      background: "rgba(99,102,241,0.1)", color: "var(--accent)",
+                      border: "1px dashed rgba(99,102,241,0.35)", borderRadius: 8,
+                      padding: "8px 12px", fontSize: 13, fontWeight: 600,
+                      cursor: loading ? "not-allowed" : "pointer",
                     }}
                   >
-                    {item.quantidade}
-                  </span>
-                </div>
-              ))}
-              {pedido.itens_json.length === 0 && (
+                    <Plus size={14} />
+                    Adicionar item
+                  </button>
+                </>
+              ) : (
+                pedido.itens_json.map((item, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      background: "var(--surface2)", borderRadius: 8, padding: "8px 12px",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>{itemNome(item)}</span>
+                    <span
+                      style={{
+                        fontSize: 12, fontWeight: 700, color: "var(--accent)",
+                        background: "rgba(99,102,241,0.1)", borderRadius: 5, padding: "2px 8px",
+                      }}
+                    >
+                      {itemQuantidade(item)}
+                    </span>
+                  </div>
+                ))
+              )}
+              {!editing && pedido.itens_json.length === 0 && (
                 <span style={{ fontSize: 12, color: "var(--muted)" }}>Nenhum item registrado</span>
               )}
             </div>
           </section>
 
-          {/* Observações */}
-          {pedido.observacoes && (
+          {/* ObservaÃ§Ãµes */}
+          {(pedido.observacoes || editing) && (
             <section>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-                Observações
+                ObservaÃ§Ãµes
               </div>
-              <div
-                style={{
-                  background: "var(--surface2)", borderRadius: 8, padding: "10px 12px",
-                  fontSize: 13, color: "var(--text)", border: "1px solid var(--border)",
-                }}
-              >
-                {pedido.observacoes}
-              </div>
+              {editing ? (
+                <textarea
+                  value={editObservacoes}
+                  onChange={(e) => setEditObservacoes(e.target.value)}
+                  placeholder="ObservaÃ§Ãµes do pedido"
+                  rows={3}
+                  style={{
+                    width: "100%", resize: "vertical", background: "var(--surface2)", borderRadius: 8,
+                    padding: "10px 12px", fontSize: 13, color: "var(--text)", border: "1px solid var(--border)",
+                    outline: "none",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    background: "var(--surface2)", borderRadius: 8, padding: "10px 12px",
+                    fontSize: 13, color: "var(--text)", border: "1px solid var(--border)",
+                  }}
+                >
+                  {pedido.observacoes}
+                </div>
+              )}
             </section>
           )}
 
@@ -184,11 +308,11 @@ function DetailModal({
             </section>
           )}
 
-          {/* Histórico da conversa */}
+          {/* HistÃ³rico da conversa */}
           {pedido.conversation_messages && pedido.conversation_messages.length > 0 && (
             <section>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
-                Histórico da Conversa ({pedido.conversation_messages.length} mensagens)
+                HistÃ³rico da Conversa ({pedido.conversation_messages.length} mensagens)
               </div>
               <div
                 style={{
@@ -241,9 +365,43 @@ function DetailModal({
               display: "flex", gap: 10, justifyContent: "flex-end",
             }}
           >
-            {pedido.status === "pendente" && (
+            {editing ? (
+              <>
+                <button
+                  onClick={() => {
+                    setEditItems(pedido.itens_json.map((item) => ({ ...item })));
+                    setEditObservacoes(pedido.observacoes || "");
+                    setEditing(false);
+                  }}
+                  disabled={loading}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    background: "transparent", color: "var(--muted)",
+                    border: "1px solid var(--border)", borderRadius: 8,
+                    padding: "8px 16px", fontSize: 13, fontWeight: 600,
+                    cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1,
+                  }}
+                >
+                  Cancelar ediÃ§Ã£o
+                </button>
+                <button
+                  onClick={saveEdit}
+                  disabled={loading}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    background: "var(--accent)", color: "#fff",
+                    border: "none", borderRadius: 8,
+                    padding: "8px 16px", fontSize: 13, fontWeight: 700,
+                    cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1,
+                  }}
+                >
+                  {loading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Save size={14} />}
+                  Salvar ediÃ§Ã£o
+                </button>
+              </>
+            ) : (
               <button
-                onClick={() => onSetStatus("em_revisao")}
+                onClick={() => setEditing(true)}
                 disabled={loading}
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
@@ -253,8 +411,8 @@ function DetailModal({
                   cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.6 : 1,
                 }}
               >
-                <MessageSquare size={14} />
-                Iniciar Revisão
+                <Pencil size={14} />
+                Editar Pedido
               </button>
             )}
             <button
@@ -339,8 +497,8 @@ function PedidoCard({
       <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: 10 }}>
         {pedido.itens_json.slice(0, 3).map((item, i) => (
           <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text)" }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>{item.nome}</span>
-            <span style={{ color: "var(--accent)", fontWeight: 600, flexShrink: 0 }}>{item.quantidade}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>{itemNome(item)}</span>
+            <span style={{ color: "var(--accent)", fontWeight: 600, flexShrink: 0 }}>{itemQuantidade(item)}</span>
           </div>
         ))}
         {pedido.itens_json.length > 3 && (
@@ -363,7 +521,6 @@ function PedidoCard({
 const TABS: { key: PedidoRevisaoStatus | "todos"; label: string }[] = [
   { key: "todos", label: "Todos" },
   { key: "pendente", label: "Pendentes" },
-  { key: "em_revisao", label: "Em Revisão" },
   { key: "pedido_feito", label: "Feitos" },
   { key: "cancelado", label: "Cancelados" },
 ];
@@ -406,19 +563,33 @@ export default function RevisaoPedidoPage() {
     }
   }
 
+  async function handleUpdatePedido(payload: { itens_json: PedidoRevisaoItem[]; observacoes: string }) {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      const updated = await revisaoPedidoApi.update(selected.id, payload);
+      setSelected(updated);
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro ao editar pedido");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   const stats = data?.stats;
   const pedidos = data?.pedidos ?? [];
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <Header title="Revisão de Pedidos" />
+      <Header title="RevisÃ£o de Pedidos" />
 
       <div style={{ flex: 1, overflow: "auto", padding: 28 }}>
 
         {/* Stats row */}
         {stats && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14, marginBottom: 24 }}>
-            {(["pendente", "em_revisao", "pedido_feito", "cancelado"] as PedidoRevisaoStatus[]).map((s) => (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, marginBottom: 24 }}>
+            {(["pendente", "pedido_feito", "cancelado"] as PedidoRevisaoStatus[]).map((s) => (
               <div
                 key={s}
                 onClick={() => setActiveTab(s)}
@@ -503,7 +674,7 @@ export default function RevisaoPedidoPage() {
           >
             <Package size={28} color="var(--muted)" />
             {activeTab === "pendente"
-              ? "Nenhum pedido aguardando revisão."
+              ? "Nenhum pedido aguardando revisÃ£o."
               : `Nenhum pedido com status "${STATUS_LABEL[activeTab as PedidoRevisaoStatus] ?? activeTab}".`}
           </div>
         )}
@@ -521,6 +692,7 @@ export default function RevisaoPedidoPage() {
           pedido={selected}
           onClose={() => setSelected(null)}
           onSetStatus={handleSetStatus}
+          onUpdate={handleUpdatePedido}
           loading={actionLoading}
         />
       )}
@@ -529,3 +701,4 @@ export default function RevisaoPedidoPage() {
     </div>
   );
 }
+

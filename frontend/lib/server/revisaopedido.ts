@@ -1,5 +1,5 @@
 import { runPythonJson } from "@/lib/server/python";
-import type { PedidoRevisao, PedidoRevisaoListResponse, PedidoRevisaoStatus } from "@/lib/types";
+import type { PedidoRevisao, PedidoRevisaoItem, PedidoRevisaoListResponse, PedidoRevisaoStatus } from "@/lib/types";
 
 type Envelope<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -21,4 +21,19 @@ export function getPedidoDetail(id: string) {
 
 export function setPedidoStatus(id: string, status: PedidoRevisaoStatus) {
   return call<PedidoRevisao>(["set-status", "--id", id, "--status", status]);
+}
+
+export function updatePedido(
+  id: string,
+  payload: { itens_json: PedidoRevisaoItem[]; observacoes: string }
+) {
+  return call<PedidoRevisao>([
+    "update",
+    "--id",
+    id,
+    "--itens-json",
+    JSON.stringify(payload.itens_json ?? []),
+    "--observacoes",
+    payload.observacoes ?? "",
+  ]);
 }

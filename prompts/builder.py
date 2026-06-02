@@ -200,6 +200,8 @@ def _customer_section(ctx: dict) -> str:
             "",
             "Este pedido ainda nao e um pedido real finalizado; nao use como resposta para 'ultimo pedido' ou historico de compras.",
             "Se o cliente pedir alteracao, ajuste este pedido e peca confirmacao do resumo completo.",
+            "Antes de adicionar ou alterar item, confirme produto, tipo/formato e tamanho/derivacao.",
+            "Se o cliente citar apenas sabor/produto generico e houver mais de um item possivel, pergunte qual item exato deve mudar.",
             "Depois da confirmacao final, use a ferramenta para atualizar o mesmo pedido em revisao.",
             "",
         ]
@@ -438,8 +440,14 @@ def _fmt_open_review_order(order: dict) -> str:
         linhas.append("- Itens atuais:")
         for item in items[:20]:
             nome = item.get("nome") or item.get("produto") or item.get("desPro") or "Item"
+            tipo = item.get("tipo") or item.get("formato") or item.get("embalagem")
+            tamanho = item.get("tamanho") or item.get("derivacao") or item.get("variacao") or item.get("volume")
             qtd = item.get("quantidade") or item.get("qtdPed") or ""
             detalhe = f"  - {nome}"
+            if tipo:
+                detalhe += f", tipo {tipo}"
+            if tamanho:
+                detalhe += f", tamanho {tamanho}"
             if qtd:
                 detalhe += f": {qtd}"
             preco = item.get("preco_unitario") or item.get("preco") or item.get("preUni")

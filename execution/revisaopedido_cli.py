@@ -8,6 +8,7 @@ Subcomandos:
              [--page N] [--page-size N]
   detail     --id UUID
   set-status --id UUID --status <novo_status>
+  update     --id UUID --itens-json JSON [--observacoes TEXTO]
 """
 
 import argparse
@@ -47,6 +48,65 @@ def failure(message: str) -> int:
     return 0
 
 
+def _text(value) -> str:
+    return str(value or "").strip()
+
+
+def _item_name(item: dict, catalog: dict[tuple[str, str], str], by_code: dict[str, str]) -> str:
+    explicit = _text(item.get("nome") or item.get("produto") or item.get("desPro") or item.get("nome_produto"))
+    if explicit:
+        return explicit
+
+    cod = _text(item.get("cod_produto") or item.get("codPro") or item.get("codigo"))
+    variation = _text(item.get("tamanho") or item.get("derivacao") or item.get("variacao") or item.get("volume"))
+    if cod:
+        return catalog.get((cod.upper(), variation.upper())) or by_code.get(cod.upper(), "")
+    return ""
+
+
+def _display_item_name(item: dict, catalog: dict[tuple[str, str], str], by_code: dict[str, str]) -> str:
+    explicit = _item_name(item, catalog, by_code)
+    if explicit:
+        return explicit
+
+    tipo = _text(item.get("tipo") or item.get("formato") or item.get("embalagem"))
+    produto = _text(item.get("produto") or item.get("desPro"))
+    tamanho = _text(item.get("tamanho") or item.get("derivacao") or item.get("variacao") or item.get("volume"))
+    return " ".join(part for part in (tipo, produto, tamanho) if part).upper()
+
+
+def _catalog_maps(db) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
+    rows = db.table("produtos").select("cod_produto, derivacao, nome").eq("ativo", True).execute().data or []
+    catalog: dict[tuple[str, str], str] = {}
+    by_code: dict[str, str] = {}
+    for row in rows:
+        cod = _text(row.get("cod_produto")).upper()
+        der = _text(row.get("derivacao")).upper()
+        name = _text(row.get("nome"))
+        if not cod or not name:
+            continue
+        catalog[(cod, der)] = name
+        by_code.setdefault(cod, name)
+    return catalog, by_code
+
+
+def _normalize_items(items, catalog: dict[tuple[str, str], str], by_code: dict[str, str]) -> list[dict]:
+    normalized: list[dict] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        name = _display_item_name(row, catalog, by_code)
+        if name and not _text(row.get("nome")):
+            row["nome"] = name
+        normalized.append(row)
+    return normalized
+
+
+def _normalize_order(order: dict, catalog: dict[tuple[str, str], str], by_code: dict[str, str]) -> dict:
+    return {**order, "itens_json": _normalize_items(order.get("itens_json") or [], catalog, by_code)}
+
+
 def _db():
     url = os.getenv("SUPABASE_URL", "").rstrip("/")
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
@@ -58,6 +118,7 @@ def _db():
 
 def cmd_list(status: str | None, page: int, page_size: int) -> dict:
     db = _db()
+    catalog, by_code = _catalog_maps(db)
 
     counts_res = db.table("pedidos_revisao").select("status").execute()
     all_rows = counts_res.data or []
@@ -85,12 +146,13 @@ def cmd_list(status: str | None, page: int, page_size: int) -> dict:
         "page_size": page_size,
         "pages": pages,
         "stats": stats,
-        "pedidos": res.data or [],
+        "pedidos": [_normalize_order(row, catalog, by_code) for row in (res.data or [])],
     }
 
 
 def cmd_detail(pedido_id: str) -> dict:
     db = _db()
+    catalog, by_code = _catalog_maps(db)
 
     res = db.table("pedidos_revisao").select("*").eq("id", pedido_id).limit(1).execute()
     rows = res.data or []
@@ -116,7 +178,7 @@ def cmd_detail(pedido_id: str) -> dict:
         except Exception as exc:
             logger.warning("Falha ao buscar mensagens da conversa: %s", exc)
 
-    return {**pedido, "conversation_messages": messages}
+    return {**_normalize_order(pedido, catalog, by_code), "conversation_messages": messages}
 
 
 def cmd_set_status(pedido_id: str, new_status: str) -> dict:
@@ -138,6 +200,31 @@ def cmd_set_status(pedido_id: str, new_status: str) -> dict:
     return rows[0]
 
 
+def cmd_update(pedido_id: str, itens_json: str, observacoes: str) -> dict:
+    db = _db()
+    catalog, by_code = _catalog_maps(db)
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    try:
+        items = json.loads(itens_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"itens_json invalido: {exc}") from exc
+    if not isinstance(items, list):
+        raise ValueError("itens_json precisa ser uma lista")
+
+    patch = {
+        "itens_json": _normalize_items(items, catalog, by_code),
+        "observacoes": observacoes or "",
+        "updated_at": now,
+    }
+    res = db.table("pedidos_revisao").update(patch).eq("id", pedido_id).execute()
+    rows = res.data or []
+    if not rows:
+        raise RuntimeError(f"Pedido {pedido_id!r} nao encontrado ou sem alteracao")
+
+    return _normalize_order(rows[0], catalog, by_code)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="CLI de revisão de pedidos")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -154,6 +241,11 @@ def main() -> int:
     p_status.add_argument("--id", dest="pedido_id", required=True)
     p_status.add_argument("--status", required=True, choices=list(VALID_STATUSES))
 
+    p_update = sub.add_parser("update")
+    p_update.add_argument("--id", dest="pedido_id", required=True)
+    p_update.add_argument("--itens-json", required=True)
+    p_update.add_argument("--observacoes", default="")
+
     args = parser.parse_args()
 
     try:
@@ -163,6 +255,8 @@ def main() -> int:
             return success(cmd_detail(args.pedido_id))
         if args.command == "set-status":
             return success(cmd_set_status(args.pedido_id, args.status))
+        if args.command == "update":
+            return success(cmd_update(args.pedido_id, args.itens_json, args.observacoes))
         return failure("Comando não suportado")
     except Exception as exc:
         logger.exception("Falha no módulo de revisão de pedidos")
