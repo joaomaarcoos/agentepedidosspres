@@ -76,6 +76,10 @@ def build_prompt(context: dict | None = None) -> str:
     if decision_section:
         base += f"\n\n---\n\n{decision_section}"
 
+    forecast_section = _forecast_section(context)
+    if forecast_section:
+        base += f"\n\n---\n\n{forecast_section}"
+
     customer_section = _customer_section(context)
     if customer_section:
         base += f"\n\n---\n\n{customer_section}"
@@ -154,6 +158,8 @@ def _decision_section(ctx: dict) -> str:
         "Se faltar tipo/formato, tamanho/derivacao, quantidade ou unidade, pergunte somente o dado faltante.",
         "Se ja houver formato/tipo escolhido na conversa e a mensagem atual trouxer sabor/produto e quantidade sem novo formato, mantenha o formato escolhido; nao pergunte formato de novo.",
         "Com formato/tipo ja escolhido, se faltar tamanho, pergunte somente o tamanho disponivel para aquele formato/produto. Se so existir um tamanho naquele formato/produto, use esse tamanho e avance para confirmar o resumo.",
+        "Quando o cliente responder apenas o sabor/produto depois de uma lista de um formato, isso nao confirma tamanho. Se esse sabor/produto tiver mais de um tamanho nesse formato, pergunte o tamanho antes de adicionar ou recalcular.",
+        "Nunca escolha a primeira variacao da lista como padrao. Exemplo: se a lista mostra garrafa caju 900ml e garrafa caju 1,7L, e o cliente diz apenas caju, pergunte qual tamanho.",
         "Esta regra vale para todos os formatos: copo, garrafa, bolsa, bolsa concentrada e galao.",
         "Se houver mais de uma derivacao ou preco possivel para o item, confirme antes de calcular.",
         "Quando produto, tipo/formato, tamanho/derivacao, quantidade, unidade e preco da tabela estiverem definidos, informe preco unitario, subtotal por item e total do pedido no resumo.",
@@ -244,6 +250,44 @@ def _customer_section(ctx: dict) -> str:
     return "\n".join(linhas).strip()
 
 
+def _forecast_section(ctx: dict) -> str:
+    forecast = ctx.get("sales_forecast") or {}
+    if not forecast:
+        return ""
+
+    top = _fmt_previsao_produtos(forecast.get("forecast_products") or [])
+    seasonal = _fmt_previsao_produtos(forecast.get("seasonal_products") or [])
+    if not top and not seasonal:
+        return ""
+
+    linhas = [
+        "## CONTEXTO DE PREVISAO E SAZONALIDADE",
+        "",
+        f"Ano analisado: {forecast.get('year') or '-'}",
+        f"Mes de referencia sazonal: {forecast.get('seasonal_reference_label') or '-'}",
+        "",
+    ]
+    if seasonal:
+        linhas += [
+            "Produtos com maior saida sazonal no mes atual:",
+            seasonal,
+            "",
+        ]
+    if top:
+        linhas += [
+            "Produtos com maior saida geral no periodo analisado:",
+            top,
+            "",
+        ]
+    linhas += [
+        "Use este contexto apenas para sugestoes comerciais quando o cliente pedir recomendacao, estiver indeciso ou abrir espaco para sugestao.",
+        "Antes de oferecer como item do pedido, confirme que o produto existe no catalogo/tabela injetada para esse cliente e siga o fluxo de tipo/formato, tamanho e quantidade.",
+        "Nao diga ao cliente que existe um modulo de previsao, ranking interno, analise ou sazonalidade. Fale de forma natural, como sugestao de produto com boa saida.",
+        "Nao use esses dados para prometer estoque, preco, desconto ou condicao comercial.",
+    ]
+    return "\n".join(linhas).strip()
+
+
 def _module_section(module: str, ctx: dict) -> str:
     if module == "recorrencia":
         return _recorrencia_section(ctx)
@@ -317,6 +361,16 @@ def _fmt_preco(valor) -> str:
         return f"R$ {float(valor):.2f}".replace(".", ",")
     except (TypeError, ValueError):
         return "-"
+
+
+def _fmt_number(valor) -> str:
+    try:
+        number = float(valor)
+    except (TypeError, ValueError):
+        return str(valor or "-")
+    if number.is_integer():
+        return f"{int(number):,}".replace(",", ".")
+    return f"{number:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
 def _display_variation(value) -> str:
@@ -422,6 +476,26 @@ def _fmt_produtos(items: list[dict]) -> str:
         nome = it.get("desPro") or it.get("codPro", "")
         if nome:
             linhas.append(f"- {nome}")
+    return "\n".join(linhas)
+
+
+def _fmt_previsao_produtos(items: list[dict]) -> str:
+    linhas = []
+    for it in items[:6]:
+        nome = it.get("desPro") or it.get("nome") or it.get("codPro", "")
+        if not nome:
+            continue
+        qtd = it.get("total_qtd")
+        pedidos = it.get("pedidos")
+        detalhe = str(nome)
+        extras = []
+        if qtd not in (None, ""):
+            extras.append(f"{_fmt_number(qtd)} unidades")
+        if pedidos not in (None, ""):
+            extras.append(f"{pedidos} pedidos")
+        if extras:
+            detalhe += f" ({', '.join(extras)})"
+        linhas.append(f"- {detalhe}")
     return "\n".join(linhas)
 
 

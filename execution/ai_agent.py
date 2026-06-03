@@ -2108,6 +2108,28 @@ class AgentStore:
             logger.warning("Falha ao buscar ultimos pedidos do cliente %s: %s", cod_cli, exc)
             return []
 
+    def get_sales_forecast_context(self, limit: int = 6) -> dict | None:
+        """Resumo compacto do modulo de previsao para sugestoes comerciais."""
+        if self.use_local:
+            return None
+        try:
+            from clic_vendas_cli import list_previsao
+
+            safe_limit = max(3, min(limit, 10))
+            data = list_previsao(year=None, period_count=4, limit=safe_limit)
+            return {
+                "year": data.get("year"),
+                "latest_period": data.get("latest_period"),
+                "seasonal_reference_month": data.get("seasonal_reference_month"),
+                "seasonal_reference_label": data.get("seasonal_reference_label"),
+                "forecast_products": (data.get("forecast_products") or [])[:safe_limit],
+                "seasonal_products": (data.get("seasonal_products") or [])[:safe_limit],
+                "summary": data.get("summary") or {},
+            }
+        except Exception as exc:
+            logger.warning("Falha ao buscar contexto de previsao de vendas: %s", exc)
+            return None
+
 
 def maybe_expire_pause(store: AgentStore, conversation: dict) -> dict:
     if not conversation.get("ai_paused"):
@@ -2178,6 +2200,7 @@ REGISTRAR_PEDIDO_TOOL: dict = {
             "Use acao='criar' quando o cliente pediu novo/outro pedido, mesmo que ja exista pedido pendente. "
             "Use acao='editar' somente quando o cliente quer alterar um pedido interno ja em revisao; informe o protocolo quando disponivel. "
             "Cada item deve ter produto, tipo/formato, tamanho/derivacao, quantidade e unidade. "
+            "Nao escolha tamanho por padrao: se o produto tiver mais de um tamanho no formato escolhido, pergunte antes e nao registre ate o cliente confirmar. "
             "Registre preco unitario, subtotal e total do pedido quando estiverem claros na tabela, alem de observacoes espontaneas."
         ),
         "parameters": {
@@ -2190,7 +2213,7 @@ REGISTRAR_PEDIDO_TOOL: dict = {
                         "properties": {
                             "produto": {"type": "string", "description": "Nome do produto/sabor, sem inventar variacao"},
                             "tipo": {"type": "string", "description": "Formato comercial: bolsa, bolsa concentrada, copo ou garrafa"},
-                            "tamanho": {"type": "string", "description": "Tamanho/derivacao/volume exatamente como confirmado, ex: 200ml, 300ml, 1,7L, 5L"},
+                            "tamanho": {"type": "string", "description": "Tamanho/derivacao/volume exatamente como confirmado pelo cliente ou unico tamanho disponivel para aquele produto/formato, ex: 200ml, 300ml, 1,7L, 5L"},
                             "quantidade": {"type": "number", "description": "Quantidade numerica confirmada pelo cliente"},
                             "unidade": {"type": "string", "description": "Unidade da quantidade, ex: unidades, copos, garrafas, bolsas"},
                             "nome": {"type": "string", "description": "Nome completo opcional do item para exibicao"},
@@ -2466,6 +2489,9 @@ def process_inbound_message(
         if recent_orders:
             module_context["recent_orders"] = recent_orders
     module_context = {**(module_context or {})}
+    sales_forecast = store.get_sales_forecast_context(limit=6)
+    if sales_forecast:
+        module_context["sales_forecast"] = sales_forecast
     open_review_orders = store.get_open_orders_for_review(safe_phone, str(conversation["id"]), limit=5)
     open_review_order = open_review_orders[0] if open_review_orders else None
     if open_review_orders:

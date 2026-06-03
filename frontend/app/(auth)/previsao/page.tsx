@@ -282,6 +282,77 @@ export default function PrevisaoPage() {
           <StatBlock label="Periodo mais forte" value={strongestPeriod?.label ?? "-"} sub={strongestPeriod ? `${fmtNumber(strongestPeriod.total_qtd)} unidades` : undefined} icon={CalendarDays} />
         </div>
 
+        <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+          <div style={{ padding: "15px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 800, color: "var(--text)", fontSize: 14 }}>
+                Sazonalidade de {data?.seasonal_reference_label ?? "referência"}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
+                Produtos que mais saíram no mês de referência disponível. Use como base para sugestão comercial.
+              </div>
+            </div>
+            <CalendarDays size={18} color="var(--accent)" />
+          </div>
+
+          {!data?.seasonal_products?.length ? (
+            <div style={{ padding: 22, color: "var(--muted)", fontSize: 13 }}>
+              Ainda não há volume suficiente para sazonalidade deste mês.
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "var(--surface2)" }}>
+                    {["#", "Produto", "Unidades", "Pedidos", "Valor", "Variação"].map((header) => (
+                      <th key={header} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.seasonal_products.slice(0, 8).map((product, index) => (
+                    <ProductRow key={`seasonal-${product.codPro || product.desPro}`} product={product} index={index} showGrowth />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {data?.months?.length ? (
+          <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden", marginBottom: 16 }}>
+            <div style={{ padding: "15px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div>
+                <div style={{ fontWeight: 800, color: "var(--text)", fontSize: 14 }}>Análise mensal de sazonalidade</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
+                  Melhor produto por mês para identificar picos sazonais.
+                </div>
+              </div>
+              <BarChart3 size={18} color="var(--accent)" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 0 }}>
+              {data.months.map((month) => {
+                const top = month.top_products[0];
+                return (
+                  <div key={month.month} style={{ padding: 14, borderRight: "1px solid var(--border)", borderBottom: "1px solid var(--border)", minHeight: 112 }}>
+                    <div style={{ color: "var(--muted)", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6, fontWeight: 800 }}>
+                      {month.label}
+                    </div>
+                    <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 750, marginTop: 8, lineHeight: 1.3 }}>
+                      {top?.desPro || "Sem venda"}
+                    </div>
+                    <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 6 }}>
+                      {top ? `${fmtNumber(top.total_qtd)} un. · ${top.pedidos} pedidos` : `${fmtNumber(month.total_qtd)} unidades`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(320px, 0.9fr)", gap: 16, alignItems: "start" }}>
           <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden", minWidth: 0 }}>
             <div style={{ padding: "15px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>

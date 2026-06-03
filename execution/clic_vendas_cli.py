@@ -329,6 +329,24 @@ def _period_label(period: int, period_count: int) -> str:
     return f"Periodo {period}"
 
 
+def _month_label(month: int) -> str:
+    labels = [
+        "janeiro",
+        "fevereiro",
+        "marco",
+        "abril",
+        "maio",
+        "junho",
+        "julho",
+        "agosto",
+        "setembro",
+        "outubro",
+        "novembro",
+        "dezembro",
+    ]
+    return labels[min(12, max(1, month)) - 1]
+
+
 def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
     """Agrupa itens de pedidos por periodo anual para indicar produtos mais vendidos."""
     if period_count not in (3, 4):
@@ -358,6 +376,7 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
         year = max(available_years) if available_years else datetime.now().year
 
     period_stats = {}
+    month_stats = {}
     product_total = defaultdict(
         lambda: {
             "codPro": "",
@@ -366,6 +385,7 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
             "total_valor": 0.0,
             "pedidos": set(),
             "periods": defaultdict(lambda: {"qtd": 0.0, "valor": 0.0, "pedidos": set()}),
+            "months": defaultdict(lambda: {"qtd": 0.0, "valor": 0.0, "pedidos": set()}),
         }
     )
 
@@ -380,17 +400,30 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
             "top_products": [],
         }
 
+    for month in range(1, 13):
+        month_stats[month] = {
+            "month": month,
+            "label": _month_label(month),
+            "orders_count": 0,
+            "items_count": 0,
+            "total_qtd": 0.0,
+            "total_valor": 0.0,
+            "top_products": [],
+        }
+
     for row, order_date in parsed_rows:
         if order_date.year != year:
             continue
 
         period = _period_for_month(order_date.month, period_count)
+        month = order_date.month
         items = row.get("items_json") or []
         if not isinstance(items, list):
             continue
 
         order_key = str(row.get("num_ped") or "")
         period_stats[period]["orders_count"] += 1
+        month_stats[month]["orders_count"] += 1
 
         for item in items:
             if not isinstance(item, dict):
@@ -412,16 +445,28 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
             current["periods"][period]["qtd"] += qtd
             current["periods"][period]["valor"] += valor
             current["periods"][period]["pedidos"].add(order_key)
+            current["months"][month]["qtd"] += qtd
+            current["months"][month]["valor"] += valor
+            current["months"][month]["pedidos"].add(order_key)
 
             period_stats[period]["items_count"] += 1
             period_stats[period]["total_qtd"] += qtd
             period_stats[period]["total_valor"] += valor
+            month_stats[month]["items_count"] += 1
+            month_stats[month]["total_qtd"] += qtd
+            month_stats[month]["total_valor"] += valor
 
-    def product_payload(data: dict, period: int | None = None) -> dict:
+    def product_payload(data: dict, period: int | None = None, month: int | None = None) -> dict:
         if period is None:
-            qtd = data["total_qtd"]
-            valor = data["total_valor"]
-            pedidos = len(data["pedidos"])
+            if month is None:
+                qtd = data["total_qtd"]
+                valor = data["total_valor"]
+                pedidos = len(data["pedidos"])
+            else:
+                month_data = data["months"][month]
+                qtd = month_data["qtd"]
+                valor = month_data["valor"]
+                pedidos = len(month_data["pedidos"])
         else:
             period_data = data["periods"][period]
             qtd = period_data["qtd"]
@@ -432,6 +477,12 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
         growth_pct = None
         if period and period > 1:
             previous_qtd = data["periods"][period - 1]["qtd"]
+            if previous_qtd > 0:
+                growth_pct = round(((qtd - previous_qtd) / previous_qtd) * 100, 1)
+            elif qtd > 0:
+                growth_pct = 100.0
+        if month and month > 1:
+            previous_qtd = data["months"][month - 1]["qtd"]
             if previous_qtd > 0:
                 growth_pct = round(((qtd - previous_qtd) / previous_qtd) * 100, 1)
             elif qtd > 0:
@@ -454,6 +505,33 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
         period_stats[period]["total_valor"] = round(period_stats[period]["total_valor"], 2)
         period_stats[period]["top_products"] = [product_payload(p, period) for p in ranked[:limit]]
 
+    for month in range(1, 13):
+        ranked = [p for p in products if p["months"][month]["qtd"] > 0 or p["months"][month]["valor"] > 0]
+        ranked.sort(key=lambda p: (p["months"][month]["qtd"], p["months"][month]["valor"]), reverse=True)
+        month_stats[month]["total_qtd"] = round(month_stats[month]["total_qtd"], 2)
+        month_stats[month]["total_valor"] = round(month_stats[month]["total_valor"], 2)
+        month_stats[month]["top_products"] = [product_payload(p, month=month) for p in ranked[:limit]]
+
+    current_month = datetime.now().month
+    seasonal_month = current_month
+    if month_stats[seasonal_month]["items_count"] == 0:
+        seasonal_month = max(
+            (month for month in range(1, 13) if month_stats[month]["items_count"] > 0),
+            default=current_month,
+        )
+    seasonal_ranked = [
+        p for p in products
+        if p["months"][seasonal_month]["qtd"] > 0 or p["months"][seasonal_month]["valor"] > 0
+    ]
+    seasonal_ranked.sort(
+        key=lambda p: (
+            p["months"][seasonal_month]["qtd"],
+            p["months"][seasonal_month]["valor"],
+            p["total_qtd"],
+        ),
+        reverse=True,
+    )
+
     total_ranked = sorted(products, key=lambda p: (p["total_qtd"], p["total_valor"]), reverse=True)
     latest_period = max(
         (p for p in range(1, period_count + 1) if period_stats[p]["items_count"] > 0),
@@ -465,6 +543,8 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
         "period_count": period_count,
         "available_years": sorted(available_years, reverse=True),
         "latest_period": latest_period,
+        "seasonal_reference_month": seasonal_month,
+        "seasonal_reference_label": _month_label(seasonal_month),
         "summary": {
             "orders_count": sum(p["orders_count"] for p in period_stats.values()),
             "items_count": sum(p["items_count"] for p in period_stats.values()),
@@ -473,6 +553,8 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
             "products_count": len(products),
         },
         "periods": list(period_stats.values()),
+        "months": list(month_stats.values()),
+        "seasonal_products": [product_payload(p, month=seasonal_month) for p in seasonal_ranked[:limit]],
         "forecast_products": [product_payload(p) for p in total_ranked[:limit]],
     }
 

@@ -141,11 +141,23 @@ export interface PrevisaoPeriodo {
   top_products: PrevisaoProduto[];
 }
 
+export interface PrevisaoMes {
+  month: number;
+  label: string;
+  orders_count: number;
+  items_count: number;
+  total_qtd: number;
+  total_valor: number;
+  top_products: PrevisaoProduto[];
+}
+
 export interface PrevisaoOverview {
   year: number;
   period_count: number;
   available_years: number[];
   latest_period: number;
+  seasonal_reference_month?: number;
+  seasonal_reference_label?: string;
   summary: {
     orders_count: number;
     items_count: number;
@@ -154,6 +166,8 @@ export interface PrevisaoOverview {
     products_count: number;
   };
   periods: PrevisaoPeriodo[];
+  months?: PrevisaoMes[];
+  seasonal_products?: PrevisaoProduto[];
   forecast_products: PrevisaoProduto[];
 }
 
