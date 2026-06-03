@@ -122,6 +122,41 @@ export interface PedidoItem {
   vlrTotal?: number;
 }
 
+export interface PrevisaoProduto {
+  codPro: string;
+  desPro: string;
+  total_qtd: number;
+  total_valor: number;
+  pedidos: number;
+  growth_pct: number | null;
+}
+
+export interface PrevisaoPeriodo {
+  period: number;
+  label: string;
+  orders_count: number;
+  items_count: number;
+  total_qtd: number;
+  total_valor: number;
+  top_products: PrevisaoProduto[];
+}
+
+export interface PrevisaoOverview {
+  year: number;
+  period_count: number;
+  available_years: number[];
+  latest_period: number;
+  summary: {
+    orders_count: number;
+    items_count: number;
+    total_qtd: number;
+    total_valor: number;
+    products_count: number;
+  };
+  periods: PrevisaoPeriodo[];
+  forecast_products: PrevisaoProduto[];
+}
+
 export interface ApiStatus {
   ok: boolean;
   service?: string;

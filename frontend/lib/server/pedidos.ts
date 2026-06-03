@@ -54,3 +54,15 @@ export function listPedidos(params: {
     pedidos: Array<Record<string, unknown>>;
   }>(args);
 }
+
+export function getPrevisao(params: {
+  year?: number;
+  periodCount?: number;
+  limit?: number;
+}) {
+  const args = ["previsao"];
+  if (params.year !== undefined) args.push("--year", String(params.year));
+  if (params.periodCount !== undefined) args.push("--period-count", String(params.periodCount));
+  if (params.limit !== undefined) args.push("--limit", String(params.limit));
+  return callPedidos<Record<string, unknown>>(args);
+}

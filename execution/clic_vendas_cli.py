@@ -6,6 +6,7 @@ import re
 import sys
 import time
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -302,6 +303,180 @@ def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int) -> d
     }
 
 
+def _parse_order_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y", "%d/%m/%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(text[:19], fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def _period_for_month(month: int, period_count: int) -> int:
+    month = min(12, max(1, month))
+    return min(period_count, ((month - 1) * period_count) // 12 + 1)
+
+
+def _period_label(period: int, period_count: int) -> str:
+    if period_count == 4:
+        return f"{period}o trimestre"
+    return f"Periodo {period}"
+
+
+def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
+    """Agrupa itens de pedidos por periodo anual para indicar produtos mais vendidos."""
+    if period_count not in (3, 4):
+        raise ValueError("period_count deve ser 3 ou 4")
+
+    db = _db_direct()
+    rows = (
+        db.table("rep_order_base")
+        .select("num_ped, dat_emi, sit_ped, order_total_value, items_json")
+        .order("dat_emi", desc=True)
+        .limit(10000)
+        .execute()
+        .data
+        or []
+    )
+
+    parsed_rows = []
+    available_years = set()
+    for row in rows:
+        order_date = _parse_order_date(row.get("dat_emi"))
+        if not order_date:
+            continue
+        available_years.add(order_date.year)
+        parsed_rows.append((row, order_date))
+
+    if year is None:
+        year = max(available_years) if available_years else datetime.now().year
+
+    period_stats = {}
+    product_total = defaultdict(
+        lambda: {
+            "codPro": "",
+            "desPro": "",
+            "total_qtd": 0.0,
+            "total_valor": 0.0,
+            "pedidos": set(),
+            "periods": defaultdict(lambda: {"qtd": 0.0, "valor": 0.0, "pedidos": set()}),
+        }
+    )
+
+    for period in range(1, period_count + 1):
+        period_stats[period] = {
+            "period": period,
+            "label": _period_label(period, period_count),
+            "orders_count": 0,
+            "items_count": 0,
+            "total_qtd": 0.0,
+            "total_valor": 0.0,
+            "top_products": [],
+        }
+
+    for row, order_date in parsed_rows:
+        if order_date.year != year:
+            continue
+
+        period = _period_for_month(order_date.month, period_count)
+        items = row.get("items_json") or []
+        if not isinstance(items, list):
+            continue
+
+        order_key = str(row.get("num_ped") or "")
+        period_stats[period]["orders_count"] += 1
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            code = str(item.get("codPro") or "").strip()
+            name = str(item.get("desPro") or code or "Produto sem codigo").strip()
+            if not code and not name:
+                continue
+            key = code or name.lower()
+            qtd = float(item.get("qtdPed") or 0)
+            valor = float(item.get("vlrTotal") or 0)
+
+            current = product_total[key]
+            current["codPro"] = code
+            current["desPro"] = name
+            current["total_qtd"] += qtd
+            current["total_valor"] += valor
+            current["pedidos"].add(order_key)
+            current["periods"][period]["qtd"] += qtd
+            current["periods"][period]["valor"] += valor
+            current["periods"][period]["pedidos"].add(order_key)
+
+            period_stats[period]["items_count"] += 1
+            period_stats[period]["total_qtd"] += qtd
+            period_stats[period]["total_valor"] += valor
+
+    def product_payload(data: dict, period: int | None = None) -> dict:
+        if period is None:
+            qtd = data["total_qtd"]
+            valor = data["total_valor"]
+            pedidos = len(data["pedidos"])
+        else:
+            period_data = data["periods"][period]
+            qtd = period_data["qtd"]
+            valor = period_data["valor"]
+            pedidos = len(period_data["pedidos"])
+
+        previous_qtd = 0.0
+        growth_pct = None
+        if period and period > 1:
+            previous_qtd = data["periods"][period - 1]["qtd"]
+            if previous_qtd > 0:
+                growth_pct = round(((qtd - previous_qtd) / previous_qtd) * 100, 1)
+            elif qtd > 0:
+                growth_pct = 100.0
+
+        return {
+            "codPro": data["codPro"],
+            "desPro": data["desPro"],
+            "total_qtd": round(qtd, 2),
+            "total_valor": round(valor, 2),
+            "pedidos": pedidos,
+            "growth_pct": growth_pct,
+        }
+
+    products = list(product_total.values())
+    for period in range(1, period_count + 1):
+        ranked = [p for p in products if p["periods"][period]["qtd"] > 0 or p["periods"][period]["valor"] > 0]
+        ranked.sort(key=lambda p: (p["periods"][period]["qtd"], p["periods"][period]["valor"]), reverse=True)
+        period_stats[period]["total_qtd"] = round(period_stats[period]["total_qtd"], 2)
+        period_stats[period]["total_valor"] = round(period_stats[period]["total_valor"], 2)
+        period_stats[period]["top_products"] = [product_payload(p, period) for p in ranked[:limit]]
+
+    total_ranked = sorted(products, key=lambda p: (p["total_qtd"], p["total_valor"]), reverse=True)
+    latest_period = max(
+        (p for p in range(1, period_count + 1) if period_stats[p]["items_count"] > 0),
+        default=_period_for_month(datetime.now().month, period_count),
+    )
+
+    return {
+        "year": year,
+        "period_count": period_count,
+        "available_years": sorted(available_years, reverse=True),
+        "latest_period": latest_period,
+        "summary": {
+            "orders_count": sum(p["orders_count"] for p in period_stats.values()),
+            "items_count": sum(p["items_count"] for p in period_stats.values()),
+            "total_qtd": round(sum(p["total_qtd"] for p in period_stats.values()), 2),
+            "total_valor": round(sum(p["total_valor"] for p in period_stats.values()), 2),
+            "products_count": len(products),
+        },
+        "periods": list(period_stats.values()),
+        "forecast_products": [product_payload(p) for p in total_ranked[:limit]],
+    }
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -327,6 +502,11 @@ def main() -> int:
     pedidos_parser.add_argument("--page", type=int, default=1)
     pedidos_parser.add_argument("--page-size", type=int, default=50)
 
+    previsao_parser = subparsers.add_parser("previsao")
+    previsao_parser.add_argument("--year", type=int, default=None)
+    previsao_parser.add_argument("--period-count", type=int, default=4)
+    previsao_parser.add_argument("--limit", type=int, default=10)
+
     args = parser.parse_args()
 
     try:
@@ -347,6 +527,8 @@ def main() -> int:
             return success(get_sync_log(args.log_id))
         if args.command == "pedidos":
             return success(list_pedidos(args.cod_cli, args.dias, args.page, args.page_size))
+        if args.command == "previsao":
+            return success(list_previsao(args.year, args.period_count, args.limit))
         return failure("Comando não suportado")
     except Exception as exc:
         logger.exception("Falha no CLI do ClicVendas")

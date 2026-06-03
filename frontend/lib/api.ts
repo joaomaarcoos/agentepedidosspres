@@ -162,6 +162,18 @@ export const resultadosApi = {
   },
 };
 
+export const previsaoApi = {
+  list: (params?: { year?: number; periodCount?: 3 | 4; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.year) q.set("year", String(params.year));
+    if (params?.periodCount) q.set("period_count", String(params.periodCount));
+    if (params?.limit) q.set("limit", String(params.limit));
+    return api.get<import("./types").PrevisaoOverview>(
+      `/api/previsao${q.size ? `?${q}` : ""}`
+    );
+  },
+};
+
 export const logsApi = {
   listDisparo: (params?: { flow?: string; status?: string; page?: number; pageSize?: number }) => {
     const q = new URLSearchParams();

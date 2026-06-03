@@ -39,6 +39,12 @@ RESUME_TRIGGER = "###"
 PAUSE_HOURS = int(os.getenv("AI_PAUSE_HOURS", "5"))
 CONTEXT_MESSAGE_LIMIT = int(os.getenv("AI_CONTEXT_MESSAGE_LIMIT", "15"))
 DEFAULT_MESSAGE_BUFFER_SECONDS = float(os.getenv("AI_MESSAGE_BUFFER_SECONDS", "5"))
+BACKEND_CATALOG_GUARD_ENABLED = os.getenv("AI_BACKEND_CATALOG_GUARD", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 AVAILABLE_PRICE_TABLES = {
     code.strip()
     for code in os.getenv("AVAILABLE_PRICE_TABLES", "201,202").split(",")
@@ -346,6 +352,13 @@ def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[st
         "adicione",
         "adicionar",
         "adiciona",
+        "comprar",
+        "compra",
+        "cotacao",
+        "cotar",
+        "fazer",
+        "fzer",
+        "fzr",
         "inclui",
         "incluir",
         "coloca",
@@ -355,6 +368,9 @@ def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[st
         "quero",
         "queria",
         "pedido",
+        "pedid",
+        "pedi",
+        "pedir",
         "produto",
         "produtos",
         "unidade",
@@ -430,12 +446,12 @@ def catalog_guard_prompt(text: str, produtos: list[dict] | None) -> str:
     if unavailable or invalid_lines:
         lines = []
         if unavailable:
-            lines.append(f"Nao encontrei {', '.join(unavailable)} na tabela de produtos disponivel para voce.")
+            lines.append(f"Nao encontrei {', '.join(unavailable)} nas opcoes disponiveis.")
         if invalid_lines:
-            lines += ["Essa combinacao de produto/tipo/tamanho nao consta na tabela:", *invalid_lines]
+            lines += ["Essa combinacao de produto/tipo/tamanho nao esta disponivel:", *invalid_lines]
         if ambiguous_lines:
             lines += ["", "Dos outros produtos citados, tenho estas opcoes:", *ambiguous_lines]
-        lines.append("Posso seguir com algum produto que aparece na tabela?")
+        lines.append("Posso seguir com alguma dessas opcoes?")
         return "\n".join(lines)
 
     if ambiguous_lines:
@@ -492,13 +508,13 @@ def detect_unavailable_requested_products(text: str, produtos: list[dict] | None
 
 
 def unavailable_products_prompt(products: list[str]) -> str:
-    lines = ["Nao posso adicionar produto fora da tabela disponível."]
+    lines = ["Nao posso adicionar produto fora das opcoes disponiveis."]
     if products:
         lines += ["", "Itens que nao conferem com a tabela:"]
         lines.extend(f"- {product}" for product in products[:8])
     lines += [
         "",
-        "Me confirme um produto, tipo/formato e tamanho que aparecam na tabela para eu atualizar o pedido.",
+        "Me confirme um produto, tipo/formato e tamanho disponiveis para eu atualizar o pedido.",
     ]
     return "\n".join(lines)
 
@@ -508,6 +524,8 @@ def is_full_product_list_request(text: str, classification: dict) -> bool:
         return False
 
     value = _lower_ascii(text)
+    if _requested_type_from_text(text) and contains_any(value, ("qual", "quais", "opcoes", "produtos", "tem")):
+        return True
     if _requested_catalog_tokens(text, [{"nome_produto": token} for token in re.findall(r"[a-z0-9]+", value)]):
         return False
     if value.strip(" .,!?\n\t") in {"produto", "produtos", "os produtos"}:
@@ -720,11 +738,15 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
         intent = "time_query"
     elif contains_any(value, ("preco", "valor", "quanto custa", "quanto esta", "tabela")):
         intent = "price_query"
-    elif contains_any(value, ("quero fazer um pedido", "fazer pedido", "montar pedido", "comprar", "pedido")):
+    elif contains_any(value, ("quero fazer um pedido", "fazer pedido", "fzer um pedid", "fzer pedido", "fzr pedido", "montar pedido", "comprar", "pedido", "pedid")):
         intent = "order_request"
     elif state.get("order_in_progress") and contains_any(value, ("tira", "remove", "coloca", "inclui", "mais", "menos", "troca", "altera")):
         intent = "order_adjustment"
-    elif entities["products"] or contains_any(value, ("produto", "produtos", "quais tem", "quais voces tem", "opcoes", "sabores", "modelos", "embalagens")):
+    elif (
+        entities["products"]
+        or (entities["packages"] and contains_any(value, ("qual", "quais", "opcoes", "opcoes", "produtos")))
+        or contains_any(value, ("produto", "produtos", "quais tem", "quais voces tem", "opcoes", "sabores", "modelos", "embalagens"))
+    ):
         intent = "product_query"
     elif is_simple_greeting(text) or (len(value) <= 40 and contains_any(value, ("fala", "e ai", "e aí"))):
         intent = "greeting"
@@ -883,9 +905,52 @@ def _format_catalog_price(value: Any) -> str:
     return formatted or "-"
 
 
-def full_product_catalog_reply(produtos: list[dict] | None, codigo_tabela: str | None = None) -> str:
+def product_catalog_type_prompt() -> str:
+    return (
+        "Tenho opcoes em copo, garrafa, bolsa e bolsa concentrada. "
+        "Sugiro comecar pelas garrafas, que tem mais tamanhos disponiveis. "
+        "Quer ver garrafas primeiro ou prefere copos, bolsas ou bolsas concentradas?"
+    )
+
+
+def _catalog_type_reply(text: str, produtos: list[dict] | None) -> str:
+    requested_type = _requested_type_from_text(text)
+    if not requested_type:
+        return product_catalog_type_prompt()
+    if not produtos:
+        return "Nao encontrei as opcoes disponiveis agora. Posso deixar para o representante validar?"
+
+    rows = [
+        row for row in produtos
+        if _lower_ascii(_catalog_product_type(row)) == _lower_ascii(requested_type)
+    ]
+    if not rows:
+        return f"Nao encontrei opcoes de {requested_type} disponiveis agora. Quer ver copo, garrafa, bolsa ou bolsa concentrada?"
+
+    grouped: dict[str, list[dict]] = {}
+    for item in rows:
+        label = _public_product_label(item)
+        if not label:
+            continue
+        grouped.setdefault(label, []).append(item)
+
+    lines = [f"Estas sao as opcoes de {requested_type}:", ""]
+    for label in sorted(grouped):
+        options = _format_catalog_options(grouped[label])
+        if options:
+            lines.append(f"- {label}: {options}")
+    lines += ["", "Qual produto e tamanho voce quer?"]
+    return "\n".join(lines)
+
+
+def full_product_catalog_reply(produtos: list[dict] | None, codigo_tabela: str | None = None, text: str = "") -> str:
     if not produtos:
         return "Nao encontrei a lista de produtos disponivel aqui agora. Posso deixar para o representante validar?"
+
+    requested_type = _requested_type_from_text(text)
+    if not requested_type:
+        return product_catalog_type_prompt()
+    return _catalog_type_reply(text, produtos)
 
     grouped: dict[str, list[dict]] = {}
     for item in produtos:
@@ -2172,9 +2237,10 @@ def generate_ai_reply(
                 itens = args.get("itens", [])
                 if _missing_order_fields(itens):
                     return missing_order_fields_prompt(itens)
-                unavailable_items = _unavailable_order_items(itens, produtos)
-                if unavailable_items:
-                    return unavailable_products_prompt(unavailable_items)
+                if BACKEND_CATALOG_GUARD_ENABLED:
+                    unavailable_items = _unavailable_order_items(itens, produtos)
+                    if unavailable_items:
+                        return unavailable_products_prompt(unavailable_items)
                 if not is_final_order_confirmation(last_user_message or ""):
                     return order_confirmation_prompt(itens)
                 acao = normalize_text(args.get("acao") or "").lower()
@@ -2377,7 +2443,7 @@ def process_inbound_message(
             "intent": classification.get("intent"),
         }
 
-    catalog_reply = catalog_guard_prompt(normalized_text, produtos)
+    catalog_reply = catalog_guard_prompt(normalized_text, produtos) if BACKEND_CATALOG_GUARD_ENABLED else ""
     if catalog_reply:
         reply = catalog_reply
         store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_guardrail"})
@@ -2401,7 +2467,7 @@ def process_inbound_message(
         }
 
     if is_full_product_list_request(normalized_text, classification):
-        reply = full_product_catalog_reply(produtos, codigo_tabela=codigo_tabela)
+        reply = full_product_catalog_reply(produtos, codigo_tabela=codigo_tabela, text=normalized_text)
         store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_full_list"})
         return {
             "action": "catalog_full_list_reply",
