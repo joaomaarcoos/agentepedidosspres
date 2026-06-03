@@ -45,6 +45,12 @@ BACKEND_CATALOG_GUARD_ENABLED = os.getenv("AI_BACKEND_CATALOG_GUARD", "false").s
     "yes",
     "on",
 }
+BACKEND_ORDER_SPECIFICS_GUARD_ENABLED = os.getenv("AI_BACKEND_ORDER_SPECIFICS_GUARD", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 AVAILABLE_PRICE_TABLES = {
     code.strip()
     for code in os.getenv("AVAILABLE_PRICE_TABLES", "201,202").split(",")
@@ -311,6 +317,21 @@ def _requested_type_from_text(text: str) -> str:
     return ""
 
 
+def _selected_product_type_from_text(text: str) -> str:
+    value = _lower_ascii(text)
+    if "bolsa" in value and ("concentrada" in value or "concentrado" in value or "conc" in value):
+        return "bolsa concentrada"
+    if "copo" in value:
+        return "copo"
+    if "garrafa" in value:
+        return "garrafa"
+    if "bolsa" in value:
+        return "bolsa"
+    if "galao" in value or "galao" in value:
+        return "galao"
+    return ""
+
+
 def _requested_size_from_text(text: str) -> str:
     value = _lower_ascii(text)
     match = re.search(r"\b(115|200|300|900)\s*(?:ml)?\b", value)
@@ -354,6 +375,9 @@ def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[st
         "adiciona",
         "comprar",
         "compra",
+        "come",
+        "comecar",
+        "começar",
         "cotacao",
         "cotar",
         "fazer",
@@ -371,6 +395,11 @@ def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[st
         "pedid",
         "pedi",
         "pedir",
+        "pela",
+        "pelas",
+        "pelo",
+        "pelos",
+        "primeiro",
         "produto",
         "produtos",
         "unidade",
@@ -524,7 +553,7 @@ def is_full_product_list_request(text: str, classification: dict) -> bool:
         return False
 
     value = _lower_ascii(text)
-    if _requested_type_from_text(text) and contains_any(value, ("qual", "quais", "opcoes", "produtos", "tem")):
+    if _requested_type_from_text(text) and contains_any(value, ("qual", "quais", "opcoes", "produtos", "tem", "quero", "prefiro", "comecar", "começar", "mostrar", "ver")):
         return True
     if _requested_catalog_tokens(text, [{"nome_produto": token} for token in re.findall(r"[a-z0-9]+", value)]):
         return False
@@ -742,6 +771,8 @@ def classify_intent(text: str, previous_history: list[dict], state: dict | None 
         intent = "order_request"
     elif state.get("order_in_progress") and contains_any(value, ("tira", "remove", "coloca", "inclui", "mais", "menos", "troca", "altera")):
         intent = "order_adjustment"
+    elif entities["packages"] and contains_any(value, ("comecar", "começar", "ver", "mostrar", "opcoes", "opções", "prefiro", "quero")):
+        intent = "product_query"
     elif (
         entities["products"]
         or (entities["packages"] and contains_any(value, ("qual", "quais", "opcoes", "opcoes", "produtos")))
@@ -1023,6 +1054,16 @@ def _item_value(item: dict, *keys: str) -> str:
         if value is not None and normalize_text(value):
             return normalize_text(value)
     return ""
+
+
+def _customer_display_name(customer: dict | None) -> str:
+    if not customer:
+        return ""
+    for key in ("nome", "fantasia", "razao_social", "customer_name"):
+        value = normalize_text(customer.get(key))
+        if value:
+            return value
+    return normalize_text(customer.get("cod_cli") or customer.get("cpf_cnpj") or customer.get("documento"))
 
 
 def _has_order_adjustment_terms(text: str) -> bool:
@@ -1349,8 +1390,12 @@ def update_commercial_state(state: dict | None, classification: dict, user_text:
     intent = classification.get("intent", "")
     if intent in {"order_request", "repeat_order", "order_adjustment", "price_query", "product_query"}:
         state["order_in_progress"] = True
+    selected_type = _selected_product_type_from_text(user_text)
+    if selected_type:
+        state["selected_product_type"] = selected_type
     if intent == "disengage":
         state["order_in_progress"] = False
+        state.pop("selected_product_type", None)
     if intent in {"complaint", "out_of_scope", "prompt_attack"}:
         state["order_in_progress"] = bool(state.get("order_in_progress"))
     state["last_intent"] = intent
@@ -1625,6 +1670,7 @@ class AgentStore:
             return {"id": None, "action": "blocked_missing_fields", "missing_fields": missing_fields}
 
         itens = _normalize_order_items(itens)
+        resolved_customer_name = normalize_text(customer_name) or _customer_display_name(self.get_customer_for_phone(phone))
         order_id = str(uuid.uuid4())
         now = iso_z(utc_now())
         protocolo_interno = self._generate_order_protocol(now)
@@ -1633,7 +1679,7 @@ class AgentStore:
             "protocolo": protocolo_interno,
             "origem": "ia_whatsapp",
             "cliente_telefone": phone,
-            "cliente_nome": customer_name,
+            "cliente_nome": resolved_customer_name or None,
             "conversation_id": conversation_id,
             "itens_json": itens,
             "observacoes": observacoes or "",
@@ -1669,7 +1715,7 @@ class AgentStore:
                         **row,
                         "protocolo": row.get("protocolo") or self._generate_order_protocol(str(row.get("created_at") or now)),
                         "origem": row.get("origem") or "ia_whatsapp",
-                        "cliente_nome": customer_name or row.get("cliente_nome"),
+                        "cliente_nome": resolved_customer_name or row.get("cliente_nome"),
                         "itens_json": itens,
                         "observacoes": observacoes or "",
                         "mensagem_cliente": mensagem_cliente or "",
@@ -1731,8 +1777,8 @@ class AgentStore:
                     "revisado_em": None,
                     "updated_at": now,
                 }
-                if customer_name:
-                    update_payload["cliente_nome"] = customer_name
+                if resolved_customer_name:
+                    update_payload["cliente_nome"] = resolved_customer_name
                 result = (
                     self.client.table("pedidos_revisao")
                     .update(update_payload)
@@ -2432,7 +2478,12 @@ def process_inbound_message(
     else:
         produtos = store.get_produtos()
 
-    option_reply = product_options_reply(normalized_text, produtos) if classification.get("intent") == "product_query" else ""
+    has_current_quantities = bool((classification.get("entities") or {}).get("quantities"))
+    option_reply = (
+        product_options_reply(normalized_text, produtos)
+        if classification.get("intent") == "product_query" and not has_current_quantities
+        else ""
+    )
     if option_reply:
         store.add_message(str(conversation["id"]), "assistant", option_reply, payload_json={"source": "catalog_options"})
         return {
@@ -2455,7 +2506,11 @@ def process_inbound_message(
             "intent": classification.get("intent"),
         }
 
-    specifics_reply = product_specifics_guard_prompt(normalized_text, open_review_order)
+    specifics_reply = (
+        product_specifics_guard_prompt(normalized_text, open_review_order)
+        if BACKEND_ORDER_SPECIFICS_GUARD_ENABLED
+        else ""
+    )
     if specifics_reply:
         store.add_message(str(conversation["id"]), "assistant", specifics_reply, payload_json={"source": "product_specifics_guard"})
         return {

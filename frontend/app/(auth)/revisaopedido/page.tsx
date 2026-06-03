@@ -52,6 +52,18 @@ function fmtPhone(phone: string) {
   return phone;
 }
 
+function fmtCurrency(value?: number | null) {
+  const amount = Number(value || 0);
+  return amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function parseQuantity(value?: string | number | null) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = String(value || "").replace(",", ".").replace(/[^\d.]/g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function itemNome(item: PedidoRevisao["itens_json"][number]) {
   const nome = item.nome?.trim();
   if (nome) return nome;
@@ -103,13 +115,21 @@ function defaultUnitForType(tipo: string) {
   return "unidades";
 }
 
+function productPrice(produto: Produto) {
+  return produto.preco_tabela_201 ?? produto.preco_tabela_202 ?? produto.preco_base ?? produto.preco_inst_299 ?? 0;
+}
+
 function productLabel(produto: Produto) {
-  const derivacao = produto.derivacao ? ` - ${produto.derivacao}` : "";
-  return `${produto.cod_produto} | ${produto.nome}${derivacao}`;
+  const tipo = inferTipoFromName(produto.nome);
+  const hasSizeInName = produto.derivacao && normalizeKey(produto.nome).includes(normalizeKey(produto.derivacao));
+  const derivacao = produto.derivacao && !hasSizeInName ? ` ${produto.derivacao}` : "";
+  const preco = productPrice(produto);
+  return `${produto.nome}${derivacao}${tipo ? ` · ${tipo}` : ""} · ${fmtCurrency(preco)}`;
 }
 
 function itemFromProduct(produto: Produto): Partial<PedidoRevisaoItem> {
   const tipo = inferTipoFromName(produto.nome);
+  const preco = productPrice(produto);
   return {
     cod_produto: produto.cod_produto,
     nome: produto.nome,
@@ -119,8 +139,26 @@ function itemFromProduct(produto: Produto): Partial<PedidoRevisaoItem> {
     derivacao: produto.derivacao,
     variacao: produto.derivacao,
     unidade: defaultUnitForType(tipo),
-    preco_unitario: produto.preco_tabela_201 ?? produto.preco_tabela_202 ?? produto.preco_base ?? undefined,
+    preco_unitario: preco || undefined,
   };
+}
+
+function itemSubtotal(item: PedidoRevisaoItem) {
+  const subtotal = Number(item.subtotal);
+  if (Number.isFinite(subtotal) && subtotal > 0) return subtotal;
+  return parseQuantity(item.quantidade) * Number(item.preco_unitario || 0);
+}
+
+function orderTotal(items: PedidoRevisaoItem[]) {
+  return items.reduce((sum, item) => sum + itemSubtotal(item), 0);
+}
+
+function cleanTotalObservation(value: string) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .filter((line) => !/^total\s+do\s+pedido\s*:/i.test(line.trim()))
+    .join("\n")
+    .trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -160,16 +198,38 @@ function DetailModal({
     () => new Map(productOptions.map((produto) => [productOptionValue(produto), produto])),
     [productOptions]
   );
+  const productTypes = useMemo(
+    () => Array.from(new Set(productOptions.map((produto) => inferTipoFromName(produto.nome)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [productOptions]
+  );
   const [editing, setEditing] = useState(false);
   const [editItems, setEditItems] = useState<PedidoRevisaoItem[]>(pedido.itens_json.map((item) => ({ ...item })));
   const [editObservacoes, setEditObservacoes] = useState(pedido.observacoes || "");
+  const totalEdit = useMemo(() => orderTotal(editItems), [editItems]);
+
+  const hydrateItems = useCallback(
+    (items: PedidoRevisaoItem[]) => items.map((item) => {
+      const produto = productsByValue.get(selectedProductValue(item));
+      const patched = produto && !Number(item.preco_unitario || 0)
+        ? { ...item, ...itemFromProduct(produto), quantidade: item.quantidade, unidade: item.unidade || defaultUnitForType(inferTipoFromName(produto.nome)) }
+        : { ...item };
+      const subtotal = parseQuantity(patched.quantidade) * Number(patched.preco_unitario || 0);
+      return { ...patched, subtotal: subtotal || patched.subtotal };
+    }),
+    [productsByValue]
+  );
 
   function updateEditItem(index: number, patch: Partial<PedidoRevisaoItem>) {
-    setEditItems((items) => items.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+    setEditItems((items) => items.map((item, i) => {
+      if (i !== index) return item;
+      const next = { ...item, ...patch };
+      const subtotal = parseQuantity(next.quantidade) * Number(next.preco_unitario || 0);
+      return { ...next, subtotal: subtotal || undefined };
+    }));
   }
 
   function addEditItem() {
-    setEditItems((items) => [...items, { nome: "", quantidade: "", unidade: "unidades" }]);
+    setEditItems((items) => [...items, { nome: "", quantidade: "", unidade: "unidades", preco_unitario: undefined, subtotal: undefined }]);
   }
 
   function removeEditItem(index: number) {
@@ -182,19 +242,28 @@ function DetailModal({
         ...item,
         nome: String(item.nome || item.produto || "").trim(),
         produto: String(item.produto || item.nome || "").trim(),
+        tipo: String(item.tipo || item.formato || "").trim(),
+        formato: String(item.formato || item.tipo || "").trim(),
+        tamanho: String(item.tamanho || item.derivacao || item.variacao || item.volume || "").trim(),
+        derivacao: String(item.derivacao || item.tamanho || item.variacao || item.volume || "").trim(),
         unidade: String(item.unidade || "").trim(),
         quantidade: typeof item.quantidade === "string" ? item.quantidade.trim() : item.quantidade,
+        preco_unitario: Number(item.preco_unitario || 0) || undefined,
+        subtotal: parseQuantity(item.quantidade) * Number(item.preco_unitario || 0) || undefined,
       }))
       .filter((item) => item.cod_produto || item.nome || item.produto || item.quantidade);
-    onUpdate({ itens_json, observacoes: editObservacoes });
+    const total = orderTotal(itens_json);
+    const observacoesBase = cleanTotalObservation(editObservacoes);
+    const observacoes = [observacoesBase, total > 0 ? `Total do pedido: ${fmtCurrency(total)}` : ""].filter(Boolean).join("\n");
+    onUpdate({ itens_json, observacoes });
     setEditing(false);
   }
 
   useEffect(() => {
-    setEditItems(pedido.itens_json.map((item) => ({ ...item })));
-    setEditObservacoes(pedido.observacoes || "");
+    setEditItems(hydrateItems(pedido.itens_json.map((item) => ({ ...item }))));
+    setEditObservacoes(cleanTotalObservation(pedido.observacoes || ""));
     setEditing(false);
-  }, [pedido.id, pedido.itens_json, pedido.observacoes]);
+  }, [hydrateItems, pedido.id, pedido.itens_json, pedido.observacoes]);
 
   return (
     <div
@@ -208,7 +277,7 @@ function DetailModal({
       <div
         style={{
           background: "var(--surface)", border: "1px solid var(--border)",
-          borderRadius: 16, width: "100%", maxWidth: 680,
+          borderRadius: 16, width: "100%", maxWidth: 980,
           maxHeight: "90vh", display: "flex", flexDirection: "column",
           overflow: "hidden",
         }}
@@ -258,72 +327,157 @@ function DetailModal({
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {editing ? (
                 <>
-                  {editItems.map((item, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        display: "grid", gridTemplateColumns: "minmax(240px, 1fr) 96px 116px 34px", gap: 8, alignItems: "center",
-                        background: "var(--surface2)", borderRadius: 8, padding: 8,
-                        border: "1px solid var(--border)",
-                      }}
-                    >
-                      <select
-                        value={productsByValue.has(selectedProductValue(item)) ? selectedProductValue(item) : `manual:${i}`}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          if (!value || value.startsWith("manual:")) return;
-                          const produto = productsByValue.get(value);
-                          if (produto) updateEditItem(i, itemFromProduct(produto));
-                        }}
+                  {editItems.map((item, i) => {
+                    const selectedValue = selectedProductValue(item);
+                    const selectedProduto = productsByValue.get(selectedValue);
+                    const selectedType = item.tipo || item.formato || (selectedProduto ? inferTipoFromName(selectedProduto.nome) : "");
+                    const filteredProducts = selectedType
+                      ? productOptions.filter((produto) => inferTipoFromName(produto.nome) === selectedType)
+                      : productOptions;
+                    const unitPrice = Number(item.preco_unitario || 0);
+                    const subtotal = parseQuantity(item.quantidade) * unitPrice;
+
+                    return (
+                      <div
+                        key={i}
                         style={{
-                          background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
-                          padding: "8px 10px", color: "var(--text)", fontSize: 13, outline: "none",
+                          display: "grid",
+                          gridTemplateColumns: "130px minmax(240px, 1fr) 90px 96px 96px 34px",
+                          gap: 8,
+                          alignItems: "end",
+                          background: "var(--surface2)",
+                          borderRadius: 10,
+                          padding: 10,
+                          border: "1px solid var(--border)",
                         }}
                       >
-                        {!productsByValue.has(selectedProductValue(item)) && (
-                          <option value={`manual:${i}`}>{itemNome(item) || "Selecione o produto"}</option>
-                        )}
-                        <option value="">Selecione o produto</option>
-                        {productOptions.map((produto) => (
-                          <option key={productOptionValue(produto)} value={productOptionValue(produto)}>
-                            {productLabel(produto)}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        value={String(item.quantidade ?? "")}
-                        onChange={(e) => updateEditItem(i, { quantidade: e.target.value })}
-                        placeholder="Qtd."
-                        style={{
-                          background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
-                          padding: "8px 10px", color: "var(--text)", fontSize: 13, outline: "none",
-                        }}
-                      />
-                      <select
-                        value={String(item.unidade || "unidades")}
-                        onChange={(e) => updateEditItem(i, { unidade: e.target.value })}
-                        style={{
-                          background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 6,
-                          padding: "8px 10px", color: "var(--text)", fontSize: 13, outline: "none",
-                        }}
-                      >
-                        {["unidades", "copos", "garrafas", "bolsas", "galões"].map((unit) => (
-                          <option key={unit} value={unit}>{unit}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => removeEditItem(i)}
-                        disabled={loading}
-                        title="Remover item"
-                        style={{
-                          height: 34, borderRadius: 7, border: "1px solid rgba(239,68,68,0.25)",
-                          background: "rgba(239,68,68,0.08)", color: "var(--error)", cursor: loading ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
+                        <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                          <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>Tipo</span>
+                          <select
+                            value={selectedType}
+                            onChange={(e) => {
+                              const tipo = e.target.value;
+                              updateEditItem(i, {
+                                tipo,
+                                formato: tipo,
+                                cod_produto: "",
+                                nome: "",
+                                produto: "",
+                                tamanho: "",
+                                derivacao: "",
+                                variacao: "",
+                                volume: "",
+                                unidade: defaultUnitForType(tipo),
+                                preco_unitario: undefined,
+                                subtotal: undefined,
+                              });
+                            }}
+                            style={{
+                              background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 7,
+                              padding: "9px 10px", color: "var(--text)", fontSize: 13, outline: "none",
+                            }}
+                          >
+                            <option value="">Tipo</option>
+                            {productTypes.map((type) => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+                          <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>Produto e tamanho</span>
+                          <select
+                            value={productsByValue.has(selectedValue) ? selectedValue : `manual:${i}`}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (!value || value.startsWith("manual:")) return;
+                              const produto = productsByValue.get(value);
+                              if (produto) updateEditItem(i, itemFromProduct(produto));
+                            }}
+                            style={{
+                              background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 7,
+                              padding: "9px 10px", color: "var(--text)", fontSize: 13, outline: "none",
+                              minWidth: 0,
+                            }}
+                          >
+                            {!productsByValue.has(selectedValue) && (
+                              <option value={`manual:${i}`}>{itemNome(item) || "Selecione"}</option>
+                            )}
+                            <option value="">Selecione produto/tamanho</option>
+                            {filteredProducts.map((produto) => (
+                              <option key={productOptionValue(produto)} value={productOptionValue(produto)}>
+                                {productLabel(produto)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                          <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>Qtd.</span>
+                          <input
+                            value={String(item.quantidade ?? "")}
+                            onChange={(e) => updateEditItem(i, { quantidade: e.target.value })}
+                            placeholder="0"
+                            inputMode="decimal"
+                            style={{
+                              background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 7,
+                              padding: "9px 10px", color: "var(--text)", fontSize: 13, outline: "none",
+                            }}
+                          />
+                        </label>
+
+                        <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                          <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>Unidade</span>
+                          <select
+                            value={String(item.unidade || defaultUnitForType(selectedType))}
+                            onChange={(e) => updateEditItem(i, { unidade: e.target.value })}
+                            style={{
+                              background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 7,
+                              padding: "9px 10px", color: "var(--text)", fontSize: 13, outline: "none",
+                            }}
+                          >
+                            {["unidades", "copos", "garrafas", "bolsas", "galões"].map((unit) => (
+                              <option key={unit} value={unit}>{unit}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                          <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 }}>Valor</span>
+                          <div
+                            style={{
+                              minHeight: 38,
+                              display: "flex",
+                              flexDirection: "column",
+                              justifyContent: "center",
+                              background: "var(--surface)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 7,
+                              padding: "5px 8px",
+                              fontSize: 11,
+                              color: "var(--muted)",
+                              lineHeight: 1.25,
+                            }}
+                          >
+                            <strong style={{ color: "var(--text)", fontSize: 12 }}>{fmtCurrency(subtotal)}</strong>
+                            <span>{unitPrice ? fmtCurrency(unitPrice) : "sem preço"}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => removeEditItem(i)}
+                          disabled={loading}
+                          title="Remover item"
+                          style={{
+                            height: 38, borderRadius: 8, border: "1px solid rgba(239,68,68,0.25)",
+                            background: "rgba(239,68,68,0.08)", color: "var(--error)", cursor: loading ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
                   <button
                     onClick={addEditItem}
                     disabled={loading}
@@ -338,6 +492,29 @@ function DetailModal({
                     <Plus size={14} />
                     Adicionar item
                   </button>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      marginTop: 4,
+                      padding: "10px 12px",
+                      background: "rgba(34,197,94,0.07)",
+                      border: "1px solid rgba(34,197,94,0.22)",
+                      borderRadius: 10,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                        Total automático
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                        Atualiza conforme produto e quantidade.
+                      </div>
+                    </div>
+                    <strong style={{ fontSize: 18, color: "var(--success)" }}>{fmtCurrency(totalEdit)}</strong>
+                  </div>
                 </>
               ) : (
                 pedido.itens_json.map((item, i) => (
@@ -350,14 +527,21 @@ function DetailModal({
                     }}
                   >
                     <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>{itemNome(item)}</span>
-                    <span
-                      style={{
-                        fontSize: 12, fontWeight: 700, color: "var(--accent)",
-                        background: "rgba(99,102,241,0.1)", borderRadius: 5, padding: "2px 8px",
-                      }}
-                    >
-                      {itemQuantidade(item)}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      <span
+                        style={{
+                          fontSize: 12, fontWeight: 700, color: "var(--accent)",
+                          background: "rgba(99,102,241,0.1)", borderRadius: 5, padding: "2px 8px",
+                        }}
+                      >
+                        {itemQuantidade(item)}
+                      </span>
+                      {Number(item.preco_unitario || item.subtotal || 0) > 0 && (
+                        <span style={{ fontSize: 12, color: "var(--text)", fontWeight: 700 }}>
+                          {fmtCurrency(itemSubtotal(item))}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))
               )}
@@ -477,8 +661,8 @@ function DetailModal({
               <>
                 <button
                   onClick={() => {
-                    setEditItems(pedido.itens_json.map((item) => ({ ...item })));
-                    setEditObservacoes(pedido.observacoes || "");
+                    setEditItems(hydrateItems(pedido.itens_json.map((item) => ({ ...item }))));
+                    setEditObservacoes(cleanTotalObservation(pedido.observacoes || ""));
                     setEditing(false);
                   }}
                   disabled={loading}

@@ -136,6 +136,8 @@ def _decision_section(ctx: dict) -> str:
             f"- Pedido em andamento: {bool(state.get('order_in_progress'))}",
             f"- Ultima intencao: {state.get('last_intent') or '-'}",
         ]
+        if state.get("selected_product_type"):
+            linhas.append(f"- Formato/tipo escolhido na conversa: {state.get('selected_product_type')}")
         last_entities = state.get("last_entities") or {}
         if last_entities:
             linhas.append(f"- Ultimos produtos detectados: {', '.join(last_entities.get('products') or []) or '-'}")
@@ -150,6 +152,9 @@ def _decision_section(ctx: dict) -> str:
         "Se houver pedido em andamento, mantenha continuidade e nao reinicie a conversa.",
         "Para fechar pedido, cada item precisa ter produto, tipo/formato, tamanho/derivacao, quantidade e unidade.",
         "Se faltar tipo/formato, tamanho/derivacao, quantidade ou unidade, pergunte somente o dado faltante.",
+        "Se ja houver formato/tipo escolhido na conversa e a mensagem atual trouxer sabor/produto e quantidade sem novo formato, mantenha o formato escolhido; nao pergunte formato de novo.",
+        "Com formato/tipo ja escolhido, se faltar tamanho, pergunte somente o tamanho disponivel para aquele formato/produto. Se so existir um tamanho naquele formato/produto, use esse tamanho e avance para confirmar o resumo.",
+        "Esta regra vale para todos os formatos: copo, garrafa, bolsa, bolsa concentrada e galao.",
         "Se houver mais de uma derivacao ou preco possivel para o item, confirme antes de calcular.",
         "Quando produto, tipo/formato, tamanho/derivacao, quantidade, unidade e preco da tabela estiverem definidos, informe preco unitario, subtotal por item e total do pedido no resumo.",
         "Pode calcular total somente com produto, tipo/formato, tamanho/derivacao, quantidade, unidade e preco da tabela claramente definidos.",

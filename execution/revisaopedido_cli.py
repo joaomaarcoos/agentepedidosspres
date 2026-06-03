@@ -90,6 +90,58 @@ def _catalog_maps(db) -> tuple[dict[tuple[str, str], str], dict[str, str]]:
     return catalog, by_code
 
 
+def _phone_candidates(phone: str) -> set[str]:
+    value = "".join(ch for ch in _text(phone) if ch.isdigit())
+    if not value:
+        return set()
+    candidates = {value}
+    if value.startswith("55") and len(value) > 11:
+        candidates.add(value[2:])
+    elif len(value) in (10, 11):
+        candidates.add(f"55{value}")
+    return candidates
+
+
+def _customer_display_name(row: dict | None) -> str:
+    if not row:
+        return ""
+    for key in ("nome", "fantasia", "razao_social", "customer_name"):
+        value = _text(row.get(key))
+        if value:
+            return value
+    return _text(row.get("cod_cli") or row.get("cpf_cnpj") or row.get("documento"))
+
+
+def _customer_names_by_phone(db, phones: list[str]) -> dict[str, str]:
+    candidates: set[str] = set()
+    for phone in phones:
+        candidates.update(_phone_candidates(phone))
+    if not candidates:
+        return {}
+
+    try:
+        rows = (
+            db.table("clic_clientes")
+            .select("telefone,nome,fantasia,razao_social,cod_cli,cpf_cnpj,documento")
+            .in_("telefone", list(candidates))
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("Falha ao buscar nomes de clientes por telefone: %s", exc)
+        return {}
+
+    names: dict[str, str] = {}
+    for row in rows:
+        name = _customer_display_name(row)
+        if not name:
+            continue
+        for candidate in _phone_candidates(_text(row.get("telefone"))):
+            names[candidate] = name
+    return names
+
+
 def _normalize_items(items, catalog: dict[tuple[str, str], str], by_code: dict[str, str]) -> list[dict]:
     normalized: list[dict] = []
     for item in items or []:
@@ -103,8 +155,19 @@ def _normalize_items(items, catalog: dict[tuple[str, str], str], by_code: dict[s
     return normalized
 
 
-def _normalize_order(order: dict, catalog: dict[tuple[str, str], str], by_code: dict[str, str]) -> dict:
-    return {**order, "itens_json": _normalize_items(order.get("itens_json") or [], catalog, by_code)}
+def _normalize_order(
+    order: dict,
+    catalog: dict[tuple[str, str], str],
+    by_code: dict[str, str],
+    customer_names: dict[str, str] | None = None,
+) -> dict:
+    normalized = {**order, "itens_json": _normalize_items(order.get("itens_json") or [], catalog, by_code)}
+    if not _text(normalized.get("cliente_nome")) and customer_names:
+        for phone in _phone_candidates(_text(normalized.get("cliente_telefone"))):
+            if customer_names.get(phone):
+                normalized["cliente_nome"] = customer_names[phone]
+                break
+    return normalized
 
 
 def _db():
@@ -137,6 +200,15 @@ def cmd_list(status: str | None, page: int, page_size: int) -> dict:
 
     offset = (page - 1) * page_size
     res = query.order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    rows = res.data or []
+    customer_names = _customer_names_by_phone(
+        db,
+        [
+            _text(row.get("cliente_telefone"))
+            for row in rows
+            if not _text(row.get("cliente_nome"))
+        ],
+    )
 
     pages = max(1, (total + page_size - 1) // page_size)
 
@@ -146,7 +218,7 @@ def cmd_list(status: str | None, page: int, page_size: int) -> dict:
         "page_size": page_size,
         "pages": pages,
         "stats": stats,
-        "pedidos": [_normalize_order(row, catalog, by_code) for row in (res.data or [])],
+        "pedidos": [_normalize_order(row, catalog, by_code, customer_names) for row in rows],
     }
 
 
@@ -160,6 +232,10 @@ def cmd_detail(pedido_id: str) -> dict:
         raise RuntimeError(f"Pedido {pedido_id!r} não encontrado")
 
     pedido = rows[0]
+    customer_names = _customer_names_by_phone(
+        db,
+        [_text(pedido.get("cliente_telefone"))] if not _text(pedido.get("cliente_nome")) else [],
+    )
 
     # Busca mensagens da conversa para contexto
     conversation_id = pedido.get("conversation_id")
@@ -178,7 +254,7 @@ def cmd_detail(pedido_id: str) -> dict:
         except Exception as exc:
             logger.warning("Falha ao buscar mensagens da conversa: %s", exc)
 
-    return {**_normalize_order(pedido, catalog, by_code), "conversation_messages": messages}
+    return {**_normalize_order(pedido, catalog, by_code, customer_names), "conversation_messages": messages}
 
 
 def cmd_set_status(pedido_id: str, new_status: str) -> dict:
