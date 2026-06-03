@@ -59,6 +59,34 @@ def _dig(data: dict, *path: str) -> Any:
     return value
 
 
+def _jid_phone(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return normalize_phone(raw.split("@", 1)[0])
+
+
+def _message_remote_jid(payload: dict, data: dict, key: dict) -> str:
+    return str(
+        key.get("remoteJid")
+        or data.get("remoteJid")
+        or _dig(data, "contact", "remoteJid")
+        or _dig(payload, "contact", "remoteJid")
+        or _dig(data, "message", "key", "remoteJid")
+        or ""
+    )
+
+
+def _message_participant_jid(payload: dict, data: dict, key: dict) -> str:
+    return str(
+        key.get("participant")
+        or data.get("participant")
+        or _dig(data, "contextInfo", "participant")
+        or _dig(payload, "participant")
+        or ""
+    )
+
+
 def _get_audio_base64(payload: dict, instance: str) -> tuple[str, str] | None:
     """Baixa mídia de áudio da Evolution API e retorna (base64, mimetype) ou None."""
     try:
@@ -132,13 +160,8 @@ def extract_message(payload: dict, instance: str = "") -> dict:
     key = data.get("key") if isinstance(data.get("key"), dict) else {}
     message = data.get("message") if isinstance(data.get("message"), dict) else {}
 
-    remote_jid = (
-        key.get("remoteJid")
-        or data.get("remoteJid")
-        or _dig(payload, "sender")
-        or _dig(payload, "contact", "remoteJid")
-        or ""
-    )
+    remote_jid = _message_remote_jid(payload, data, key)
+    participant_jid = _message_participant_jid(payload, data, key)
     from_me = bool(key.get("fromMe") or data.get("fromMe"))
     text = (
         message.get("conversation")
@@ -158,7 +181,13 @@ def extract_message(payload: dict, instance: str = "") -> dict:
                 if transcribed:
                     text = transcribed
 
-    phone = normalize_phone(str(remote_jid).split("@", 1)[0])
+    # Em conversas diretas, remoteJid é o cliente. Em grupos, remoteJid é o grupo
+    # e participant é o remetente real. Nunca use payload.sender aqui: na Evolution
+    # ele pode ser o número/identificador da instância (a Marcela).
+    if "@g.us" in str(remote_jid) and participant_jid:
+        phone = _jid_phone(participant_jid)
+    else:
+        phone = _jid_phone(remote_jid)
     message_id = key.get("id") or data.get("id") or data.get("messageId")
 
     return {
@@ -167,6 +196,7 @@ def extract_message(payload: dict, instance: str = "") -> dict:
         "from_me": from_me,
         "message_id": message_id,
         "remote_jid": remote_jid,
+        "participant_jid": participant_jid,
         "is_audio": is_audio,
     }
 

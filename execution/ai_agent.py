@@ -111,7 +111,7 @@ def resolve_price_table(codigo_tabela: str | None) -> tuple[str | None, bool]:
     if codigo and codigo in AVAILABLE_PRICE_TABLES:
         return codigo, False
     if FALLBACK_PRICE_TABLE:
-        return FALLBACK_PRICE_TABLE, bool(codigo)
+        return FALLBACK_PRICE_TABLE, True
     return codigo or None, False
 
 
