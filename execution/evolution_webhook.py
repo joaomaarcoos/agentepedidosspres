@@ -31,7 +31,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stderr)],
 )
 logger = logging.getLogger(__name__)
-REPLY_SPLIT_MAX_CHARS = int(os.getenv("AI_REPLY_SPLIT_MAX_CHARS", "450"))
+REPLY_SPLIT_MAX_CHARS = int(os.getenv("AI_REPLY_SPLIT_MAX_CHARS", "1200"))
 REPLY_SPLIT_DELAY_SECONDS = float(os.getenv("AI_REPLY_SPLIT_DELAY_SECONDS", "0.8"))
 
 
@@ -238,7 +238,7 @@ def split_reply(text: str, max_chars: int = REPLY_SPLIT_MAX_CHARS) -> list[str]:
         return []
     text = re.sub(r"<br\s*/?>", "\n\n", text, flags=re.IGNORECASE)
     if max_chars <= 0 or len(text) <= max_chars:
-        return [part.strip() for part in re.split(r"\n{2,}", text) if part.strip()] or [text]
+        return [text]
 
     chunks: list[str] = []
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]

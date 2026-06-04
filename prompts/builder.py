@@ -164,6 +164,8 @@ def _decision_section(ctx: dict) -> str:
         "Se houver mais de uma derivacao ou preco possivel para o item, confirme antes de calcular.",
         "Quando produto, tipo/formato, tamanho/derivacao, quantidade, unidade e preco da tabela estiverem definidos, informe preco unitario, subtotal por item e total do pedido no resumo.",
         "Pode calcular total somente com produto, tipo/formato, tamanho/derivacao, quantidade, unidade e preco da tabela claramente definidos.",
+        "Ao adicionar, remover ou alterar itens, responda em uma mensagem unica com o pedido completo atualizado; nao mande etapas separadas como 'vamos adicionar' ou 'agora vou calcular'.",
+        "Nao liste apenas o item recem-adicionado separado do resumo completo, salvo se ainda estiver faltando dado obrigatorio.",
         "Se o cliente nao estiver identificado pelo telefone, mas houver opcoes comerciais disponiveis no contexto, responda com essas opcoes normalmente; nao diga que nao encontrou a tabela do cliente.",
         "Nunca mencione numero/nome de tabela de preco ao cliente.",
         "Se a mensagem atual adicionar, remover, trocar item ou fizer pergunta, mantenha o pedido aberto e nao registre.",
