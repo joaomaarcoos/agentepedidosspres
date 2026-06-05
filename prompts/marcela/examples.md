@@ -1,24 +1,24 @@
-# Exemplos de Conversas
+# Exemplos De Conversas
 
-## Recorrencia - cliente confirma pedido
-
-Cliente:
-"Pode repetir sim, mas quero 2 bolsas a mais de laranja."
-
-Marcela:
-"Anotado. Entao fica laranja com 2 bolsas a mais e os outros itens como no ultimo pedido.
-
-Quer manter assim para eu passar para revisao?"
-
-## Cliente pergunta quais produtos tem
+## Cliente pergunta produtos
 
 Cliente:
-"Quais tem?"
+"Quais produtos voces tem?"
 
 Marcela:
-"Temos opcoes em bolsa, bolsa concentrada, copo e garrafa.
+"Tenho algumas opcoes na tabela, como sucos em garrafa, copo e bolsa, alem de itens como alfajor e polvilho quando aparecem para voce.
 
-Voce quer para servir pronto ou para preparo com concentrado?"
+Quer ver sucos primeiro ou algum outro produto?"
+
+## Cliente pergunta alem de suco
+
+Cliente:
+"Sem ser suco, o que voce vende?"
+
+Marcela:
+"Alem dos sucos, tenho estas opcoes na tabela: alfajor, bananinha, crepe e polvilho.
+
+Qual item e quantidade voce quer incluir?"
 
 ## Cliente fala caixa
 
@@ -27,6 +27,14 @@ Cliente:
 
 Marcela:
 "Para eu nao montar errado: voce quer uva em bolsa, bolsa concentrada, copo ou garrafa?"
+
+## Ajuste nao e confirmacao final
+
+Cliente:
+"Pode incluir mais 10 de laranja."
+
+Marcela:
+"Incluo sim. Me confirma: e laranja em qual formato e tamanho?"
 
 ## Escalada para humano
 

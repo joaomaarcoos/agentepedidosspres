@@ -32,9 +32,9 @@ _KNOWN_ORDER = [
     "system.md",
     "personality.md",
     "business_rules.md",
+    "order_flow.md",
     "sales_strategy.md",
     "examples.md",
-    "tools.md",
 ]
 
 
@@ -44,8 +44,7 @@ def _ordered_parts() -> list[str]:
         return []
     all_files = {p.name for p in _MARCELA_DIR.glob("*.md")}
     ordered = [f for f in _KNOWN_ORDER if f in all_files]
-    extras = sorted(all_files - set(_KNOWN_ORDER))
-    return ordered + extras
+    return ordered
 
 
 def _read(filename: str) -> str:
@@ -151,27 +150,10 @@ def _decision_section(ctx: dict) -> str:
         "Use esta decisao para responder de forma objetiva.",
         "Nao trate a intencao como roteiro fixo; use-a apenas para escolher o rumo da conversa.",
         "Varie a redacao e evite repetir a mesma pergunta em atendimentos diferentes.",
-        "Se a intencao for preco_produto/price_query, priorize tabela de preco e derivacao.",
-        "Se a intencao for history_query, responda com ultimos pedidos reais; nao trate pedido em revisao como ultimo pedido ja feito.",
-        "Se houver pedido em andamento, mantenha continuidade e nao reinicie a conversa.",
-        "Para fechar pedido, cada item precisa ter produto, tipo/formato, tamanho/derivacao, quantidade e unidade.",
-        "Se faltar tipo/formato, tamanho/derivacao, quantidade ou unidade, pergunte somente o dado faltante.",
-        "Se ja houver formato/tipo escolhido na conversa e a mensagem atual trouxer sabor/produto e quantidade sem novo formato, mantenha o formato escolhido; nao pergunte formato de novo.",
-        "Com formato/tipo ja escolhido, se faltar tamanho, pergunte somente o tamanho disponivel para aquele formato/produto. Se so existir um tamanho naquele formato/produto, use esse tamanho e avance para confirmar o resumo.",
-        "Quando o cliente responder apenas o sabor/produto depois de uma lista de um formato, isso nao confirma tamanho. Se esse sabor/produto tiver mais de um tamanho nesse formato, pergunte o tamanho antes de adicionar ou recalcular.",
-        "Nunca escolha a primeira variacao da lista como padrao. Exemplo: se a lista mostra garrafa caju 900ml e garrafa caju 1,7L, e o cliente diz apenas caju, pergunte qual tamanho.",
-        "Esta regra vale para todos os formatos: copo, garrafa, bolsa, bolsa concentrada e galao.",
-        "Se houver mais de uma derivacao ou preco possivel para o item, confirme antes de calcular.",
-        "Quando produto, tipo/formato, tamanho/derivacao, quantidade, unidade e preco da tabela estiverem definidos, informe preco unitario, subtotal por item e total do pedido no resumo.",
-        "Pode calcular total somente com produto, tipo/formato, tamanho/derivacao, quantidade, unidade e preco da tabela claramente definidos.",
-        "Ao adicionar, remover ou alterar itens, responda em uma mensagem unica com o pedido completo atualizado; nao mande etapas separadas como 'vamos adicionar' ou 'agora vou calcular'.",
-        "Nao liste apenas o item recem-adicionado separado do resumo completo, salvo se ainda estiver faltando dado obrigatorio.",
-        "Se o cliente nao estiver identificado pelo telefone, mas houver opcoes comerciais disponiveis no contexto, responda com essas opcoes normalmente; nao diga que nao encontrou a tabela do cliente.",
-        "Nunca mencione numero/nome de tabela de preco ao cliente.",
-        "Se a mensagem atual adicionar, remover, trocar item ou fizer pergunta, mantenha o pedido aberto e nao registre.",
-        "Depois que o resumo completo com valores for confirmado de forma clara pelo cliente, registre para aprovacao do representante.",
-        "Se o cliente perguntar prazo, informe que o padrao e o proximo dia util ate as 15h.",
-        "Nao pergunte sobre frete, pagamento, forma de pagamento ou entrega.",
+        "Se houver pedido em andamento, mantenha continuidade e use o fluxo de pedido definido no prompt.",
+        "Se a intencao for history_query, responda com pedidos reais; nao trate pedido interno em revisao como ultimo pedido finalizado.",
+        "Se a mensagem atual adicionar, remover, trocar item ou fizer pergunta, mantenha o pedido aberto.",
+        "Se o cliente confirmar claramente o resumo completo, registre para revisao do representante.",
     ]
     return "\n".join(linhas)
 
