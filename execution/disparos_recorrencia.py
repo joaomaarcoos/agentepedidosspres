@@ -91,18 +91,29 @@ def _extract_mensagem(ai_reasoning: str | None) -> str:
 
 def _build_mensagem_fallback(target: dict) -> str:
     top_items = target.get("top_items_json") or []
-    produtos = ", ".join(
-        it.get("desPro") or it.get("codPro", "")
-        for it in top_items[:2]
-        if it.get("desPro") or it.get("codPro")
-    )
-    if produtos:
+    sugestoes = []
+    for item in top_items[:3]:
+        produto = item.get("desPro") or item.get("codPro", "")
+        quantidade = item.get("total_qtd")
+        if not produto:
+            continue
+        if quantidade:
+            sugestoes.append(f"- {quantidade:g} un. {produto}")
+        else:
+            sugestoes.append(f"- {produto}")
+
+    if sugestoes:
         return (
-            f"Olá! Tudo bem?\n\n"
-            f"Vi que você costuma pedir {produtos} por essa época. "
-            f"Quer repetir o pedido ou ajustar algo?"
+            "Olá! Tudo bem?\n\n"
+            "Pelo seu padrão de compras, posso deixar separado o próximo pedido com:\n\n"
+            + "\n".join(sugestoes)
+            + "\n\nDeseja que eu monte esse pedido para você ou prefere ajustar alguma quantidade?"
         )
-    return "Olá! Tudo bem? Que tal repetirmos seu último pedido?"
+    return (
+        "Olá! Tudo bem?\n\n"
+        "Seu período de recompra chegou. Deseja que eu consulte o seu último pedido "
+        "para montar uma sugestão atualizada?"
+    )
 
 
 def _send_whatsapp(api_url: str, api_key: str, instance: str, phone: str, text: str) -> dict:

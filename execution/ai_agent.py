@@ -39,13 +39,13 @@ RESUME_TRIGGER = "###"
 PAUSE_HOURS = int(os.getenv("AI_PAUSE_HOURS", "5"))
 CONTEXT_MESSAGE_LIMIT = int(os.getenv("AI_CONTEXT_MESSAGE_LIMIT", "40"))
 DEFAULT_MESSAGE_BUFFER_SECONDS = float(os.getenv("AI_MESSAGE_BUFFER_SECONDS", "5"))
-BACKEND_CATALOG_GUARD_ENABLED = os.getenv("AI_BACKEND_CATALOG_GUARD", "false").strip().lower() in {
+BACKEND_CATALOG_GUARD_ENABLED = os.getenv("AI_BACKEND_CATALOG_GUARD", "true").strip().lower() in {
     "1",
     "true",
     "yes",
     "on",
 }
-BACKEND_ORDER_SPECIFICS_GUARD_ENABLED = os.getenv("AI_BACKEND_ORDER_SPECIFICS_GUARD", "false").strip().lower() in {
+BACKEND_ORDER_SPECIFICS_GUARD_ENABLED = os.getenv("AI_BACKEND_ORDER_SPECIFICS_GUARD", "true").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -302,6 +302,28 @@ def _format_catalog_options_lines(rows: list[dict]) -> list[str]:
     return lines
 
 
+def _format_catalog_product_lines(rows: list[dict], limit: int = 8) -> list[str]:
+    lines = []
+    seen: set[tuple[str, str, str]] = set()
+    for row in rows:
+        name = _catalog_name(row)
+        if not name:
+            continue
+        product_type = _catalog_product_type(row) or "produto"
+        variation = _display_variation(_catalog_variation(row)) or "-"
+        key = (name, product_type, variation)
+        if key in seen:
+            continue
+        seen.add(key)
+        price = _format_brl(row.get("preco") or row.get("preco_base") or row.get("preco_tabela_201"))
+        suffix = f" - {price}" if price else ""
+        public_variation = _public_variation(variation) or variation
+        lines.append(f"- {name} | {product_type} {public_variation}{suffix}".strip())
+        if len(lines) >= limit:
+            break
+    return lines
+
+
 def _requested_type_from_text(text: str) -> str:
     value = _lower_ascii(text)
     if "bolsa" in value and ("concentrada" in value or "concentrado" in value or "conc" in value):
@@ -356,6 +378,44 @@ def _filter_catalog_options_by_request(rows: list[dict], text: str) -> list[dict
         if type_ok and size_ok:
             filtered.append(row)
     return filtered
+
+
+def _catalog_alternatives_for_request(text: str, produtos: list[dict] | None) -> tuple[str, list[dict]]:
+    if not produtos:
+        return "", []
+
+    requested_type = _requested_type_from_text(text)
+    requested_size = _requested_size_from_text(text)
+    if not requested_type and not requested_size:
+        return "", []
+
+    exact: list[dict] = []
+    same_type: list[dict] = []
+    same_size: list[dict] = []
+    for row in produtos:
+        row_type = _lower_ascii(_catalog_product_type(row))
+        row_size = _norm_size(_display_variation(_catalog_variation(row)))
+        type_ok = not requested_type or requested_type in row_type or row_type in requested_type
+        size_ok = not requested_size or requested_size == row_size
+        if type_ok and size_ok:
+            exact.append(row)
+        if requested_type and type_ok:
+            same_type.append(row)
+        if requested_size and size_ok:
+            same_size.append(row)
+
+    if exact:
+        label_parts = []
+        if requested_type:
+            label_parts.append(requested_type)
+        if requested_size:
+            label_parts.append(_display_variation(requested_size))
+        return " ".join(label_parts).strip(), exact
+    if same_type:
+        return requested_type, same_type
+    if same_size:
+        return _display_variation(requested_size), same_size
+    return "", []
 
 
 def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[str]:
@@ -523,7 +583,7 @@ def catalog_guard_prompt(text: str, produtos: list[dict] | None) -> str:
             continue
         narrowed_options = _filter_catalog_options_by_request(options, text)
         if (request_has_type or request_has_size) and not narrowed_options:
-            invalid_lines.append(f"- {token}: nao existe nessa combinacao. Opcoes reais: {_format_catalog_options(options)}")
+            invalid_lines.append(f"- {token}: não existe nessa combinação. Opções reais: {_format_catalog_options(options)}")
             continue
         option_text = _format_catalog_options(narrowed_options or options)
         if option_text and (not request_has_type or not request_has_size):
@@ -532,22 +592,32 @@ def catalog_guard_prompt(text: str, produtos: list[dict] | None) -> str:
     if unavailable or invalid_lines:
         lines = []
         if unavailable:
-            lines.append(f"Nao encontrei {', '.join(unavailable)} nas opcoes disponiveis.")
+            lines.append(f"Não temos {', '.join(unavailable)} nas opções disponíveis.")
         if invalid_lines:
-            lines += ["Essa combinacao de produto/tipo/tamanho nao esta disponivel:", *invalid_lines]
+            lines += ["Essa combinação de produto, formato e tamanho não está disponível:", *invalid_lines]
         if ambiguous_lines:
-            lines += ["", "Dos outros produtos citados, tenho estas opcoes:", *ambiguous_lines]
-        lines.append("Posso seguir com alguma dessas opcoes?")
+            lines += ["", "Dos outros produtos citados, temos estas opções:", *ambiguous_lines]
+
+        alternative_label, alternatives = _catalog_alternatives_for_request(text, produtos)
+        alternative_lines = _format_catalog_product_lines(alternatives)
+        if alternative_lines:
+            if alternative_label:
+                lines += ["", f"Mas temos estas opções de {alternative_label}:"]
+            else:
+                lines += ["", "Mas temos estas opções disponíveis:"]
+            lines.extend(alternative_lines)
+
+        lines.append("Posso seguir com alguma dessas opções?")
         return "\n".join(lines)
 
     if ambiguous_lines:
         return "\n".join(
             [
-                "Para eu nao adicionar produto errado, confirma qual tipo e tamanho voce quer?",
+                "Para eu não adicionar produto errado, confirme qual formato e tamanho você quer.",
                 "",
                 *ambiguous_lines,
                 "",
-                "Me diga a opcao e a quantidade para eu atualizar o resumo.",
+                "Me diga a opção e a quantidade para eu atualizar o resumo.",
             ]
         )
 
@@ -603,6 +673,16 @@ def unavailable_products_prompt(products: list[str]) -> str:
         "Me confirme um produto, tipo/formato e tamanho disponiveis para eu atualizar o pedido.",
     ]
     return "\n".join(lines)
+
+
+def catalog_unavailable_prompt() -> str:
+    return "\n".join(
+        [
+            "Nao consegui consultar a tabela de produtos agora.",
+            "",
+            "Para evitar registrar um item incorreto, vou precisar confirmar o produto na tabela antes de adicionar ao pedido.",
+        ]
+    )
 
 
 def is_full_product_list_request(text: str, classification: dict) -> bool:
@@ -2455,6 +2535,8 @@ def generate_ai_reply(
                 if _missing_order_fields(itens):
                     return missing_order_fields_prompt(itens)
                 if BACKEND_CATALOG_GUARD_ENABLED:
+                    if not produtos:
+                        return catalog_unavailable_prompt()
                     unavailable_items = _unavailable_order_items(itens, produtos)
                     if unavailable_items:
                         return unavailable_products_prompt(unavailable_items)
@@ -2663,6 +2745,18 @@ def process_inbound_message(
             "intent": classification.get("intent"),
         }
 
+    catalog_reply = catalog_guard_prompt(normalized_text, produtos) if BACKEND_CATALOG_GUARD_ENABLED else ""
+    if catalog_reply:
+        reply = catalog_reply
+        store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_guardrail"})
+        return {
+            "action": "catalog_guardrail_reply",
+            "should_reply": True,
+            "reply": reply,
+            "context_messages": len(history),
+            "intent": classification.get("intent"),
+        }
+
     has_current_quantities = bool((classification.get("entities") or {}).get("quantities"))
     option_reply = (
         product_options_reply(normalized_text, produtos)
@@ -2675,18 +2769,6 @@ def process_inbound_message(
             "action": "catalog_options_reply",
             "should_reply": True,
             "reply": option_reply,
-            "context_messages": len(history),
-            "intent": classification.get("intent"),
-        }
-
-    catalog_reply = catalog_guard_prompt(normalized_text, produtos) if BACKEND_CATALOG_GUARD_ENABLED else ""
-    if catalog_reply:
-        reply = catalog_reply
-        store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_guardrail"})
-        return {
-            "action": "catalog_guardrail_reply",
-            "should_reply": True,
-            "reply": reply,
             "context_messages": len(history),
             "intent": classification.get("intent"),
         }

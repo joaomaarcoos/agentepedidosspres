@@ -88,6 +88,68 @@ class AiAgentRegressionTests(unittest.TestCase):
         self.assertEqual(classification["intent"], "product_query")
         self.assertTrue(ai_agent.is_full_product_list_request("O que voce vende ai?", classification))
 
+    def test_unknown_order_product_is_blocked_by_catalog(self):
+        produtos = [
+            {"nome_produto": "SUCO GARRAFA PASTEURIZADO DE LARANJA", "variacao": "900", "preco": 8.60},
+            {"nome_produto": "SUCO COPO UVA", "variacao": "200", "preco": 3.20},
+        ]
+
+        unavailable = ai_agent._unavailable_order_items(
+            [{"produto": "limao", "tipo": "garrafa", "tamanho": "900ml", "quantidade": 10, "unidade": "unidades"}],
+            produtos,
+        )
+
+        self.assertTrue(unavailable)
+        self.assertIn("LIMAO", unavailable[0])
+
+    def test_invalid_size_combination_is_blocked_by_catalog(self):
+        produtos = [
+            {"nome_produto": "SUCO GARRAFA PASTEURIZADO DE LARANJA", "variacao": "900", "preco": 8.60},
+        ]
+
+        unavailable = ai_agent._unavailable_order_items(
+            [{"produto": "laranja", "tipo": "garrafa", "tamanho": "200ml", "quantidade": 10, "unidade": "unidades"}],
+            produtos,
+        )
+
+        self.assertTrue(unavailable)
+
+    def test_catalog_unavailable_prompt_blocks_blind_order_save(self):
+        reply = ai_agent.catalog_unavailable_prompt()
+
+        self.assertIn("Nao consegui consultar a tabela de produtos", reply)
+        self.assertIn("evitar registrar um item incorreto", reply)
+
+    def test_conversation_guard_lists_same_type_size_alternatives_for_missing_product(self):
+        produtos = [
+            {"nome_produto": "SUCO COPO UVA", "variacao": "200", "preco": 3.20},
+            {"nome_produto": "SUCO COPO LARANJA", "variacao": "200", "preco": 3.10},
+            {"nome_produto": "SUCO GARRAFA COCO", "variacao": "900", "preco": 10.20},
+        ]
+
+        reply = ai_agent.catalog_guard_prompt("tem copo de abacate 200ml?", produtos)
+
+        self.assertIn("Não temos abacate", reply)
+        self.assertIn("opções de copo 200ml", reply)
+        self.assertIn("SUCO COPO UVA", reply)
+        self.assertIn("SUCO COPO LARANJA", reply)
+        self.assertNotIn("- SUCO GARRAFA COCO | garrafa 900ml", reply)
+
+    def test_conversation_guard_lists_alternatives_for_invalid_product_combination(self):
+        produtos = [
+            {"nome_produto": "SUCO GARRAFA COCO", "variacao": "900", "preco": 10.20},
+            {"nome_produto": "SUCO COPO UVA", "variacao": "200", "preco": 3.20},
+            {"nome_produto": "SUCO COPO LARANJA", "variacao": "200", "preco": 3.10},
+        ]
+
+        reply = ai_agent.catalog_guard_prompt("quero copo de coco 200ml", produtos)
+
+        self.assertIn("não existe nessa combinação", reply)
+        self.assertIn("Opções reais: garrafa 900ml", reply)
+        self.assertIn("opções de copo 200ml", reply)
+        self.assertIn("SUCO COPO UVA", reply)
+        self.assertIn("SUCO COPO LARANJA", reply)
+
 
 if __name__ == "__main__":
     unittest.main()

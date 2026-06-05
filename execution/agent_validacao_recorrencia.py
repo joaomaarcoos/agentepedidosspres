@@ -120,12 +120,17 @@ Responda APENAS com JSON válido, sem texto adicional, exatamente neste formato:
   "motivo": "explicação breve",
   "pedido_sugerido": [{{"codPro": "...", "desPro": "...", "qtdPed": 0}}],
   "valor_medio": 0.0,
-  "mensagem": "mensagem personalizada para o cliente (apenas se decisao=sim, senão string vazia)"
+  "mensagem": "mensagem personalizada para o cliente propondo o pedido_sugerido com produtos e quantidades (apenas se decisao=sim, senão string vazia)"
 }}
 
 Regras obrigatórias:
 - Use APENAS codPro presentes nos pedidos acima. Nunca invente produtos.
 - Quantidades devem ser baseadas no histórico real.
+- Se decisao=sim, a mensagem deve sugerir explicitamente o próximo pedido com os principais produtos e quantidades do pedido_sugerido.
+- Evite mensagens genéricas como apenas regularizar compra, repetir pedido ou estamos à disposição sem listar o pedido sugerido.
+- Escreva em português brasileiro claro, profissional e revisado.
+- Não use gírias, abreviações coloquiais ou contrações como "pra"; use "para".
+- Preserve acentos e pontuação correta.
 - Se não houver padrão claro, retorne decisao=nao."""
 
 
@@ -209,6 +214,24 @@ def _validate_response(decision: dict, known: set[str]) -> str:
     # Aprovação sem pedido sugerido → revisão humana (contato genérico aceitável,
     # mas não pode ir direto para disparo automático)
     if not pedido:
+        return "needs_review"
+
+    mensagem = str(decision.get("mensagem") or "").strip().lower()
+    if not mensagem:
+        return "needs_review"
+    if " pra " in f" {mensagem} ":
+        return "needs_review"
+
+    mentioned_items = 0
+    for item in pedido:
+        code = str(item.get("codPro") or "").strip().lower()
+        name = str(item.get("desPro") or "").strip().lower()
+        if (code and code in mensagem) or (name and name in mensagem):
+            mentioned_items += 1
+
+    # O disparo de recorrência precisa carregar uma proposta de recompra,
+    # não apenas uma abordagem genérica de relacionamento.
+    if mentioned_items == 0:
         return "needs_review"
 
     return "ai_approved"
