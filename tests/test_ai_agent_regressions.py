@@ -117,7 +117,7 @@ class AiAgentRegressionTests(unittest.TestCase):
     def test_catalog_unavailable_prompt_blocks_blind_order_save(self):
         reply = ai_agent.catalog_unavailable_prompt()
 
-        self.assertIn("Nao consegui consultar a tabela de produtos", reply)
+        self.assertIn("Não consegui consultar a tabela de produtos", reply)
         self.assertIn("evitar registrar um item incorreto", reply)
 
     def test_conversation_guard_lists_same_type_size_alternatives_for_missing_product(self):
@@ -149,6 +149,23 @@ class AiAgentRegressionTests(unittest.TestCase):
         self.assertIn("opções de copo 200ml", reply)
         self.assertIn("SUCO COPO UVA", reply)
         self.assertIn("SUCO COPO LARANJA", reply)
+
+    def test_customer_facing_ptbr_normalizer_fixes_common_unaccented_words(self):
+        text = "Nao encontrei opcoes disponiveis. Voce quer ver precos ou revisao?"
+
+        reply = ai_agent.normalize_customer_facing_ptbr(text)
+
+        self.assertEqual(reply, "Não encontrei opções disponíveis. Você quer ver preços ou revisão?")
+
+    def test_catalog_replies_are_accented(self):
+        produtos = [{"nome_produto": "SUCO COPO LARANJA", "variacao": "200", "preco": 3.20}]
+
+        reply = ai_agent.product_options_reply("tem laranja?", produtos)
+
+        self.assertIn("opções", reply)
+        self.assertIn("você", reply)
+        self.assertNotIn("opcoes", reply)
+        self.assertNotIn("voce", reply)
 
 
 if __name__ == "__main__":
