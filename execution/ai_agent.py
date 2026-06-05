@@ -250,13 +250,72 @@ def _catalog_flavor_tokens(row: dict) -> set[str]:
     return {token for token in tokens if len(token) >= 4 and token not in ignored and not token.isdigit()}
 
 
+def _catalog_flavor_token_list(row: dict) -> list[str]:
+    name = _lower_ascii(_catalog_name(row))
+    ignored = {
+        "suco",
+        "nectar",
+        "copo",
+        "garrafa",
+        "bolsa",
+        "concentrada",
+        "concentrado",
+        "integral",
+        "com",
+        "sem",
+        "de",
+        "da",
+        "do",
+        "e",
+        "polpa",
+        "unidade",
+        "unidades",
+        "ml",
+        "litro",
+        "litros",
+    }
+    result = []
+    for token in re.findall(r"[a-z0-9]+", name):
+        if len(token) < 4 or token in ignored or token.isdigit():
+            continue
+        result.append(token)
+    return result
+
+
+def _catalog_public_phrases(row: dict) -> set[str]:
+    tokens = _catalog_flavor_token_list(row)
+    token_set = set(tokens)
+    phrases = set(tokens)
+
+    if "agua" in token_set and "coco" in token_set:
+        phrases.update({"agua de coco", "agua coco"})
+    if "manga" in token_set and "maracuja" in token_set:
+        phrases.update({"manga e maracuja", "manga maracuja"})
+    if "abacaxi" in token_set and "hortela" in token_set:
+        phrases.update({"abacaxi com hortela", "abacaxi hortela"})
+    if "laranja" in token_set and "morango" in token_set:
+        phrases.update({"laranja com morango", "laranja morango"})
+
+    if len(tokens) >= 2:
+        joined = " ".join(tokens)
+        phrases.add(joined)
+        phrases.add(" e ".join(tokens))
+        phrases.add(" com ".join(tokens))
+
+    return {phrase for phrase in phrases if phrase}
+
+
 def _catalog_options_for_token(token: str, produtos: list[dict] | None) -> list[dict]:
     wanted = _lower_ascii(token)
     if not wanted or not produtos:
         return []
     matches = []
     for row in produtos:
-        if wanted in _catalog_flavor_tokens(row) or wanted in _lower_ascii(_catalog_name(row)):
+        if (
+            wanted in _catalog_public_phrases(row)
+            or wanted in _catalog_flavor_tokens(row)
+            or wanted in _lower_ascii(_catalog_name(row))
+        ):
             matches.append(row)
     return matches
 
@@ -322,6 +381,19 @@ def _format_catalog_product_lines(rows: list[dict], limit: int = 8) -> list[str]
         if len(lines) >= limit:
             break
     return lines
+
+
+def _display_catalog_term(term: str) -> str:
+    value = normalize_text(term)
+    replacements = {
+        "agua": "água",
+        "maracuja": "maracujá",
+        "limao": "limão",
+        "hortela": "hortelã",
+    }
+    for raw, accented in replacements.items():
+        value = re.sub(rf"\b{raw}\b", accented, value, flags=re.IGNORECASE)
+    return value
 
 
 def _requested_type_from_text(text: str) -> str:
@@ -418,18 +490,8 @@ def _catalog_alternatives_for_request(text: str, produtos: list[dict] | None) ->
     return "", []
 
 
-def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[str]:
-    value = _lower_ascii(text)
-    if not produtos:
-        return []
-    if not (
-        _has_order_adjustment_terms(text)
-        or contains_any(value, ("quero", "produto", "produtos", "preco", "valor", "tem", "voces tem", "vocês tem"))
-        or infer_entities(text).get("quantities")
-    ):
-        return []
-
-    stop = {
+def _catalog_stop_tokens() -> set[str]:
+    return {
         "adicione",
         "adicionar",
         "adiciona",
@@ -442,8 +504,10 @@ def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[st
         "alem",
         "alguma",
         "algum",
+        "beleza",
         "cotacao",
         "cotar",
+        "entao",
         "fazer",
         "fzer",
         "fzr",
@@ -500,7 +564,10 @@ def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[st
         "das",
         "dos",
         "uma",
+        "umas",
         "uns",
+        "vai",
+        "ser",
         "que",
         "qual",
         "quais",
@@ -516,11 +583,47 @@ def _requested_catalog_tokens(text: str, produtos: list[dict] | None) -> list[st
         "coisa",
         "coisas",
         "express",
-        "entao",
+    }
+
+
+def _catalog_phrases_in_text(text: str, produtos: list[dict] | None) -> list[str]:
+    value = _lower_ascii(text)
+    if not value or not produtos:
+        return []
+
+    phrases: set[str] = set()
+    for row in produtos:
+        for phrase in _catalog_public_phrases(row):
+            if " " not in phrase:
+                continue
+            if re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", value):
+                phrases.add(phrase)
+    return sorted(phrases, key=lambda phrase: (-len(phrase), phrase))
+
+
+def _requested_catalog_tokens(text: str, produtos: list[dict] | None, require_trigger: bool = True) -> list[str]:
+    value = _lower_ascii(text)
+    if not produtos:
+        return []
+    if require_trigger and not (
+        _has_order_adjustment_terms(text)
+        or contains_any(value, ("quero", "produto", "produtos", "preco", "valor", "tem", "voces tem", "vocês tem"))
+        or infer_entities(text).get("quantities")
+    ):
+        return []
+
+    stop = _catalog_stop_tokens()
+    phrases = _catalog_phrases_in_text(text, produtos)
+    consumed_tokens = {
+        token
+        for phrase in phrases
+        for token in re.findall(r"[a-z0-9]+", phrase)
     }
     tokens = re.findall(r"[a-z0-9]+", value)
-    candidates = []
+    candidates = list(phrases)
     for token in tokens:
+        if token in consumed_tokens:
+            continue
         if len(token) < 4 or any(ch.isdigit() for ch in token) or token in stop:
             continue
         if re.fullmatch(r"\d+(?:ml|l)?", token):
@@ -566,7 +669,29 @@ def non_suco_products_reply(produtos: list[dict] | None) -> str:
     return "\n".join(lines)
 
 
+def _catalog_request_segments(text: str) -> list[str]:
+    segments = [
+        segment.strip(" .,!?\n\t")
+        for segment in re.split(r"[,;\n]+", text or "")
+        if segment.strip(" .,!?\n\t")
+    ]
+    return segments or [text]
+
+
 def catalog_guard_prompt(text: str, produtos: list[dict] | None) -> str:
+    segments = _catalog_request_segments(text)
+    if len(segments) <= 1:
+        return _catalog_guard_prompt_for_segment(text, produtos)
+
+    replies = []
+    for segment in segments:
+        reply = _catalog_guard_prompt_for_segment(segment, produtos)
+        if reply:
+            replies.append(reply)
+    return "\n\n".join(dict.fromkeys(replies))
+
+
+def _catalog_guard_prompt_for_segment(text: str, produtos: list[dict] | None) -> str:
     requested = _requested_catalog_tokens(text, produtos)
     if not requested:
         return ""
@@ -583,16 +708,17 @@ def catalog_guard_prompt(text: str, produtos: list[dict] | None) -> str:
             continue
         narrowed_options = _filter_catalog_options_by_request(options, text)
         if (request_has_type or request_has_size) and not narrowed_options:
-            invalid_lines.append(f"- {token}: não existe nessa combinação. Opções reais: {_format_catalog_options(options)}")
+            invalid_lines.append(f"- {_display_catalog_term(token)}: não existe nessa combinação. Opções reais: {_format_catalog_options(options)}")
             continue
         option_text = _format_catalog_options(narrowed_options or options)
         if option_text and (not request_has_type or not request_has_size):
-            ambiguous_lines.append(f"- {token}: {option_text}")
+            ambiguous_lines.append(f"- {_display_catalog_term(token)}: {option_text}")
 
     if unavailable or invalid_lines:
         lines = []
         if unavailable:
-            lines.append(f"Não temos {', '.join(unavailable)} nas opções disponíveis.")
+            labels = [_display_catalog_term(item) for item in unavailable]
+            lines.append(f"Não temos {', '.join(labels)} nas opções disponíveis.")
         if invalid_lines:
             lines += ["Essa combinação de produto, formato e tamanho não está disponível:", *invalid_lines]
         if ambiguous_lines:
@@ -1517,18 +1643,15 @@ def _catalog_options_for_item(item: dict, produtos: list[dict] | None) -> list[d
     if not produtos:
         return []
     text = _lower_ascii(" ".join(_item_value(item, key) for key in ("produto", "nome")))
-    tokens = [
-        token
-        for token in re.findall(r"[a-z0-9]+", text)
-        if len(token) >= 4 and token not in {"suco", "nectar", "copo", "garrafa", "bolsa", "concentrada", "concentrado"}
-    ]
-    if not tokens:
+    terms = _requested_catalog_tokens(text, produtos, require_trigger=False)
+    if not terms:
         return []
     matches: list[dict] = []
     for row in produtos:
         row_tokens = _catalog_flavor_tokens(row)
+        row_phrases = _catalog_public_phrases(row)
         row_text = _product_text(row)
-        if any(token in row_tokens or token in row_text for token in tokens):
+        if any(term in row_phrases or term in row_tokens or term in row_text for term in terms):
             matches.append(row)
     return matches
 

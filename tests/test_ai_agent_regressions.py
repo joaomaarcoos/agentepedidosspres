@@ -167,6 +167,55 @@ class AiAgentRegressionTests(unittest.TestCase):
         self.assertNotIn("opcoes", reply)
         self.assertNotIn("voce", reply)
 
+    def test_compound_product_is_preserved_as_single_catalog_term(self):
+        produtos = [
+            {"nome_produto": "AGUA COPO DE COCO", "variacao": "200", "preco": 2.60},
+            {"nome_produto": "AGUA GARRAFA DE COCO", "variacao": "900", "preco": 10.20},
+        ]
+
+        tokens = ai_agent._requested_catalog_tokens("água de coco 10 também", produtos)
+
+        self.assertIn("agua de coco", tokens)
+        self.assertNotIn("agua", tokens)
+        self.assertNotIn("coco", tokens)
+        self.assertNotIn("tambem", tokens)
+
+    def test_multi_item_catalog_guard_does_not_split_agua_de_coco_or_use_common_words(self):
+        produtos = [
+            {"nome_produto": "SUCO BOLSA LARANJA", "variacao": "05L", "preco": 29.46},
+            {"nome_produto": "CONC BOLSA LARANJA", "variacao": "05L", "preco": 41.67},
+            {"nome_produto": "SUCO BOLSA GOIABA", "variacao": "05L", "preco": 27.04},
+            {"nome_produto": "SUCO BOLSA CAJU", "variacao": "05L", "preco": 28.08},
+            {"nome_produto": "SUCO GARRAFA HIBISCO", "variacao": "900", "preco": 10.78},
+            {"nome_produto": "SUCO BOLSA MARACUJA", "variacao": "05L", "preco": 39.05},
+            {"nome_produto": "AGUA COPO DE COCO", "variacao": "200", "preco": 2.60},
+            {"nome_produto": "AGUA GARRAFA DE COCO", "variacao": "900", "preco": 10.20},
+        ]
+
+        reply = ai_agent.catalog_guard_prompt(
+            "Beleza, então vai ser laranja concentrado 10, goiaba garrafa 20, "
+            "caju bolsa 10, hibisco garrafa 10, maracujá 10, água de coco 10 também",
+            produtos,
+        )
+
+        self.assertNotIn("beleza", reply.lower())
+        self.assertNotIn("- agua:", reply.lower())
+        self.assertNotIn("- coco:", reply.lower())
+        self.assertIn("água de coco", reply.lower())
+
+    def test_backend_order_validation_accepts_compound_product_when_catalog_has_it(self):
+        produtos = [
+            {"nome_produto": "AGUA COPO DE COCO", "variacao": "200", "preco": 2.60},
+            {"nome_produto": "AGUA GARRAFA DE COCO", "variacao": "900", "preco": 10.20},
+        ]
+
+        unavailable = ai_agent._unavailable_order_items(
+            [{"produto": "água de coco", "tipo": "garrafa", "tamanho": "900ml", "quantidade": 10, "unidade": "unidades"}],
+            produtos,
+        )
+
+        self.assertEqual([], unavailable)
+
 
 if __name__ == "__main__":
     unittest.main()
