@@ -216,6 +216,52 @@ class AiAgentRegressionTests(unittest.TestCase):
 
         self.assertEqual([], unavailable)
 
+    def test_complex_unpunctuated_order_is_not_intercepted_by_conversation_guard(self):
+        produtos = [
+            {"nome_produto": "SUCO BOLSA LARANJA", "variacao": "05L", "preco": 40.58},
+            {"nome_produto": "SUCO GARRAFA LARANJA", "variacao": "900", "preco": 9.17},
+            {"nome_produto": "SUCO GARRAFA LARANJA", "variacao": "1L7", "preco": 16.26},
+            {"nome_produto": "SUCO GARRAFA GOIABA", "variacao": "900", "preco": 10.78},
+            {"nome_produto": "SUCO GARRAFA MANGA E MARACUJA", "variacao": "900", "preco": 7.90},
+        ]
+        text = (
+            "tá beleza então faz o seguinte vê para mim 10 bolsa laranja "
+            "40 garrafa laranja de 900 40 garrafas laranja 1.7 "
+            "e 10 goiaba 900 e 10 manga maracujá 900 também"
+        )
+
+        reply = ai_agent.catalog_guard_prompt(text, produtos)
+
+        self.assertEqual("", reply)
+        tokens = ai_agent._requested_catalog_tokens(text, produtos)
+        self.assertNotIn("seguinte", tokens)
+        self.assertNotIn("beleza", tokens)
+
+    def test_simple_invalid_product_request_is_still_blocked_by_backend_guard(self):
+        produtos = [
+            {"nome_produto": "SUCO COPO LARANJA", "variacao": "200", "preco": 2.24},
+            {"nome_produto": "SUCO COPO UVA", "variacao": "200", "preco": 2.60},
+        ]
+
+        reply = ai_agent.catalog_guard_prompt("quero copo de limão 200ml", produtos)
+
+        self.assertIn("Não temos limão", reply)
+        self.assertIn("opções de copo 200ml", reply)
+
+    def test_comma_separated_product_list_validates_segments_without_requiring_repeated_trigger(self):
+        produtos = [
+            {"nome_produto": "SUCO GARRAFA CAJU", "variacao": "900", "preco": 6.66},
+            {"nome_produto": "SUCO GARRAFA GOIABA COM HIBISCO", "variacao": "900", "preco": 10.78},
+        ]
+
+        reply = ai_agent.catalog_guard_prompt(
+            "quero cajá, caju, hibisco, tamarindo",
+            produtos,
+        )
+
+        self.assertIn("Não temos cajá", reply)
+        self.assertIn("Não temos tamarindo", reply)
+
 
 if __name__ == "__main__":
     unittest.main()

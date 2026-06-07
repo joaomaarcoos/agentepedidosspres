@@ -387,6 +387,7 @@ def _display_catalog_term(term: str) -> str:
     value = normalize_text(term)
     replacements = {
         "agua": "água",
+        "caja": "cajá",
         "maracuja": "maracujá",
         "limao": "limão",
         "hortela": "hortelã",
@@ -464,7 +465,18 @@ def _catalog_alternatives_for_request(text: str, produtos: list[dict] | None) ->
     exact: list[dict] = []
     same_type: list[dict] = []
     same_size: list[dict] = []
-    for row in produtos:
+    beverage_context = bool(requested_type) or contains_any(
+        _lower_ascii(text),
+        ("suco", "nectar", "sabor", "agua de coco"),
+    )
+    rows = [
+        row
+        for row in produtos
+        if not beverage_context
+        or _catalog_product_type(row)
+        or contains_any(_lower_ascii(_catalog_name(row)), ("suco", "nectar", "agua"))
+    ]
+    for row in rows:
         row_type = _lower_ascii(_catalog_product_type(row))
         row_size = _norm_size(_display_variation(_catalog_variation(row)))
         type_ok = not requested_type or requested_type in row_type or row_type in requested_type
@@ -508,6 +520,7 @@ def _catalog_stop_tokens() -> set[str]:
         "cotacao",
         "cotar",
         "entao",
+        "faz",
         "fazer",
         "fzer",
         "fzr",
@@ -530,6 +543,10 @@ def _catalog_stop_tokens() -> set[str]:
         "primeiro",
         "produto",
         "produtos",
+        "sabor",
+        "sabores",
+        "suco",
+        "nectar",
         "unidade",
         "unidades",
         "copo",
@@ -568,6 +585,10 @@ def _catalog_stop_tokens() -> set[str]:
         "uns",
         "vai",
         "ser",
+        "seguinte",
+        "ve",
+        "mim",
+        "ta",
         "que",
         "qual",
         "quais",
@@ -678,21 +699,52 @@ def _catalog_request_segments(text: str) -> list[str]:
     return segments or [text]
 
 
+def _catalog_request_is_complex(text: str, produtos: list[dict] | None) -> bool:
+    requested = _requested_catalog_tokens(text, produtos)
+    if len(requested) <= 1:
+        return False
+
+    value = _lower_ascii(text)
+    quantity_count = len(infer_entities(text).get("quantities") or [])
+    package_count = len(
+        re.findall(
+            r"\b(?:bolsas?|copos?|garrafas?|galoes?|galões?|concentrad[ao]s?)\b",
+            value,
+        )
+    )
+    size_count = len(
+        re.findall(
+            r"\b(?:115|200|300|900)\s*(?:ml)?\b|\b1\s*[,.]?\s*7\s*l?\b|\b(?:05|5)\s*l\b",
+            value,
+        )
+    )
+    return quantity_count > 1 or package_count > 1 or size_count > 1
+
+
 def catalog_guard_prompt(text: str, produtos: list[dict] | None) -> str:
+    if not _requested_catalog_tokens(text, produtos):
+        return ""
+
     segments = _catalog_request_segments(text)
     if len(segments) <= 1:
+        if _catalog_request_is_complex(text, produtos):
+            return ""
         return _catalog_guard_prompt_for_segment(text, produtos)
 
     replies = []
     for segment in segments:
-        reply = _catalog_guard_prompt_for_segment(segment, produtos)
+        reply = _catalog_guard_prompt_for_segment(segment, produtos, require_trigger=False)
         if reply:
             replies.append(reply)
     return "\n\n".join(dict.fromkeys(replies))
 
 
-def _catalog_guard_prompt_for_segment(text: str, produtos: list[dict] | None) -> str:
-    requested = _requested_catalog_tokens(text, produtos)
+def _catalog_guard_prompt_for_segment(
+    text: str,
+    produtos: list[dict] | None,
+    require_trigger: bool = True,
+) -> str:
+    requested = _requested_catalog_tokens(text, produtos, require_trigger=require_trigger)
     if not requested:
         return ""
 
@@ -737,6 +789,18 @@ def _catalog_guard_prompt_for_segment(text: str, produtos: list[dict] | None) ->
         return "\n".join(lines)
 
     if ambiguous_lines:
+        value = _lower_ascii(text)
+        is_availability_query = (
+            not infer_entities(text).get("quantities")
+            and not _has_order_adjustment_terms(text)
+            and not contains_any(
+                value,
+                ("quero", "pedido", "comprar", "adicione", "adicionar", "inclua", "incluir"),
+            )
+            and contains_any(value, ("tem", "possui", "vende", "disponivel"))
+        )
+        if is_availability_query:
+            return ""
         return "\n".join(
             [
                 "Para eu não adicionar produto errado, confirme qual formato e tamanho você quer.",
@@ -761,7 +825,7 @@ def product_options_reply(text: str, produtos: list[dict] | None) -> str:
         if not options:
             lines.append(f"Não encontrei {token} nas opções disponíveis.")
             continue
-        lines.append(f"Para {token}, tenho estas opções:")
+        lines.append(f"Para {_display_catalog_term(token)}, tenho estas opções:")
         lines.extend(_format_catalog_options_lines(options))
         lines.append("")
 
@@ -851,7 +915,8 @@ def is_full_product_list_request(text: str, classification: dict) -> bool:
 
 def is_simple_greeting(text: str) -> bool:
     value = _lower_ascii(text).strip(" .,!?\n\t")
-    return value in {
+    value = re.sub(r"[^a-z0-9]+", " ", value).strip()
+    greetings = {
         "oi",
         "ola",
         "bom dia",
@@ -864,6 +929,13 @@ def is_simple_greeting(text: str) -> bool:
         "oi tudo bem",
         "ola tudo bem",
     }
+    if value in greetings:
+        return True
+    return any(
+        value == f"{greeting} marcela"
+        or value == f"{greeting} marcela tudo bem"
+        for greeting in greetings
+    )
 
 
 def contains_any(value: str, terms: tuple[str, ...]) -> bool:
@@ -965,6 +1037,13 @@ def infer_entities(text: str) -> dict:
         "goiaba",
         "acerola",
         "abacaxi",
+        "agua de coco",
+        "coco",
+        "caju",
+        "caja",
+        "limao",
+        "tamarindo",
+        "hibisco",
         "suco",
         "nectar",
     )
