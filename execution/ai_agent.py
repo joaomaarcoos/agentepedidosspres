@@ -65,6 +65,21 @@ BUFFER_SETTING_KEY = "ai_message_buffer_seconds"
 LOCAL_TIMEZONE = ZoneInfo(os.getenv("AI_LOCAL_TIMEZONE", "America/Sao_Paulo"))
 
 
+def _notify_order_review(order_id: str | None) -> None:
+    if not order_id:
+        return
+    try:
+        from review_order_whatsapp import notify_representative_order_review
+
+        result = notify_representative_order_review(str(order_id))
+        if result.get("sent"):
+            logger.info("Pedido %s notificado ao representante: %s", order_id, result)
+        else:
+            logger.warning("Pedido %s nao notificado ao representante: %s", order_id, result)
+    except Exception as exc:
+        logger.warning("Falha ao notificar representante sobre pedido %s: %s", order_id, exc)
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -2817,6 +2832,7 @@ def generate_ai_reply(
                         lines.append(f"- {order.get('protocolo') or order.get('id')} ({order.get('status') or 'em aberto'})")
                     lines += ["", "Se preferir, tambem posso abrir um novo pedido separado."]
                     return "\n".join(lines)
+                _notify_order_review(order_id)
                 result_message = (
                     "Pedido atualizado para revisao do representante."
                     if order_action == "updated"

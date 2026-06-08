@@ -22,6 +22,7 @@ import requests
 from dotenv import load_dotenv
 
 from ai_agent import normalize_phone, process_inbound_message
+from review_order_whatsapp import process_representative_order_command
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -330,13 +331,28 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
 
     incoming = extract_message(payload, instance=instance)
 
-    if incoming["from_me"]:
-        return {"action": "ignored_from_me", "should_reply": False}
     if not incoming["phone"] or not incoming["text"]:
         return {"action": "ignored_empty", "should_reply": False}
 
     if not _is_agent_enabled(instance):
         return {"action": "agent_disabled", "should_reply": False}
+
+    representative_result = process_representative_order_command(
+        phone=incoming["phone"],
+        text=incoming["text"],
+        instance_name=instance,
+    )
+    if representative_result:
+        if send_reply and representative_result.get("should_reply") and representative_result.get("reply"):
+            representative_result["evolution_response"] = send_whatsapp(
+                incoming["phone"],
+                representative_result["reply"],
+                instance,
+            )
+        return representative_result
+
+    if incoming["from_me"]:
+        return {"action": "ignored_from_me", "should_reply": False}
 
     result = process_inbound_message(
         phone=incoming["phone"],
