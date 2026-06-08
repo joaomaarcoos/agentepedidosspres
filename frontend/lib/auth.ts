@@ -28,6 +28,7 @@ export const ROUTE_RULES: RouteRule[] = [
   { pattern: /^\/clientes/,         roles: ALL },
   { pattern: /^\/recorrencia/,      roles: ALL },
   { pattern: /^\/ativacao/,         roles: ALL },
+  { pattern: /^\/baixar-app/,       roles: ALL },
   { pattern: /^\/perfil/,           roles: ALL },
 ];
 
@@ -73,6 +74,7 @@ export const NAV_ITEMS = [
   { href: "/clientes",       label: "Clientes",         roles: ALL },
   { href: "/recorrencia",    label: "Recorrência",      roles: ALL },
   { href: "/ativacao",       label: "Ativação",         roles: ALL },
+  { href: "/baixar-app",     label: "Baixar APP",       roles: ALL },
   { href: "/previsao",       label: "Previsão",         roles: GESTOR_UP },
   { href: "/resultados",     label: "Resultados",       roles: GESTOR_UP },
   { href: "/logs",           label: "Logs Disparos",    roles: GESTOR_UP },
