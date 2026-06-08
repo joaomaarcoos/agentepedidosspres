@@ -132,9 +132,9 @@ export default function AgenteStudioPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-56px)] overflow-hidden">
+    <div className="flex flex-1 min-h-0 overflow-hidden max-[760px]:flex-col">
       {/* Left panel */}
-      <aside className="w-64 shrink-0 border-r border-gray-200 bg-white flex flex-col">
+      <aside className="w-64 shrink-0 border-r border-gray-200 bg-white flex flex-col max-[760px]:w-full max-[760px]:max-h-64 max-[760px]:border-r-0 max-[760px]:border-b">
         <div className="p-3 border-b border-gray-200 flex items-center justify-between">
           <span className="text-sm font-semibold text-gray-700">Prompts</span>
           <button

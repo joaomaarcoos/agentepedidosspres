@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Menu } from "lucide-react";
 import { statusApi } from "@/lib/api";
+import { useShell } from "@/components/layout/ShellContext";
 
 export default function Header({ title }: { title?: string }) {
   const [apiOk, setApiOk] = useState<boolean | null>(null);
+  const { toggleSidebar } = useShell();
 
   useEffect(() => {
     statusApi
@@ -27,9 +30,14 @@ export default function Header({ title }: { title?: string }) {
         padding: "0 24px",
       }}
     >
-      <span className="app-header-title" style={{ fontWeight: 600, fontSize: 15, color: "var(--text)" }}>
-        {title || "AgentePedidos"}
-      </span>
+      <div className="app-header-left">
+        <button className="app-menu-toggle" onClick={toggleSidebar} aria-label="Expandir ou ocultar menu">
+          <Menu size={18} />
+        </button>
+        <span className="app-header-title" style={{ fontWeight: 600, fontSize: 15, color: "var(--text)" }}>
+          {title || "AgentePedidos"}
+        </span>
+      </div>
 
       <div className="app-header-actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div

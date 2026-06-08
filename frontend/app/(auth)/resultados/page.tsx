@@ -161,7 +161,7 @@ export default function ResultadosPage() {
   const stats = data?.stats;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <Header title="Resultados" />
 
       <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
