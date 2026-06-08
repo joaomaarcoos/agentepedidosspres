@@ -116,12 +116,14 @@ def _extract_instance_list(payload: object) -> list[dict]:
             or inst.get("connectionStatus")
             or "unknown"
         )
+        owner_phone = inst.get("ownerJid") or inst.get("owner") or inst.get("phoneNumber") or inst.get("number")
         items.append({
             "instanceName": name,
             "instanceId": inst.get("instanceId") or inst.get("id") or "",
             "status": state,
             "profilePictureUrl": inst.get("profilePictureUrl") or None,
-            "phoneNumber": inst.get("owner") or inst.get("profileName") or None,
+            "phoneNumber": owner_phone.split("@", 1)[0] if isinstance(owner_phone, str) else owner_phone,
+            "profileName": inst.get("profileName") or None,
         })
     return items
 

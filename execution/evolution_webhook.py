@@ -22,7 +22,7 @@ import requests
 from dotenv import load_dotenv
 
 from ai_agent import normalize_phone, process_inbound_message
-from review_order_whatsapp import process_representative_order_command
+from review_order_whatsapp import is_instance_owner_phone, process_representative_order_command
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -351,7 +351,7 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
             )
         return representative_result
 
-    if incoming["from_me"]:
+    if incoming["from_me"] and not is_instance_owner_phone(incoming["phone"], instance):
         return {"action": "ignored_from_me", "should_reply": False}
 
     result = process_inbound_message(

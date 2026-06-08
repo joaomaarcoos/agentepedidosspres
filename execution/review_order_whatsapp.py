@@ -87,6 +87,13 @@ def _phone_candidates(phone: str) -> set[str]:
     return candidates
 
 
+def _safe_int(value: Any) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def _order_by_protocol(db, protocolo: str) -> dict | None:
     rows = (
         db.table("pedidos_revisao")
@@ -116,14 +123,54 @@ def _customer_by_phone(db, phone: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def _integrated_orders_for_customer(db, customer: dict | None, limit: int = 10) -> list[dict]:
+    cpf_cnpj = _text((customer or {}).get("cpf_cnpj"))
+    if not cpf_cnpj:
+        return []
+    return (
+        db.table("clic_pedidos_integrados")
+        .select("raw_json,criado_em")
+        .eq("cpf_cnpj", cpf_cnpj)
+        .order("criado_em", desc=True)
+        .limit(max(1, min(limit, 20)))
+        .execute()
+        .data
+        or []
+    )
+
+
+def _customer_name_from_history(db, order: dict) -> str:
+    customer = _customer_by_phone(db, _text(order.get("cliente_telefone")))
+    for row in _integrated_orders_for_customer(db, customer, limit=5):
+        raw = row.get("raw_json") or {}
+        cliente = raw.get("cliente") if isinstance(raw.get("cliente"), dict) else {}
+        name = _text(cliente.get("fantasia") or cliente.get("razaoSocial"))
+        if name:
+            return name
+    return ""
+
+
 def _latest_rep_for_customer(db, order: dict) -> int | None:
     customer = _customer_by_phone(db, _text(order.get("cliente_telefone")))
-    cod_cli = (customer or {}).get("cod_cli")
+    for row in _integrated_orders_for_customer(db, customer):
+        raw = row.get("raw_json") or {}
+        representante = raw.get("representante") or raw.get("autor") or {}
+        candidates = (
+            (representante.get("backoffice") or {}).get("codigo") if isinstance(representante, dict) else None,
+            representante.get("codigo") if isinstance(representante, dict) else None,
+            (representante.get("acesso") or {}).get("login") if isinstance(representante, dict) else None,
+        )
+        for candidate in candidates:
+            cod_rep = _safe_int(candidate)
+            if cod_rep is not None:
+                return cod_rep
+
+    cod_cli = _safe_int((customer or {}).get("cod_cli") or (customer or {}).get("external_id"))
     if cod_cli:
         rows = (
             db.table("rep_order_base")
             .select("cod_rep")
-            .eq("cod_cli", int(cod_cli))
+            .eq("cod_cli", cod_cli)
             .order("dat_emi", desc=True)
             .limit(1)
             .execute()
@@ -169,7 +216,7 @@ def _instance_for_rep(db, cod_rep: int | None) -> dict | None:
         if not name:
             continue
         instance = instances.get(name) or {"instanceName": name}
-        owner_phone = normalize_phone(instance.get("phoneNumber"))
+        owner_phone = normalize_phone(value.get("owner_phone") or instance.get("phoneNumber") or instance.get("ownerJid"))
         return {**instance, "owner_phone": owner_phone, "cod_rep": cod_rep}
     return None
 
@@ -207,7 +254,17 @@ def _instance_owner_info(db, instance_name: str) -> dict | None:
             instance = item
             break
 
-    return {**instance, "owner_phone": normalize_phone(instance.get("phoneNumber")), "cod_rep": cod_rep}
+    owner_phone = normalize_phone(value.get("owner_phone") or instance.get("phoneNumber") or instance.get("ownerJid"))
+    return {**instance, "owner_phone": owner_phone, "cod_rep": cod_rep}
+
+
+def is_instance_owner_phone(phone: str, instance_name: str) -> bool:
+    """True quando a mensagem veio do dono do número conectado na instância."""
+    try:
+        return _owner_can_act(_instance_owner_info(_db(), instance_name), phone)
+    except Exception as exc:
+        logger.warning("Falha ao validar dono da instância %s: %s", instance_name, exc)
+        return False
 
 
 def _fmt_money(value: Any) -> str:
@@ -284,6 +341,9 @@ def notify_representative_order_review(order_id: str) -> dict:
     if not rows:
         return {"sent": False, "reason": "order_not_found"}
     order = rows[0]
+    customer_name = _customer_name_from_history(db, order)
+    if customer_name and _text(order.get("cliente_nome")).isdigit():
+        order = {**order, "cliente_nome": customer_name}
     cod_rep = _latest_rep_for_customer(db, order)
     instance = _instance_for_rep(db, cod_rep)
     if not instance:

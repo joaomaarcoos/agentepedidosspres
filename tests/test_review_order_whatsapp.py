@@ -27,7 +27,14 @@ class _FakeTable:
         self.filters[key] = value
         return self
 
+    def in_(self, key, value):
+        self.filters[key] = value
+        return self
+
     def limit(self, *_args, **_kwargs):
+        return self
+
+    def order(self, *_args, **_kwargs):
         return self
 
     def execute(self):
@@ -38,6 +45,16 @@ class _FakeTable:
         if self.name == "pedidos_revisao":
             protocolo = self.filters.get("protocolo")
             return _FakeResult(self.db.orders.get(protocolo, []))
+        if self.name == "clic_clientes":
+            phone = self.filters.get("telefone")
+            phones = phone if isinstance(phone, list) else [phone]
+            rows = []
+            for candidate in phones:
+                rows.extend(self.db.customers_by_phone.get(candidate, []))
+            return _FakeResult(rows)
+        if self.name == "clic_pedidos_integrados":
+            cpf = self.filters.get("cpf_cnpj")
+            return _FakeResult(self.db.integrated_orders_by_cpf.get(cpf, []))
         return _FakeResult([])
 
 
@@ -50,6 +67,19 @@ class _FakeDb:
             ]
         }
         self.orders = {}
+        self.customers_by_phone = {
+            "5511888888888": [{"cpf_cnpj": "00000000000200", "telefone": "5511888888888"}]
+        }
+        self.integrated_orders_by_cpf = {
+            "00000000000200": [
+                {
+                    "raw_json": {
+                        "cliente": {"fantasia": "João Fake"},
+                        "representante": {"backoffice": {"codigo": "205"}},
+                    }
+                }
+            ]
+        }
 
     def table(self, name):
         return _FakeTable(self, name)
@@ -89,6 +119,26 @@ class ReviewOrderWhatsappTests(unittest.TestCase):
 
         self.assertEqual(result["action"], "review_order_not_found")
         self.assertIn("SP-260608-ABC123", result["reply"])
+
+    def test_latest_rep_uses_integrated_order_history(self):
+        db = _FakeDb()
+
+        cod_rep = review_order_whatsapp._latest_rep_for_customer(
+            db,
+            {"cliente_telefone": "5511888888888"},
+        )
+
+        self.assertEqual(cod_rep, 205)
+
+    def test_customer_name_falls_back_to_integrated_order_history(self):
+        db = _FakeDb()
+
+        name = review_order_whatsapp._customer_name_from_history(
+            db,
+            {"cliente_telefone": "5511888888888"},
+        )
+
+        self.assertEqual(name, "João Fake")
 
 
 if __name__ == "__main__":
