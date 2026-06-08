@@ -1,5 +1,6 @@
 import sys
 import unittest
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -139,6 +140,38 @@ class ReviewOrderWhatsappTests(unittest.TestCase):
         )
 
         self.assertEqual(name, "João Fake")
+
+    def test_representative_assistant_uses_operational_context(self):
+        db = _FakeDb()
+        db.settings["evolution_instance_owner__rep-01"] = [
+            {
+                "key": "evolution_instance_owner__rep-01",
+                "value": {"cod_rep": 205, "owner_phone": "5511999999999"},
+            }
+        ]
+        order = {
+            "id": "order-1",
+            "protocolo": "SP-260608-ABC123",
+            "status": "pendente",
+            "cliente_nome": "João Fake",
+            "cliente_telefone": "5511888888888",
+            "itens_json": [],
+        }
+
+        with patch.object(review_order_whatsapp, "_db", return_value=db), patch.object(
+            review_order_whatsapp, "_fetch_instances", return_value=[]
+        ), patch.object(
+            review_order_whatsapp, "_representative_review_orders", return_value=[order]
+        ), patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            result = review_order_whatsapp.process_representative_message(
+                phone="5511999999999",
+                text="Quais pedidos estão pendentes?",
+                instance_name="rep-01",
+            )
+
+        self.assertEqual(result["action"], "representative_assistant_reply")
+        self.assertIn("SP-260608-ABC123", result["reply"])
+        self.assertNotIn("produto", result["reply"].lower())
 
 
 if __name__ == "__main__":

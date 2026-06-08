@@ -22,7 +22,12 @@ import requests
 from dotenv import load_dotenv
 
 from ai_agent import normalize_phone, process_inbound_message
-from review_order_whatsapp import is_instance_owner_phone, process_representative_order_command
+from review_order_whatsapp import (
+    AI_OUTGOING_MARKER,
+    is_instance_owner_phone,
+    process_representative_message,
+    process_representative_order_command,
+)
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -215,7 +220,7 @@ def send_whatsapp(phone: str, text: str, instance: str) -> dict:
     text = normalize_whatsapp_markdown(text)
     response = requests.post(
         f"{api_url}/message/sendText/{instance}",
-        json={"number": f"{phone}@s.whatsapp.net", "text": text},
+        json={"number": f"{phone}@s.whatsapp.net", "text": f"{text}{AI_OUTGOING_MARKER}"},
         headers={"apikey": api_key, "Content-Type": "application/json"},
         timeout=20,
     )
@@ -334,6 +339,9 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
     if not incoming["phone"] or not incoming["text"]:
         return {"action": "ignored_empty", "should_reply": False}
 
+    if AI_OUTGOING_MARKER in incoming["text"]:
+        return {"action": "ignored_ai_outgoing", "should_reply": False}
+
     if not _is_agent_enabled(instance):
         return {"action": "agent_disabled", "should_reply": False}
 
@@ -351,8 +359,23 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
             )
         return representative_result
 
-    if incoming["from_me"] and not is_instance_owner_phone(incoming["phone"], instance):
-        return {"action": "ignored_from_me", "should_reply": False}
+    if incoming["from_me"]:
+        if not is_instance_owner_phone(incoming["phone"], instance):
+            return {"action": "ignored_from_me", "should_reply": False}
+        result = process_representative_message(
+            phone=incoming["phone"],
+            text=incoming["text"],
+            instance_name=instance,
+        )
+        if not result:
+            return {"action": "ignored_unidentified_representative", "should_reply": False}
+        if send_reply and result.get("should_reply") and result.get("reply"):
+            result["evolution_response"] = send_whatsapp(
+                incoming["phone"],
+                result["reply"],
+                instance,
+            )
+        return result
 
     result = process_inbound_message(
         phone=incoming["phone"],

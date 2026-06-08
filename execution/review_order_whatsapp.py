@@ -16,6 +16,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 logger = logging.getLogger(__name__)
 
 OWNER_KEY_PREFIX = "evolution_instance_owner__"
+AI_OUTGOING_MARKER = "\u2063\u2063"
 APPROVE_RE = re.compile(r"\b(?:aprovar|aprova|aprovado|enviar|manda|mandar)\b.*?\b(SP-\d{6}-[A-Z0-9]{6})\b", re.I)
 CANCEL_RE = re.compile(r"\b(?:cancelar|cancela|recusar|reprovar)\b.*?\b(SP-\d{6}-[A-Z0-9]{6})\b", re.I)
 
@@ -51,7 +52,7 @@ def send_whatsapp(phone: str, text: str, instance: str) -> dict:
     api_url, api_key = _evolution_config()
     response = requests.post(
         f"{api_url}/message/sendText/{instance}",
-        json={"number": f"{normalize_phone(phone)}@s.whatsapp.net", "text": text},
+        json={"number": f"{normalize_phone(phone)}@s.whatsapp.net", "text": f"{text}{AI_OUTGOING_MARKER}"},
         headers={"apikey": api_key, "Content-Type": "application/json"},
         timeout=20,
     )
@@ -418,6 +419,142 @@ def _owner_can_act(instance_info: dict | None, phone: str) -> bool:
         return False
     owner_phone = normalize_phone(instance_info.get("owner_phone"))
     return bool(owner_phone and normalize_phone(phone) == owner_phone)
+
+
+def _representative_review_orders(db, cod_rep: int, limit: int = 30) -> list[dict]:
+    rows = (
+        db.table("pedidos_revisao")
+        .select("*")
+        .in_("status", ["pendente", "em_revisao"])
+        .order("created_at", desc=True)
+        .limit(max(limit * 4, 80))
+        .execute()
+        .data
+        or []
+    )
+    result = []
+    for order in rows:
+        if _latest_rep_for_customer(db, order) != cod_rep:
+            continue
+        customer_name = _customer_name_from_history(db, order)
+        if customer_name and (
+            not _text(order.get("cliente_nome"))
+            or _text(order.get("cliente_nome")).isdigit()
+        ):
+            order = {**order, "cliente_nome": customer_name}
+        result.append(order)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _representative_order_summary(order: dict) -> dict:
+    items = []
+    total = 0.0
+    for item in order.get("itens_json") or []:
+        if not isinstance(item, dict):
+            continue
+        subtotal = item.get("subtotal")
+        try:
+            total += float(subtotal or 0)
+        except (TypeError, ValueError):
+            pass
+        items.append(
+            {
+                "produto": _item_name(item),
+                "formato": _text(item.get("tipo") or item.get("formato")),
+                "tamanho": _text(item.get("tamanho") or item.get("derivacao") or item.get("variacao")),
+                "quantidade": _item_quantity(item),
+                "unidade": _text(item.get("unidade")) or "un",
+                "subtotal": subtotal,
+            }
+        )
+    return {
+        "protocolo": order.get("protocolo"),
+        "status": order.get("status"),
+        "cliente_nome": order.get("cliente_nome") or "Cliente",
+        "cliente_telefone": order.get("cliente_telefone"),
+        "itens": items,
+        "total": round(total, 2),
+        "observacoes": order.get("observacoes") or "",
+        "criado_em": order.get("created_at"),
+    }
+
+
+def process_representative_message(phone: str, text: str, instance_name: str) -> dict | None:
+    """Atendimento operacional exclusivo para o dono da instância/representante."""
+    db = _db()
+    instance_info = _instance_owner_info(db, instance_name)
+    if not _owner_can_act(instance_info, phone):
+        return None
+
+    cod_rep = _safe_int((instance_info or {}).get("cod_rep"))
+    if cod_rep is None:
+        return {
+            "action": "representative_missing_cod_rep",
+            "should_reply": True,
+            "reply": "Sua instância está conectada, mas ainda não há um código de representante vinculado à sua conta.",
+        }
+
+    orders = _representative_review_orders(db, cod_rep)
+    summaries = [_representative_order_summary(order) for order in orders]
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        if not summaries:
+            reply = "Você não tem pedidos pendentes de revisão no momento."
+        else:
+            protocols = ", ".join(str(order.get("protocolo")) for order in summaries[:8])
+            reply = f"Você tem {len(summaries)} pedido(s) pendente(s): {protocols}."
+        return {"action": "representative_assistant_reply", "should_reply": True, "reply": reply, "cod_rep": cod_rep}
+
+    system_prompt = (
+        "Você é a Marcela no modo assistente operacional do representante comercial da Sucos SPRES. "
+        "Você está conversando com o dono do número de WhatsApp conectado, não com um cliente. "
+        "Nunca use abordagem de venda, nunca ofereça produtos e nunca tente montar um pedido para esse interlocutor. "
+        "Ajude o representante a consultar e acompanhar pedidos dos clientes dele que estão pendentes ou em revisão. "
+        "Responda de forma curta, profissional e direta em português brasileiro correto. "
+        "Use somente os pedidos fornecidos no contexto e nunca mostre pedidos de outro representante. "
+        "Quando perguntarem quais pedidos estão pendentes, informe protocolo, cliente, telefone, itens e total. "
+        "Quando perguntarem por um protocolo, detalhe somente esse pedido. "
+        "Explique que 'aprovar PROTOCOLO' significa que o representante já lançou o pedido manualmente no Clic Vendas. "
+        "Explique que 'cancelar PROTOCOLO' cancela a revisão. "
+        "Não diga que enviará automaticamente ao Clic Vendas, porque essa integração está desativada. "
+        "Não altere status por conversa comum; alterações só ocorrem pelos comandos explícitos processados pelo sistema."
+    )
+    payload = {
+        "representante": {"cod_rep": cod_rep, "telefone": normalize_phone(phone)},
+        "pedidos_pendentes": summaries,
+        "mensagem_representante": _text(text),
+    }
+    try:
+        from openai import OpenAI
+
+        response = OpenAI(api_key=api_key).chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
+            ],
+            temperature=0.2,
+        )
+        reply = _text(response.choices[0].message.content)
+    except Exception as exc:
+        logger.warning("Falha no assistente do representante: %s", exc)
+        reply = (
+            "Você não tem pedidos pendentes de revisão no momento."
+            if not summaries
+            else f"Você tem {len(summaries)} pedido(s) pendente(s): "
+            + ", ".join(str(order.get("protocolo")) for order in summaries[:8])
+            + "."
+        )
+
+    return {
+        "action": "representative_assistant_reply",
+        "should_reply": True,
+        "reply": reply,
+        "cod_rep": cod_rep,
+        "pending_orders": len(summaries),
+    }
 
 
 def process_representative_order_command(phone: str, text: str, instance_name: str) -> dict | None:
