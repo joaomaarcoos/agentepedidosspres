@@ -76,27 +76,25 @@ export default function UsuariosPage() {
               {usuarios.length} usuário{usuarios.length !== 1 ? "s" : ""} cadastrado{usuarios.length !== 1 ? "s" : ""}
             </p>
           </div>
-          {(currentProfile?.role === "master_dev" || currentProfile?.role === "admin") && (
-            <Link
-              href="/admin/usuarios/novo"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "9px 18px",
-                background: "var(--accent)",
-                color: "#fff",
-                borderRadius: 8,
-                textDecoration: "none",
-                fontSize: 13,
-                fontWeight: 600,
-                boxShadow: "0 0 12px var(--accent-glow)",
-              }}
-            >
-              <UserPlus size={14} />
-              Novo Usuário
-            </Link>
-          )}
+          <Link
+            href="/admin/usuarios/novo"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "9px 18px",
+              background: "var(--accent)",
+              color: "#fff",
+              borderRadius: 8,
+              textDecoration: "none",
+              fontSize: 13,
+              fontWeight: 600,
+              boxShadow: "0 0 12px var(--accent-glow)",
+            }}
+          >
+            <UserPlus size={14} />
+            Novo Usuário
+          </Link>
         </div>
 
         {loading ? (
