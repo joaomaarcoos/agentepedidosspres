@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/layout/Header";
 import { useAuth } from "@/lib/auth-context";
@@ -24,15 +24,24 @@ export default function NovoUsuarioPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [nome, setNome] = useState("");
-  const [role, setRole] = useState<Role>("gestor");
+  const [role, setRole] = useState<Role>("representante");
   const [codRep, setCodRep] = useState("");
   const [cpf, setCpf] = useState("");
   const [ativo, setAtivo] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const availableRoles = currentProfile?.role === "master_dev"
-    ? ROLES
-    : ROLES.filter((item) => item !== "master_dev");
+  const availableRoles =
+    currentProfile?.role === "master_dev"
+      ? ROLES
+      : currentProfile?.role === "gestor"
+        ? (["representante"] as Role[])
+        : ROLES.filter((item) => item !== "master_dev");
+
+  useEffect(() => {
+    if (currentProfile?.role === "gestor") {
+      setRole("representante");
+    }
+  }, [currentProfile?.role]);
 
   async function handleCreate() {
     if (saving) return;

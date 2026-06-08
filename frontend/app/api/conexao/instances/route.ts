@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listInstances, createInstance } from "@/lib/server/conexao";
+import { filterInstancesForProfile, listInstances, createInstance, saveInstanceOwner } from "@/lib/server/conexao";
 import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 import { randomBytes } from "node:crypto";
 
@@ -7,12 +7,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  const auth = await requireApiRole(API_ROLES.ALL);
   if (isApiAuthFailure(auth)) return auth.response;
 
   try {
     const result = await listInstances();
-    return NextResponse.json(result);
+    return NextResponse.json(await filterInstancesForProfile(result, auth.profile));
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erro ao listar instancias" },
@@ -47,7 +47,7 @@ function createWebhookToken(): string {
 const DEFAULT_MSG_CALL = "No momento não consigo atender. Envie uma mensagem!";
 
 export async function POST(request: Request) {
-  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  const auth = await requireApiRole(API_ROLES.ALL);
   if (isApiAuthFailure(auth)) return auth.response;
 
   try {
@@ -62,6 +62,13 @@ export async function POST(request: Request) {
       webhookUrl: buildWebhookUrl(request, webhookToken),
       msgCall: DEFAULT_MSG_CALL,
     });
+    const ownerSaved = await saveInstanceOwner(result.instanceName || name.trim(), auth.profile);
+    if (auth.profile.role === "representante" && !ownerSaved) {
+      return NextResponse.json(
+        { error: "Instancia criada, mas nao foi possivel vincular a sua conta." },
+        { status: 500 }
+      );
+    }
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

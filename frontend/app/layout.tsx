@@ -3,6 +3,9 @@ import "./globals.css";
 import PwaRegister from "@/components/PwaRegister";
 import PwaInstallPrompt from "@/components/PwaInstallPrompt";
 
+const SUCOS_SPRES_LOGO_URL =
+  "https://tsnvhhrifxcnuszzaxfk.supabase.co/storage/v1/object/public/app-assets/brand/sucos-spres-logo.png";
+
 export const metadata: Metadata = {
   title: "AgentePedidos",
   description: "SucosSpres - ClicVendas fullstack com modulos internos em Python",
@@ -20,8 +23,9 @@ export const metadata: Metadata = {
     "mobile-web-app-capable": "yes",
   },
   icons: {
-    icon: "/icons/icon.svg",
-    apple: "/icons/icon.svg",
+    icon: [{ url: SUCOS_SPRES_LOGO_URL, type: "image/png" }],
+    shortcut: [{ url: SUCOS_SPRES_LOGO_URL, type: "image/png" }],
+    apple: [{ url: SUCOS_SPRES_LOGO_URL, type: "image/png" }],
   },
 };
 

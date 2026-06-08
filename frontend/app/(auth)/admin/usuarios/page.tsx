@@ -24,6 +24,7 @@ const ROLE_COLORS: Record<Role, string> = {
 
 export default function UsuariosPage() {
   const { profile: currentProfile } = useAuth();
+  const canEditUsers = currentProfile?.role === "master_dev" || currentProfile?.role === "admin";
   const [usuarios, setUsuarios] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -189,18 +190,20 @@ export default function UsuariosPage() {
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <Link
-                          href={`/admin/usuarios/${u.id}`}
-                          style={{
-                            fontSize: 12,
-                            color: "var(--accent)",
-                            textDecoration: "none",
-                            fontWeight: 500,
-                          }}
-                        >
-                          Editar
-                        </Link>
-                        {u.id !== currentProfile?.id && (
+                        {canEditUsers && (
+                          <Link
+                            href={`/admin/usuarios/${u.id}`}
+                            style={{
+                              fontSize: 12,
+                              color: "var(--accent)",
+                              textDecoration: "none",
+                              fontWeight: 500,
+                            }}
+                          >
+                            Editar
+                          </Link>
+                        )}
+                        {canEditUsers && u.id !== currentProfile?.id && (
                           <button
                             onClick={() => toggleAtivo(u.id, u.ativo)}
                             disabled={saving === u.id}

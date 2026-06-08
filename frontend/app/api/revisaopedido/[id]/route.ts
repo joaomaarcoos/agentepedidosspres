@@ -9,7 +9,7 @@ export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  const auth = await requireApiRole(API_ROLES.ALL);
   if (isApiAuthFailure(auth)) return auth.response;
 
   try {
@@ -27,7 +27,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  const auth = await requireApiRole(API_ROLES.ALL);
   if (isApiAuthFailure(auth)) return auth.response;
 
   try {

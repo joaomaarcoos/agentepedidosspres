@@ -1,5 +1,8 @@
 import type { MetadataRoute } from "next";
 
+const SUCOS_SPRES_LOGO_URL =
+  "https://tsnvhhrifxcnuszzaxfk.supabase.co/storage/v1/object/public/app-assets/brand/sucos-spres-logo.png";
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "AgentePedidos SucosSpres",
@@ -14,15 +17,15 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ["business", "productivity"],
     icons: [
       {
-        src: "/icons/icon.svg",
-        sizes: "any",
-        type: "image/svg+xml",
+        src: SUCOS_SPRES_LOGO_URL,
+        sizes: "1024x1024",
+        type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icons/icon.svg",
-        sizes: "any",
-        type: "image/svg+xml",
+        src: SUCOS_SPRES_LOGO_URL,
+        sizes: "1024x1024",
+        type: "image/png",
         purpose: "maskable",
       },
     ],

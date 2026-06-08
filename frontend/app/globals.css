@@ -94,16 +94,11 @@ a {
 }
 
 .sidebar-logo {
-  width: 32px;
-  height: 32px;
-  background: var(--accent);
+  width: 42px;
+  height: 34px;
+  background: #fff;
   border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  color: #fff;
-  font-size: 14px;
+  object-fit: contain;
   box-shadow: 0 0 15px var(--accent-glow);
   flex: 0 0 auto;
 }
@@ -174,10 +169,41 @@ a {
   min-height: 36px;
 }
 
+.sidebar-primary-link {
+  margin-bottom: 10px;
+}
+
+.sidebar-section {
+  margin: 12px 0 14px;
+}
+
+.sidebar-section-title {
+  padding: 0 12px 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+
+.sidebar-subnav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-child-link {
+  margin-left: 10px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+  border-radius: 0 8px 8px 0;
+}
+
 .sidebar-link.is-active {
   color: #fff;
   background: var(--accent);
   font-weight: 600;
+  border-left-color: transparent;
 }
 
 .sidebar-user {
@@ -235,7 +261,8 @@ a {
 
 .desktop-sidebar.is-collapsed .sidebar-brand-copy,
 .desktop-sidebar.is-collapsed .sidebar-link-label,
-.desktop-sidebar.is-collapsed .sidebar-user-meta {
+.desktop-sidebar.is-collapsed .sidebar-user-meta,
+.desktop-sidebar.is-collapsed .sidebar-section-title {
   display: none;
 }
 
@@ -248,6 +275,16 @@ a {
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
+}
+
+.desktop-sidebar.is-collapsed .sidebar-section {
+  margin: 8px 0;
+}
+
+.desktop-sidebar.is-collapsed .sidebar-child-link {
+  margin-left: 0;
+  border-left: 0;
+  border-radius: 8px;
 }
 
 .sidebar-scrim {
@@ -298,13 +335,24 @@ a {
 }
 
 .offline-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-weight: 800;
   font-size: 18px;
   margin-bottom: 24px;
 }
 
+.offline-brand img {
+  width: 64px;
+  height: 50px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .offline-brand span {
-  color: var(--accent);
+  color: var(--text);
 }
 
 .offline-card h1 {
@@ -457,7 +505,8 @@ a {
 
   .desktop-sidebar.is-collapsed .sidebar-brand-copy,
   .desktop-sidebar.is-collapsed .sidebar-link-label,
-  .desktop-sidebar.is-collapsed .sidebar-user-meta {
+  .desktop-sidebar.is-collapsed .sidebar-user-meta,
+  .desktop-sidebar.is-collapsed .sidebar-section-title {
     display: block;
   }
 
@@ -475,6 +524,12 @@ a {
     justify-content: flex-start;
     padding-left: 12px;
     padding-right: 12px;
+  }
+
+  .desktop-sidebar.is-collapsed .sidebar-child-link {
+    margin-left: 10px;
+    border-left: 1px solid var(--border);
+    border-radius: 0 8px 8px 0;
   }
 
   .sidebar-scrim {

@@ -4,9 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, Download, Package, RefreshCw, Search, Tag, X } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { tabelaPrecoApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import type { TabelaPreco, TabelaPrecoItem } from "@/lib/types";
 
 export default function TabelaPrecoPage() {
+  const { profile } = useAuth();
+  const canSync = profile?.role === "master_dev" || profile?.role === "admin" || profile?.role === "gestor";
   const [tabelas, setTabelas] = useState<TabelaPreco[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -151,26 +154,28 @@ export default function TabelaPrecoPage() {
               Atualizar
             </button>
 
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "8px 16px",
-                borderRadius: 8,
-                border: "none",
-                background: syncing ? "var(--muted)" : "var(--accent)",
-                color: "#fff",
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: syncing ? "not-allowed" : "pointer",
-              }}
-            >
-              <Download size={14} />
-              {syncing ? "Sincronizando..." : "Sincronizar Tabela de Preço"}
-            </button>
+            {canSync && (
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: syncing ? "var(--muted)" : "var(--accent)",
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: syncing ? "not-allowed" : "pointer",
+                }}
+              >
+                <Download size={14} />
+                {syncing ? "Sincronizando..." : "Sincronizar Tabela de Preço"}
+              </button>
+            )}
           </div>
 
           {/* Mensagem de feedback do sync */}

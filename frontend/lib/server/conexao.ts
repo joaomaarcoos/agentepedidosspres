@@ -1,13 +1,22 @@
 import { runPythonJson } from "@/lib/server/python";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import type { ApiAuthSuccess } from "@/lib/server/api-auth";
 import type {
   ConexaoStatus,
   CreateInstanceResult,
+  EvolutionInstance,
   EvolutionInstancesResponse,
   InstanceActionResult,
   QrCodeResult,
 } from "@/lib/types";
 
 type Envelope<T> = { ok: true; data: T } | { ok: false; error: string };
+type ApiProfile = ApiAuthSuccess["profile"];
+type InstanceOwner = {
+  user_id: string;
+  role: string;
+  cod_rep: number | null;
+};
 
 async function call<T>(args: string[]): Promise<T> {
   const result = await runPythonJson<Envelope<T>>("execution/conexao_cli.py", args);
@@ -21,6 +30,82 @@ export function getConexaoStatus() {
 
 export function listInstances() {
   return call<EvolutionInstancesResponse>(["list"]);
+}
+
+function ownerKey(name: string) {
+  return `evolution_instance_owner__${name}`;
+}
+
+function settingsClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRoleKey) return null;
+  return createSupabaseClient(url, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+export async function saveInstanceOwner(name: string, profile: ApiProfile) {
+  const client = settingsClient();
+  if (!client || !name) return false;
+
+  const { error } = await client.from("system_settings").upsert({
+    key: ownerKey(name),
+    value: {
+      user_id: profile.id,
+      role: profile.role,
+      cod_rep: profile.cod_rep,
+    },
+    updated_at: new Date().toISOString(),
+  });
+
+  return !error;
+}
+
+async function loadInstanceOwner(name: string): Promise<InstanceOwner | null> {
+  const client = settingsClient();
+  if (!client || !name) return null;
+
+  const { data } = await client
+    .from("system_settings")
+    .select("value")
+    .eq("key", ownerKey(name))
+    .limit(1)
+    .maybeSingle();
+
+  const value = data?.value as Partial<InstanceOwner> | null | undefined;
+  if (!value?.user_id) return null;
+  return {
+    user_id: String(value.user_id),
+    role: String(value.role || ""),
+    cod_rep: typeof value.cod_rep === "number" ? value.cod_rep : null,
+  };
+}
+
+export async function canManageInstance(name: string, profile: ApiProfile) {
+  if (profile.role !== "representante") return true;
+  const owner = await loadInstanceOwner(name);
+  return owner?.user_id === profile.id;
+}
+
+export async function filterInstancesForProfile(
+  result: EvolutionInstancesResponse,
+  profile: ApiProfile
+): Promise<EvolutionInstancesResponse> {
+  if (profile.role !== "representante") return result;
+
+  const instances: EvolutionInstance[] = [];
+  for (const instance of result.instances ?? []) {
+    if (await canManageInstance(instance.instanceName, profile)) {
+      instances.push(instance);
+    }
+  }
+
+  return {
+    ...result,
+    instances,
+    total: instances.length,
+  };
 }
 
 export function createInstance(params: {

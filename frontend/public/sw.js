@@ -1,5 +1,5 @@
 const CACHE_NAME = "agentepedidos-pwa-v1";
-const APP_SHELL = ["/offline", "/icons/icon.svg"];
+const APP_SHELL = ["/offline"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

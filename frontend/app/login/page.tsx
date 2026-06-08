@@ -4,6 +4,9 @@ import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 
+const SUCOS_SPRES_LOGO_URL =
+  "https://tsnvhhrifxcnuszzaxfk.supabase.co/storage/v1/object/public/app-assets/brand/sucos-spres-logo.png";
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/pedidos";
@@ -91,23 +94,18 @@ function LoginForm() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28 }}>
-          <div
+          <img
+            src={SUCOS_SPRES_LOGO_URL}
+            alt="Sucos Spres"
             style={{
-              width: 40,
-              height: 40,
-              background: "var(--accent)",
-              borderRadius: 10,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 800,
-              color: "#fff",
-              fontSize: 18,
+              width: 58,
+              height: 46,
+              borderRadius: 8,
+              objectFit: "contain",
+              background: "#fff",
               boxShadow: "0 0 20px var(--accent-glow)",
             }}
-          >
-            A
-          </div>
+          />
           <div>
             <div style={{ fontWeight: 700, fontSize: 16, color: "var(--text)" }}>
               Agente<span style={{ color: "var(--accent)" }}>Pedidos</span>

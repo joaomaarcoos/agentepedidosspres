@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const auth = await requireApiRole(API_ROLES.ELEVATED);
+  const auth = await requireApiRole(API_ROLES.ALL);
   if (isApiAuthFailure(auth)) return auth.response;
 
   try {
