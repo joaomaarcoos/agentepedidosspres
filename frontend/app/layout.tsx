@@ -9,12 +9,12 @@ const SUCOS_SPRES_LOGO_URL =
 export const metadata: Metadata = {
   title: "AgentePedidos",
   description: "SucosSpres - ClicVendas fullstack com modulos internos em Python",
-  applicationName: "AgentePedidos",
+  applicationName: "IA Sales Spres",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "AgentePedidos",
+    title: "IA Sales Spres",
   },
   formatDetection: {
     telephone: false,

@@ -5,8 +5,8 @@ const SUCOS_SPRES_LOGO_URL =
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "AgentePedidos SucosSpres",
-    short_name: "AgentePedidos",
+    name: "IA Sales Spres",
+    short_name: "IA Sales Spres",
     description: "Sistema interno de pedidos, clientes e recorrencia da SucosSpres.",
     start_url: "/pedidos",
     scope: "/",
