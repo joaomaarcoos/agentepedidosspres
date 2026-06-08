@@ -4,10 +4,10 @@ import { AuthProvider } from "@/lib/auth-context";
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      <Sidebar />
-      <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {children}
-      </main>
+      <div className="app-shell">
+        <Sidebar />
+        <main className="app-main">{children}</main>
+      </div>
     </AuthProvider>
   );
 }

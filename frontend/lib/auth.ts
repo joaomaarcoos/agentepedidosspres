@@ -1,6 +1,6 @@
 import type { Role, UserProfile } from "@/lib/types";
 
-export const PUBLIC_PATHS = ["/login", "/acesso-negado", "/auth/callback"];
+export const PUBLIC_PATHS = ["/login", "/acesso-negado", "/auth/callback", "/offline"];
 export const PUBLIC_API_PATHS = ["/api/auth/login"];
 
 type RouteRule = {

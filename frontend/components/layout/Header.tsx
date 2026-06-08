@@ -15,6 +15,7 @@ export default function Header({ title }: { title?: string }) {
 
   return (
     <header
+      className="app-header"
       style={{
         height: 52,
         minHeight: 52,
@@ -26,11 +27,11 @@ export default function Header({ title }: { title?: string }) {
         padding: "0 24px",
       }}
     >
-      <span style={{ fontWeight: 600, fontSize: 15, color: "var(--text)" }}>
+      <span className="app-header-title" style={{ fontWeight: 600, fontSize: 15, color: "var(--text)" }}>
         {title || "AgentePedidos"}
       </span>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="app-header-actions" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div
           style={{
             display: "flex",
