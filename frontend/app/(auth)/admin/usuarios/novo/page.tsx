@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/layout/Header";
+import { useAuth } from "@/lib/auth-context";
 import type { Role } from "@/lib/types";
 import { ArrowLeft, Eye, EyeOff, Save } from "lucide-react";
 import Link from "next/link";
@@ -17,6 +18,7 @@ const ROLE_LABELS: Record<Role, string> = {
 
 export default function NovoUsuarioPage() {
   const router = useRouter();
+  const { profile: currentProfile } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,6 +30,9 @@ export default function NovoUsuarioPage() {
   const [ativo, setAtivo] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const availableRoles = currentProfile?.role === "master_dev"
+    ? ROLES
+    : ROLES.filter((item) => item !== "master_dev");
 
   async function handleCreate() {
     if (saving) return;
@@ -194,7 +199,7 @@ export default function NovoUsuarioPage() {
             <div>
               <label style={labelStyle}>Cargo</label>
               <select value={role} onChange={(e) => setRole(e.target.value as Role)} style={fieldStyle}>
-                {ROLES.map((r) => (
+                {availableRoles.map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABELS[r]}
                   </option>

@@ -11,7 +11,7 @@ function asString(value: unknown) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireApiRole(API_ROLES.MASTER);
+  const auth = await requireApiRole(API_ROLES.ELEVATED);
   if (isApiAuthFailure(auth)) return auth.response;
 
   const supabase = createClient();
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     .eq("id", user.id)
     .single<{ role: Role; ativo: boolean }>();
 
-  if (!currentProfile?.ativo || currentProfile.role !== "master_dev") {
+  if (!currentProfile?.ativo || !["master_dev", "admin"].includes(currentProfile.role)) {
     return NextResponse.json({ error: "Sem permissao para criar usuarios." }, { status: 403 });
   }
 
@@ -45,6 +45,10 @@ export async function POST(request: Request) {
 
   if (!email || !password || !nome || !ROLES.includes(role)) {
     return NextResponse.json({ error: "Preencha e-mail, senha, nome e cargo." }, { status: 400 });
+  }
+
+  if (currentProfile.role !== "master_dev" && role === "master_dev") {
+    return NextResponse.json({ error: "Somente Master Dev pode criar usuario Master Dev." }, { status: 403 });
   }
 
   if (password.length < 6) {

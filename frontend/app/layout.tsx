@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import PwaRegister from "@/components/PwaRegister";
+import PwaInstallPrompt from "@/components/PwaInstallPrompt";
 
 export const metadata: Metadata = {
   title: "AgentePedidos",
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {children}
         <PwaRegister />
+        <PwaInstallPrompt />
       </body>
     </html>
   );

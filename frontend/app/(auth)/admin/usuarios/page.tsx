@@ -76,7 +76,7 @@ export default function UsuariosPage() {
               {usuarios.length} usuário{usuarios.length !== 1 ? "s" : ""} cadastrado{usuarios.length !== 1 ? "s" : ""}
             </p>
           </div>
-          {currentProfile?.role === "master_dev" && (
+          {(currentProfile?.role === "master_dev" || currentProfile?.role === "admin") && (
             <Link
               href="/admin/usuarios/novo"
               style={{
