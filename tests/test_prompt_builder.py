@@ -50,6 +50,29 @@ class PromptBuilderTests(unittest.TestCase):
         self.assertIn("## DECISAO OPERACIONAL DO ATENDIMENTO", prompt)
         self.assertNotIn("Nunca escolha a primeira variacao da lista como padrao", prompt)
 
+    def test_catalog_resolution_subagent_section_is_included(self):
+        prompt = build_prompt(
+            {
+                "catalog_resolution": {
+                    "source": "order_resolution_subagent",
+                    "itens": [
+                        {
+                            "status": "encontrado",
+                            "nome_catalogo": "SUCO COPO AGUA COCO",
+                            "formato": "copo",
+                            "tamanho": "200ml",
+                            "quantidade": 10,
+                        }
+                    ],
+                    "orientacao_para_marcela": "Monte o resumo do pedido.",
+                }
+            }
+        )
+
+        self.assertIn("## ANALISE DO SUBAGENTE DE PRODUTOS E PEDIDO", prompt)
+        self.assertIn("SUCO COPO AGUA COCO", prompt)
+        self.assertIn("Nao exponha ao cliente que existe subagente", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -129,6 +129,62 @@ class MessageVariationTests(unittest.TestCase):
                 self.assertTrue(ai_agent._catalog_request_is_complex(text, CATALOG))
                 self.assertEqual("", ai_agent.catalog_guard_prompt(text, CATALOG))
 
+    def test_real_audio_multi_item_order_is_not_blocked_by_catalog_guard(self):
+        produtos = CATALOG + [
+            {"nome_produto": "SUCO COPO LARANJA 115ML", "variacao": "115", "preco": 1.33},
+            {"nome_produto": "SUCO COPO MACA 115ML", "variacao": "115", "preco": 1.37},
+            {"nome_produto": "SUCO COPO GOIABA", "variacao": "200", "preco": 1.72},
+            {"nome_produto": "SUCO COPO CAJU", "variacao": "200", "preco": 1.72},
+        ]
+        cases = [
+            (
+                "Eu quero água de coco, copo de 200ml, eu quero 10 unidades, "
+                "quero 10 unidades de laranja de 115ml e 10 unidades de maracujá de 200ml."
+            ),
+            (
+                "Água de coco, eu quero o copo de 200ml, 10 unidades. "
+                "E quero também o copo de maçã de 115ml, 10 unidades também. "
+                "O mesmo coisa para o copo de laranja, também quero esse."
+            ),
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertTrue(ai_agent._catalog_request_is_complex(text, produtos))
+                self.assertEqual("", ai_agent.catalog_guard_prompt(text, produtos))
+
+    def test_number_words_are_not_catalog_products(self):
+        produtos = CATALOG + [
+            {"nome_produto": "SUCO COPO GOIABA", "variacao": "200", "preco": 1.72},
+            {"nome_produto": "SUCO COPO CAJU", "variacao": "200", "preco": 1.72},
+        ]
+        cases = [
+            "Quero cinco copos de goiaba de 200ml.",
+            "Eu quero um copo de caju, vinte unidades.",
+        ]
+
+        for text in cases:
+            with self.subTest(text=text):
+                reply = ai_agent.catalog_guard_prompt(text, produtos)
+                self.assertNotIn("Não temos cinco", reply)
+                self.assertNotIn("Não temos vinte", reply)
+
+    def test_order_resolution_subagent_trigger_is_specific(self):
+        self.assertTrue(
+            ai_agent._should_run_order_resolution_agent(
+                "quero água de coco copo 200ml, 10 unidades",
+                {"intent": "order_request"},
+                CATALOG,
+            )
+        )
+        self.assertFalse(
+            ai_agent._should_run_order_resolution_agent(
+                "quais produtos vocês têm?",
+                {"intent": "product_query"},
+                CATALOG,
+            )
+        )
+
     def test_comma_separated_lists_validate_each_segment(self):
         reply = ai_agent.catalog_guard_prompt(
             "quero cajá, caju, tamarindo, água de coco",

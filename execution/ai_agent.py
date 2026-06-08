@@ -45,6 +45,12 @@ BACKEND_CATALOG_GUARD_ENABLED = os.getenv("AI_BACKEND_CATALOG_GUARD", "true").st
     "yes",
     "on",
 }
+ORDER_RESOLUTION_AGENT_ENABLED = os.getenv("AI_ORDER_RESOLUTION_AGENT", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 BACKEND_ORDER_SPECIFICS_GUARD_ENABLED = os.getenv("AI_BACKEND_ORDER_SPECIFICS_GUARD", "true").strip().lower() in {
     "1",
     "true",
@@ -584,6 +590,9 @@ def _catalog_stop_tokens() -> set[str]:
         "outra",
         "outras",
         "mesmo",
+        "esse",
+        "essa",
+        "isso",
         "anterior",
         "revisao",
         "protocolo",
@@ -619,6 +628,40 @@ def _catalog_stop_tokens() -> set[str]:
         "coisa",
         "coisas",
         "express",
+        "mesma",
+        "repetindo",
+        "zero",
+        "um",
+        "dois",
+        "duas",
+        "tres",
+        "quatro",
+        "cinco",
+        "seis",
+        "sete",
+        "oito",
+        "nove",
+        "dez",
+        "onze",
+        "doze",
+        "treze",
+        "catorze",
+        "quatorze",
+        "quinze",
+        "dezesseis",
+        "dezessete",
+        "dezoito",
+        "dezenove",
+        "vinte",
+        "trinta",
+        "quarenta",
+        "cinquenta",
+        "sessenta",
+        "setenta",
+        "oitenta",
+        "noventa",
+        "cem",
+        "cento",
     }
 
 
@@ -739,11 +782,11 @@ def _catalog_request_is_complex(text: str, produtos: list[dict] | None) -> bool:
 def catalog_guard_prompt(text: str, produtos: list[dict] | None) -> str:
     if not _requested_catalog_tokens(text, produtos):
         return ""
+    if _catalog_request_is_complex(text, produtos):
+        return ""
 
     segments = _catalog_request_segments(text)
     if len(segments) <= 1:
-        if _catalog_request_is_complex(text, produtos):
-            return ""
         return _catalog_guard_prompt_for_segment(text, produtos)
 
     replies = []
@@ -778,7 +821,7 @@ def _catalog_guard_prompt_for_segment(
             invalid_lines.append(f"- {_display_catalog_term(token)}: não existe nessa combinação. Opções reais: {_format_catalog_options(options)}")
             continue
         option_text = _format_catalog_options(narrowed_options or options)
-        if option_text and (not request_has_type or not request_has_size):
+        if option_text and (not request_has_type or not request_has_size) and len(narrowed_options or options) > 1:
             ambiguous_lines.append(f"- {_display_catalog_term(token)}: {option_text}")
 
     if unavailable or invalid_lines:
@@ -827,6 +870,119 @@ def _catalog_guard_prompt_for_segment(
         )
 
     return ""
+
+
+def _catalog_entry_for_agent(row: dict) -> dict:
+    name = _catalog_name(row)
+    variation = _display_variation(_catalog_variation(row))
+    price = row.get("preco") or row.get("preco_base") or row.get("preco_tabela_201")
+    return {
+        "nome": name,
+        "produto_publico": _display_product_label(name),
+        "formato": _catalog_product_type(row),
+        "tamanho": variation,
+        "preco": price,
+    }
+
+
+def _should_run_order_resolution_agent(text: str, classification: dict | None, produtos: list[dict] | None) -> bool:
+    if not ORDER_RESOLUTION_AGENT_ENABLED or not produtos:
+        return False
+    intent = (classification or {}).get("intent")
+    value = _lower_ascii(text)
+    has_specific_product = bool(_requested_catalog_tokens(text, produtos))
+    has_quantity = bool(infer_entities(text).get("quantities"))
+    has_order_terms = contains_any(value, ("quero", "pedido", "comprar", "adicionar", "coloca", "inclui"))
+    if intent in {"order_request", "repeat_order"}:
+        return True
+    if intent in {"product_query", "price_query"}:
+        return has_specific_product or has_quantity or has_order_terms
+    return bool(has_specific_product or has_quantity or has_order_terms)
+
+
+def _recent_dialog_for_agent(history: list[dict], limit: int = 8) -> list[dict]:
+    dialog = []
+    for item in history[-limit:]:
+        role = item.get("role")
+        if role not in {"user", "assistant"}:
+            continue
+        content = normalize_text(item.get("content"))
+        if content:
+            dialog.append({"role": role, "content": content[:800]})
+    return dialog
+
+
+def resolve_order_with_subagent(
+    text: str,
+    produtos: list[dict] | None,
+    classification: dict | None = None,
+    history: list[dict] | None = None,
+    open_review_order: dict | None = None,
+) -> dict | None:
+    """Subagente de interpretação flexível. Não salva pedido e não responde ao cliente."""
+    if not _should_run_order_resolution_agent(text, classification, produtos):
+        return None
+
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    catalog = [_catalog_entry_for_agent(row) for row in (produtos or [])[:160]]
+    payload = {
+        "mensagem_cliente": normalize_text(text),
+        "intencao_classificada": (classification or {}).get("intent"),
+        "entidades_classificadas": (classification or {}).get("entities") or {},
+        "historico_recente": _recent_dialog_for_agent(history or []),
+        "pedido_em_revisao": open_review_order or None,
+        "catalogo": catalog,
+    }
+    system_prompt = (
+        "Você é um subagente interno de resolução de produtos e pedidos da Sucos SPRES. "
+        "Sua tarefa é interpretar a mensagem do cliente usando somente o catálogo recebido. "
+        "Você não responde ao cliente e não registra pedido. "
+        "Entenda áudio transcrito, frases com vírgulas, quantidades por extenso, múltiplos itens, "
+        "referências como 'o mesmo para laranja' e produtos compostos como 'água de coco'. "
+        "Nunca trate palavras de quantidade como produto. "
+        "Se um produto/formato/tamanho existir no catálogo, marque como encontrado. "
+        "Se houver mais de uma opção possível ou faltar dado, marque como ambiguo e liste o que falta. "
+        "Se não existir, marque como nao_encontrado e liste alternativas reais próximas. "
+        "Responda apenas JSON válido, sem markdown."
+    )
+    user_prompt = (
+        "Resolva a mensagem abaixo contra o catálogo e retorne JSON neste formato:\n"
+        "{"
+        '"tipo":"pedido|consulta|alteracao|indefinido",'
+        '"confianca":0.0,'
+        '"itens":[{"texto_original":"","status":"encontrado|ambiguo|nao_encontrado","nome_catalogo":"","produto":"","formato":"","tamanho":"","quantidade":null,"unidade":"","preco_unitario":null,"subtotal":null,"faltando":[],"alternativas":[]}],'
+        '"produtos_nao_encontrados":[],'
+        '"perguntas_necessarias":[],'
+        '"orientacao_para_marcela":""'
+        "}\n\n"
+        f"Dados:\n{json.dumps(payload, ensure_ascii=False, default=str)}"
+    )
+
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+        content = response.choices[0].message.content or "{}"
+        result = json.loads(content)
+        if not isinstance(result, dict):
+            return None
+        result["source"] = "order_resolution_subagent"
+        return result
+    except Exception as exc:
+        logger.warning("Falha no subagente de resolução de pedido: %s", exc)
+        return None
 
 
 def product_options_reply(text: str, produtos: list[dict] | None) -> str:
@@ -3007,7 +3163,21 @@ def process_inbound_message(
             "intent": classification.get("intent"),
         }
 
-    catalog_reply = catalog_guard_prompt(normalized_text, produtos) if BACKEND_CATALOG_GUARD_ENABLED else ""
+    catalog_resolution = resolve_order_with_subagent(
+        normalized_text,
+        produtos,
+        classification=classification,
+        history=history,
+        open_review_order=open_review_order,
+    )
+    if catalog_resolution:
+        module_context["catalog_resolution"] = catalog_resolution
+
+    catalog_reply = (
+        catalog_guard_prompt(normalized_text, produtos)
+        if BACKEND_CATALOG_GUARD_ENABLED and not ORDER_RESOLUTION_AGENT_ENABLED
+        else ""
+    )
     if catalog_reply:
         reply = normalize_customer_facing_ptbr(catalog_reply)
         store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "catalog_guardrail"})

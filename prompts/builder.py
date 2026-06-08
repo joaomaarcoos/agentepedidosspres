@@ -19,6 +19,7 @@ Chaves de context (todas opcionais):
 from __future__ import annotations
 
 import logging
+import json
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -74,6 +75,10 @@ def build_prompt(context: dict | None = None) -> str:
     decision_section = _decision_section(context)
     if decision_section:
         base += f"\n\n---\n\n{decision_section}"
+
+    catalog_resolution_section = _catalog_resolution_section(context)
+    if catalog_resolution_section:
+        base += f"\n\n---\n\n{catalog_resolution_section}"
 
     forecast_section = _forecast_section(context)
     if forecast_section:
@@ -156,6 +161,31 @@ def _decision_section(ctx: dict) -> str:
         "Se o cliente confirmar claramente o resumo completo, registre para revisao do representante.",
     ]
     return "\n".join(linhas)
+
+
+def _catalog_resolution_section(ctx: dict) -> str:
+    resolution = ctx.get("catalog_resolution") or {}
+    if not isinstance(resolution, dict):
+        return ""
+
+    payload = json.dumps(resolution, ensure_ascii=False, default=str)
+    if len(payload) > 6000:
+        payload = payload[:6000] + "...(truncado)"
+
+    return "\n".join(
+        [
+            "## ANALISE DO SUBAGENTE DE PRODUTOS E PEDIDO",
+            "",
+            "Esta analise foi feita antes da sua resposta, usando a mensagem do cliente e o catalogo real.",
+            "Use esta analise como guia operacional principal para interpretar produtos, formatos, tamanhos e quantidades.",
+            "Se houver itens com status encontrado, use esses itens para montar ou atualizar o resumo do pedido.",
+            "Se houver itens ambiguos, pergunte somente os campos em faltando; nao reinicie a conversa.",
+            "Se houver produtos nao encontrados, diga que nao temos esse produto e ofereca apenas alternativas listadas.",
+            "Nao exponha ao cliente que existe subagente, JSON, validacao interna ou catalogo interno.",
+            "",
+            payload,
+        ]
+    )
 
 
 def _customer_section(ctx: dict) -> str:

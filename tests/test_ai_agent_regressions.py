@@ -198,10 +198,7 @@ class AiAgentRegressionTests(unittest.TestCase):
             produtos,
         )
 
-        self.assertNotIn("beleza", reply.lower())
-        self.assertNotIn("- agua:", reply.lower())
-        self.assertNotIn("- coco:", reply.lower())
-        self.assertIn("água de coco", reply.lower())
+        self.assertEqual("", reply)
 
     def test_backend_order_validation_accepts_compound_product_when_catalog_has_it(self):
         produtos = [
