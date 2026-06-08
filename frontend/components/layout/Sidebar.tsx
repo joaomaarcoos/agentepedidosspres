@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   BarChart2,
@@ -79,10 +79,23 @@ const MENU_SECTIONS = [
   },
 ] as const;
 
+function findActiveGroup(pathname: string) {
+  const activeGroup = MENU_SECTIONS.find(
+    (section) =>
+      section.type === "group" &&
+      section.items.some((href) => pathname === href || pathname.startsWith(`${href}/`))
+  );
+  return activeGroup?.type === "group" ? activeGroup.label : null;
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { profile, loading, signOut } = useAuth();
   const { closeMobileMenu, mobileMenuOpen, sidebarCollapsed, toggleSidebar } = useShell();
+  const [openSections, setOpenSections] = useState<Set<string>>(() => {
+    const activeGroup = findActiveGroup(pathname);
+    return new Set(activeGroup ? [activeGroup] : ["Vendas"]);
+  });
 
   const visibleNav = profile
     ? NAV_ITEMS.filter((item) => (item.roles as readonly string[]).includes(profile.role))
@@ -92,6 +105,29 @@ export default function Sidebar() {
   useEffect(() => {
     closeMobileMenu();
   }, [closeMobileMenu, pathname]);
+
+  useEffect(() => {
+    const activeGroup = findActiveGroup(pathname);
+    if (!activeGroup) return;
+    setOpenSections((current) => {
+      if (current.has(activeGroup)) return current;
+      const next = new Set(current);
+      next.add(activeGroup);
+      return next;
+    });
+  }, [pathname]);
+
+  function toggleSection(label: string) {
+    setOpenSections((current) => {
+      const next = new Set(current);
+      if (next.has(label)) {
+        next.delete(label);
+      } else {
+        next.add(label);
+      }
+      return next;
+    });
+  }
 
   return (
     <>
@@ -138,26 +174,36 @@ export default function Sidebar() {
                 .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
               if (items.length === 0) return null;
+              const isOpen = openSections.has(section.label);
 
               return (
                 <div className="sidebar-section" key={section.label}>
-                  <div className="sidebar-section-title">{section.label}</div>
-                  <div className="sidebar-subnav">
-                    {items.map(({ href, label }) => {
-                      const Icon = ICON_MAP[href] || ShoppingCart;
-                      const isActive = pathname === href || pathname.startsWith(`${href}/`);
-                      return (
-                        <Link
-                          key={href}
-                          href={href}
-                          className={`sidebar-link sidebar-child-link${isActive ? " is-active" : ""}`}
-                        >
-                          <Icon size={15} />
-                          <span className="sidebar-link-label">{label}</span>
-                        </Link>
-                      );
-                    })}
-                  </div>
+                  <button
+                    className="sidebar-section-toggle"
+                    onClick={() => toggleSection(section.label)}
+                    aria-expanded={isOpen}
+                  >
+                    <span className="sidebar-section-title">{section.label}</span>
+                    <span className="sidebar-section-chevron">{isOpen ? "−" : "+"}</span>
+                  </button>
+                  {isOpen && (
+                    <div className="sidebar-subnav">
+                      {items.map(({ href, label }) => {
+                        const Icon = ICON_MAP[href] || ShoppingCart;
+                        const isActive = pathname === href || pathname.startsWith(`${href}/`);
+                        return (
+                          <Link
+                            key={href}
+                            href={href}
+                            className={`sidebar-link sidebar-child-link${isActive ? " is-active" : ""}`}
+                          >
+                            <Icon size={15} />
+                            <span className="sidebar-link-label">{label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })

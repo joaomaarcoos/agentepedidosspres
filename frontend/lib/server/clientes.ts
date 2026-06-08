@@ -21,7 +21,7 @@ export function syncClientes(query?: string) {
   return callClientes<ClientesSyncResponse>(args);
 }
 
-export function listClientes(params: { query?: string; page?: number; pageSize?: number }) {
+export function listClientes(params: { query?: string; page?: number; pageSize?: number; codRep?: number }) {
   const args = ["list"];
   if (params.query) {
     args.push("--query", params.query);
@@ -32,9 +32,16 @@ export function listClientes(params: { query?: string; page?: number; pageSize?:
   if (params.pageSize !== undefined) {
     args.push("--page-size", String(params.pageSize));
   }
+  if (params.codRep !== undefined) {
+    args.push("--cod-rep", String(params.codRep));
+  }
   return callClientes<ClientesListResponse>(args);
 }
 
-export function getCliente(codCli: number) {
-  return callClientes<Cliente>(["detail", "--cod-cli", String(codCli)]);
+export function getCliente(codCli: number, codRep?: number) {
+  const args = ["detail", "--cod-cli", String(codCli)];
+  if (codRep !== undefined) {
+    args.push("--cod-rep", String(codRep));
+  }
+  return callClientes<Cliente>(args);
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/layout/Header";
 import { pedidosApi, cronApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import type { Pedido, PedidoItem, SyncLog } from "@/lib/types";
 import { RefreshCw, Activity, ShoppingCart, Users, ChevronLeft, ChevronRight, X, Package, Database, Clock, CalendarDays } from "lucide-react";
 import Link from "next/link";
@@ -152,6 +153,8 @@ function PedidoDrawer({ pedido, onClose }: { pedido: Pedido; onClose: () => void
 }
 
 export default function PedidosPage() {
+  const { profile } = useAuth();
+  const canFilterRep = profile?.role !== "representante";
   const [loading, setLoading] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [lastLog, setLastLog] = useState<SyncLog | null>(null);
@@ -160,6 +163,7 @@ export default function PedidosPage() {
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [dias, setDias] = useState(0);
+  const [codRep, setCodRep] = useState("");
   const [loadingPedidos, setLoadingPedidos] = useState(false);
   const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null);
   const [cronEnabled, setCronEnabled] = useState(false);
@@ -170,7 +174,11 @@ export default function PedidosPage() {
   const loadPedidos = useCallback(async (targetPage = 1) => {
     setLoadingPedidos(true);
     try {
-      const result = await pedidosApi.list({ dias, page: targetPage });
+      const result = await pedidosApi.list({
+        dias,
+        page: targetPage,
+        cod_rep: canFilterRep && codRep ? Number(codRep) : undefined,
+      });
       setPedidos(result.pedidos);
       setTotal(result.total);
       setPages(result.pages);
@@ -180,17 +188,19 @@ export default function PedidosPage() {
     } finally {
       setLoadingPedidos(false);
     }
-  }, [dias]);
+  }, [dias, canFilterRep, codRep]);
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
-    pedidosApi.getSyncLogs(today).then((result) => {
-      const last = result.logs.find((l) => l.status === "success" || l.status === "error");
-      setLastLog(last || null);
-    }).catch(() => null);
-    cronApi.getStatus().then((s) => setCronEnabled(s.enabled)).catch(() => null);
+    if (canFilterRep) {
+      pedidosApi.getSyncLogs(today).then((result) => {
+        const last = result.logs.find((l) => l.status === "success" || l.status === "error");
+        setLastLog(last || null);
+      }).catch(() => null);
+      cronApi.getStatus().then((s) => setCronEnabled(s.enabled)).catch(() => null);
+    }
     loadPedidos(1);
-  }, [loadPedidos]);
+  }, [canFilterRep, loadPedidos]);
 
   const handleCronToggle = async () => {
     setCronLoading(true);
@@ -267,41 +277,62 @@ export default function PedidosPage() {
             ].map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
 
-          <button
-            onClick={handleSync}
-            disabled={loading}
+          {canFilterRep && (
+            <input
+              type="number"
+              value={codRep}
+              onChange={(e) => setCodRep(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") loadPedidos(1);
+              }}
+              placeholder="Cód. rep"
+              style={{ width: 110, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 12px", fontSize: 13, outline: "none" }}
+            />
+          )}
+
+          {canFilterRep && (
+            <button
+              onClick={handleSync}
+              disabled={loading}
             style={{ display: "flex", alignItems: "center", gap: 7, background: "var(--accent)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontWeight: 600, fontSize: 13, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1 }}
-          >
-            <RefreshCw size={14} style={{ animation: loading ? "spin 1s linear infinite" : undefined }} />
-            {loading ? "Sincronizando..." : "Atualizar Base"}
-          </button>
+            >
+              <RefreshCw size={14} style={{ animation: loading ? "spin 1s linear infinite" : undefined }} />
+              {loading ? "Sincronizando..." : "Atualizar Base"}
+            </button>
+          )}
 
-          <button
-            onClick={handleSyncToday}
-            disabled={todayLoading}
+          {canFilterRep && (
+            <button
+              onClick={handleSyncToday}
+              disabled={todayLoading}
             style={{ display: "flex", alignItems: "center", gap: 7, background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: todayLoading ? "not-allowed" : "pointer", opacity: todayLoading ? 0.7 : 1 }}
-          >
-            <CalendarDays size={14} style={{ animation: todayLoading ? "spin 1s linear infinite" : undefined }} />
-            {todayLoading ? "Buscando..." : "Buscar Hoje"}
-          </button>
+            >
+              <CalendarDays size={14} style={{ animation: todayLoading ? "spin 1s linear infinite" : undefined }} />
+              {todayLoading ? "Buscando..." : "Buscar Hoje"}
+            </button>
+          )}
 
-          <button
-            onClick={handleCronToggle}
-            disabled={cronLoading}
+          {canFilterRep && (
+            <button
+              onClick={handleCronToggle}
+              disabled={cronLoading}
             title={cronEnabled ? "Cron automático ativo (a cada 1h) — clique para desativar" : "Cron automático inativo — clique para ativar"}
             style={{ display: "flex", alignItems: "center", gap: 7, background: cronEnabled ? "rgba(34,197,94,0.12)" : "var(--surface2)", color: cronEnabled ? "var(--success)" : "var(--muted)", border: `1px solid ${cronEnabled ? "rgba(34,197,94,0.4)" : "var(--border)"}`, borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: cronLoading ? "not-allowed" : "pointer", opacity: cronLoading ? 0.7 : 1 }}
-          >
-            <Clock size={14} />
-            {cronEnabled ? "Cron Ativo" : "Cron Inativo"}
-          </button>
+            >
+              <Clock size={14} />
+              {cronEnabled ? "Cron Ativo" : "Cron Inativo"}
+            </button>
+          )}
 
-          <Link
-            href="/pedidos/monitor"
+          {canFilterRep && (
+            <Link
+              href="/pedidos/monitor"
             style={{ display: "flex", alignItems: "center", gap: 7, color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 16px", fontSize: 13, textDecoration: "none", background: "transparent" }}
-          >
-            <Activity size={14} />
-            Monitor de Syncs
-          </Link>
+            >
+              <Activity size={14} />
+              Monitor de Syncs
+            </Link>
+          )}
 
           {syncMsg && (
             <span style={{ fontSize: 12, color: syncMsg.startsWith("Erro") ? "var(--error)" : "var(--success)" }}>

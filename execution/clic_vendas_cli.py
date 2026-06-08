@@ -258,7 +258,7 @@ def _db_direct():
     return create_client(url, key)
 
 
-def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int) -> dict:
+def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int, cod_rep: int | None = None) -> dict:
     """Lista pedidos sincronizados da tabela rep_order_base."""
     db = _db_direct()
 
@@ -290,6 +290,8 @@ def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int) -> d
 
     if cod_cli is not None:
         pedidos = [p for p in pedidos if p.get("cod_cli") == cod_cli]
+    if cod_rep is not None:
+        pedidos = [p for p in pedidos if p.get("cod_rep") == cod_rep]
 
     total = len(pedidos)
     start = (page - 1) * page_size
@@ -347,7 +349,7 @@ def _month_label(month: int) -> str:
     return labels[min(12, max(1, month)) - 1]
 
 
-def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
+def list_previsao(year: int | None, period_count: int, limit: int, cod_rep: int | None = None) -> dict:
     """Agrupa itens de pedidos por periodo anual para indicar produtos mais vendidos."""
     if period_count not in (3, 4):
         raise ValueError("period_count deve ser 3 ou 4")
@@ -355,7 +357,7 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
     db = _db_direct()
     rows = (
         db.table("rep_order_base")
-        .select("num_ped, dat_emi, sit_ped, order_total_value, items_json")
+        .select("num_ped, cod_rep, dat_emi, sit_ped, order_total_value, items_json")
         .order("dat_emi", desc=True)
         .limit(10000)
         .execute()
@@ -366,6 +368,8 @@ def list_previsao(year: int | None, period_count: int, limit: int) -> dict:
     parsed_rows = []
     available_years = set()
     for row in rows:
+        if cod_rep is not None and row.get("cod_rep") != cod_rep:
+            continue
         order_date = _parse_order_date(row.get("dat_emi"))
         if not order_date:
             continue
@@ -583,11 +587,13 @@ def main() -> int:
     pedidos_parser.add_argument("--dias", type=int, default=0)
     pedidos_parser.add_argument("--page", type=int, default=1)
     pedidos_parser.add_argument("--page-size", type=int, default=50)
+    pedidos_parser.add_argument("--cod-rep", type=int, default=None)
 
     previsao_parser = subparsers.add_parser("previsao")
     previsao_parser.add_argument("--year", type=int, default=None)
     previsao_parser.add_argument("--period-count", type=int, default=4)
     previsao_parser.add_argument("--limit", type=int, default=10)
+    previsao_parser.add_argument("--cod-rep", type=int, default=None)
 
     args = parser.parse_args()
 
@@ -608,9 +614,9 @@ def main() -> int:
         if args.command == "sync-log":
             return success(get_sync_log(args.log_id))
         if args.command == "pedidos":
-            return success(list_pedidos(args.cod_cli, args.dias, args.page, args.page_size))
+            return success(list_pedidos(args.cod_cli, args.dias, args.page, args.page_size, args.cod_rep))
         if args.command == "previsao":
-            return success(list_previsao(args.year, args.period_count, args.limit))
+            return success(list_previsao(args.year, args.period_count, args.limit, args.cod_rep))
         return failure("Comando não suportado")
     except Exception as exc:
         logger.exception("Falha no CLI do ClicVendas")

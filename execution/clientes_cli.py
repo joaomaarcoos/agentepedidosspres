@@ -106,7 +106,22 @@ def _build_row(cpf: str, pedido: dict, metricas: dict) -> dict:
     }
 
 
-def _latest_by_cpf(db) -> dict[str, dict]:
+def _extract_rep_code(raw_json: dict) -> int | None:
+    representante = (raw_json or {}).get("representante") or (raw_json or {}).get("autor") or {}
+    candidates = (
+        representante.get("backoffice", {}).get("codigo") if isinstance(representante.get("backoffice"), dict) else None,
+        representante.get("codigo"),
+        representante.get("acesso", {}).get("login") if isinstance(representante.get("acesso"), dict) else None,
+    )
+    for candidate in candidates:
+        try:
+            return int(str(candidate).strip())
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _latest_by_cpf(db, cod_rep: int | None = None) -> dict[str, dict]:
     """Retorna o pedido mais recente por cpf_cnpj."""
     res = (
         db.table("clic_pedidos_integrados")
@@ -117,6 +132,8 @@ def _latest_by_cpf(db) -> dict[str, dict]:
     )
     latest: dict[str, dict] = {}
     for p in res.data or []:
+        if cod_rep is not None and _extract_rep_code(p.get("raw_json") or {}) != cod_rep:
+            continue
         cpf = p.get("cpf_cnpj") or ""
         if cpf and cpf not in latest:
             latest[cpf] = p
@@ -138,9 +155,9 @@ def _metricas_map(db, cpfs: list[str]) -> dict[str, dict]:
     return result
 
 
-def list_customers(query: str | None, page: int, page_size: int) -> dict:
+def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | None = None) -> dict:
     db = _db()
-    latest = _latest_by_cpf(db)
+    latest = _latest_by_cpf(db, cod_rep)
 
     rows = list(latest.items())
 
@@ -201,7 +218,7 @@ def sync_customers(query: str | None) -> dict:
     }
 
 
-def get_customer(cod_cli: int) -> dict:
+def get_customer(cod_cli: int, cod_rep: int | None = None) -> dict:
     db = _db()
     cpf_str = str(cod_cli)
     res = (
@@ -214,6 +231,8 @@ def get_customer(cod_cli: int) -> dict:
     )
     row = (res.data or [None])[0]
     if not row:
+        raise ValueError(f"Cliente {cod_cli} não encontrado")
+    if cod_rep is not None and _extract_rep_code(row.get("raw_json") or {}) != cod_rep:
         raise ValueError(f"Cliente {cod_cli} não encontrado")
     cpf = row["cpf_cnpj"]
     metricas = _metricas_map(db, [cpf])
@@ -231,22 +250,24 @@ def main() -> int:
     p_list.add_argument("--query", default=None)
     p_list.add_argument("--page", type=int, default=1)
     p_list.add_argument("--page-size", dest="page_size", type=int, default=50)
+    p_list.add_argument("--cod-rep", dest="cod_rep", type=int, default=None)
 
     p_sync = subparsers.add_parser("sync")
     p_sync.add_argument("--query", default=None)
 
     p_detail = subparsers.add_parser("detail")
     p_detail.add_argument("--cod-cli", dest="cod_cli", type=int, required=True)
+    p_detail.add_argument("--cod-rep", dest="cod_rep", type=int, default=None)
 
     args = parser.parse_args()
 
     try:
         if args.command == "list":
-            return success(list_customers(args.query, args.page, args.page_size))
+            return success(list_customers(args.query, args.page, args.page_size, args.cod_rep))
         if args.command == "sync":
             return success(sync_customers(args.query))
         if args.command == "detail":
-            return success(get_customer(args.cod_cli))
+            return success(get_customer(args.cod_cli, args.cod_rep))
         return failure("Comando nao suportado")
     except Exception as exc:
         logger.exception("Falha no modulo clientes")

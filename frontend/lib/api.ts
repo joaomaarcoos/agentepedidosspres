@@ -38,9 +38,10 @@ export const pedidosApi = {
       `/api/pedidos/sync-logs${date ? `?date=${date}` : ""}`
     ),
   getSyncLog: (id: string) => api.get(`/api/pedidos/sync-logs/${id}`),
-  list: (params?: { cod_cli?: number; dias?: number; page?: number }) => {
+  list: (params?: { cod_cli?: number; cod_rep?: number; dias?: number; page?: number }) => {
     const q = new URLSearchParams();
     if (params?.cod_cli) q.set("cod_cli", String(params.cod_cli));
+    if (params?.cod_rep) q.set("cod_rep", String(params.cod_rep));
     if (params?.dias) q.set("dias", String(params.dias));
     if (params?.page) q.set("page", String(params.page));
     return api.get<{
@@ -89,17 +90,21 @@ export const clientesApi = {
     api.post<import("./types").ClientesSyncResponse>("/api/clientes", {
       query: query || undefined,
     }),
-  list: (params?: { query?: string; page?: number; pageSize?: number }) => {
+  list: (params?: { query?: string; cod_rep?: number; page?: number; pageSize?: number }) => {
     const q = new URLSearchParams();
     if (params?.query) q.set("query", params.query);
+    if (params?.cod_rep) q.set("cod_rep", String(params.cod_rep));
     if (params?.page) q.set("page", String(params.page));
     if (params?.pageSize) q.set("page_size", String(params.pageSize));
     return api.get<import("./types").ClientesListResponse>(
       `/api/clientes${q.size ? `?${q}` : ""}`
     );
   },
-  detail: (codCli: number) =>
-    api.get<import("./types").Cliente>(`/api/clientes/${codCli}`),
+  detail: (codCli: number, params?: { cod_rep?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.cod_rep) q.set("cod_rep", String(params.cod_rep));
+    return api.get<import("./types").Cliente>(`/api/clientes/${codCli}${q.size ? `?${q}` : ""}`);
+  },
 };
 
 export const recorrenciaApi = {
@@ -163,11 +168,12 @@ export const resultadosApi = {
 };
 
 export const previsaoApi = {
-  list: (params?: { year?: number; periodCount?: 3 | 4; limit?: number }) => {
+  list: (params?: { year?: number; periodCount?: 3 | 4; limit?: number; cod_rep?: number }) => {
     const q = new URLSearchParams();
     if (params?.year) q.set("year", String(params.year));
     if (params?.periodCount) q.set("period_count", String(params.periodCount));
     if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.cod_rep) q.set("cod_rep", String(params.cod_rep));
     return api.get<import("./types").PrevisaoOverview>(
       `/api/previsao${q.size ? `?${q}` : ""}`
     );

@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { codCli: string } }
 ) {
   const auth = await requireApiRole(API_ROLES.ALL);
@@ -18,7 +18,17 @@ export async function GET(
   }
 
   try {
-    const result = await getCliente(codCli);
+    const { searchParams } = new URL(request.url);
+    const codRepParam = searchParams.get("cod_rep");
+    const requestedCodRep = codRepParam ? Number(codRepParam) : undefined;
+    if (codRepParam && !Number.isFinite(requestedCodRep)) {
+      return NextResponse.json({ error: "Parametro cod_rep invalido" }, { status: 400 });
+    }
+    if (auth.profile.role === "representante" && auth.profile.cod_rep == null) {
+      return NextResponse.json({ error: "Representante sem cod_rep vinculado." }, { status: 403 });
+    }
+    const codRep = auth.profile.role === "representante" ? auth.profile.cod_rep ?? undefined : requestedCodRep;
+    const result = await getCliente(codCli, codRep);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

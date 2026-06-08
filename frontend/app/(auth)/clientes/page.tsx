@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Mail, Phone, RefreshCw, Search, ShoppingCart, Users, Wallet, X } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { clientesApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import type { Cliente, ClientesListResponse } from "@/lib/types";
 
 function Drawer({ cliente, onClose }: { cliente: Cliente; onClose: () => void }) {
@@ -162,8 +163,11 @@ function Chip({ label, tone = "accent" }: { label: string; tone?: "accent" | "su
 }
 
 export default function ClientesPage() {
+  const { profile } = useAuth();
+  const canFilterRep = profile?.role !== "representante";
   const [data, setData] = useState<ClientesListResponse | null>(null);
   const [query, setQuery] = useState("");
+  const [codRep, setCodRep] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -174,7 +178,11 @@ export default function ClientesPage() {
     setLoading(true);
     setMessage(null);
     try {
-      const result = await clientesApi.list({ page: targetPage, query: targetQuery });
+      const result = await clientesApi.list({
+        page: targetPage,
+        query: targetQuery,
+        cod_rep: canFilterRep && codRep ? Number(codRep) : undefined,
+      });
       setData(result);
       setPage(targetPage);
     } catch (err) {
@@ -182,7 +190,7 @@ export default function ClientesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canFilterRep, codRep]);
 
   useEffect(() => {
     load(1, "");
@@ -262,9 +270,32 @@ export default function ClientesPage() {
             Buscar
           </button>
 
-          <button
-            onClick={handleSync}
-            disabled={syncing}
+          {canFilterRep && (
+            <input
+              type="number"
+              value={codRep}
+              onChange={(e) => setCodRep(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") load(1, query);
+              }}
+              placeholder="Cód. rep"
+              style={{
+                width: 110,
+                background: "var(--surface2)",
+                color: "var(--text)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "8px 12px",
+                fontSize: 13,
+                outline: "none",
+              }}
+            />
+          )}
+
+          {canFilterRep && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
             style={{
               display: "flex",
               alignItems: "center",
@@ -279,10 +310,11 @@ export default function ClientesPage() {
               cursor: syncing ? "not-allowed" : "pointer",
               opacity: syncing ? 0.7 : 1,
             }}
-          >
-            <RefreshCw size={14} style={{ animation: syncing ? "spin 1s linear infinite" : undefined }} />
-            {syncing ? "Atualizando..." : "Atualizar Cadastro"}
-          </button>
+            >
+              <RefreshCw size={14} style={{ animation: syncing ? "spin 1s linear infinite" : undefined }} />
+              {syncing ? "Atualizando..." : "Atualizar Cadastro"}
+            </button>
+          )}
 
           {message && (
             <span style={{ fontSize: 12, color: message.toLowerCase().includes("falha") ? "var(--error)" : "var(--success)" }}>

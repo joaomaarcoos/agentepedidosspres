@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const codCliParam = searchParams.get("cod_cli");
+    const codRepParam = searchParams.get("cod_rep");
     const dias = Number(searchParams.get("dias") ?? 0);
     const page = Number(searchParams.get("page") ?? 1);
     const pageSize = Number(searchParams.get("page_size") ?? 50);
@@ -30,8 +31,16 @@ export async function GET(request: Request) {
     if (codCliParam && !Number.isFinite(codCli)) {
       return NextResponse.json({ error: "Parametro cod_cli invalido" }, { status: 400 });
     }
+    const requestedCodRep = codRepParam ? Number(codRepParam) : undefined;
+    if (codRepParam && !Number.isFinite(requestedCodRep)) {
+      return NextResponse.json({ error: "Parametro cod_rep invalido" }, { status: 400 });
+    }
+    if (auth.profile.role === "representante" && auth.profile.cod_rep == null) {
+      return NextResponse.json({ error: "Representante sem cod_rep vinculado." }, { status: 403 });
+    }
+    const codRep = auth.profile.role === "representante" ? auth.profile.cod_rep ?? undefined : requestedCodRep;
 
-    const result = await listPedidos({ codCli, dias, page, pageSize });
+    const result = await listPedidos({ codCli, codRep, dias, page, pageSize });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

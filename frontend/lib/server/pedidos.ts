@@ -37,12 +37,14 @@ export function getPedidosSyncLog(logId: string) {
 
 export function listPedidos(params: {
   codCli?: number;
+  codRep?: number;
   dias?: number;
   page?: number;
   pageSize?: number;
 }) {
   const args = ["pedidos"];
   if (params.codCli !== undefined) args.push("--cod-cli", String(params.codCli));
+  if (params.codRep !== undefined) args.push("--cod-rep", String(params.codRep));
   if (params.dias !== undefined) args.push("--dias", String(params.dias));
   if (params.page !== undefined) args.push("--page", String(params.page));
   if (params.pageSize !== undefined) args.push("--page-size", String(params.pageSize));
@@ -59,10 +61,12 @@ export function getPrevisao(params: {
   year?: number;
   periodCount?: number;
   limit?: number;
+  codRep?: number;
 }) {
   const args = ["previsao"];
   if (params.year !== undefined) args.push("--year", String(params.year));
   if (params.periodCount !== undefined) args.push("--period-count", String(params.periodCount));
   if (params.limit !== undefined) args.push("--limit", String(params.limit));
+  if (params.codRep !== undefined) args.push("--cod-rep", String(params.codRep));
   return callPedidos<Record<string, unknown>>(args);
 }

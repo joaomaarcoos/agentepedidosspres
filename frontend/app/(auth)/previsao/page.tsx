@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { previsaoApi } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import type { PrevisaoOverview, PrevisaoPeriodo, PrevisaoProduto } from "@/lib/types";
 
 function fmtNumber(value: number): string {
@@ -175,17 +176,25 @@ function PeriodPanel({ period }: { period: PrevisaoPeriodo }) {
 }
 
 export default function PrevisaoPage() {
+  const { profile } = useAuth();
+  const canFilterRep = profile?.role !== "representante";
   const [data, setData] = useState<PrevisaoOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [year, setYear] = useState<number | undefined>(undefined);
   const [periodCount, setPeriodCount] = useState<3 | 4>(4);
+  const [codRep, setCodRep] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await previsaoApi.list({ year, periodCount, limit: 12 });
+      const result = await previsaoApi.list({
+        year,
+        periodCount,
+        limit: 12,
+        cod_rep: canFilterRep && codRep ? Number(codRep) : undefined,
+      });
       setData(result);
       if (!year) setYear(result.year);
     } catch (err) {
@@ -193,7 +202,7 @@ export default function PrevisaoPage() {
     } finally {
       setLoading(false);
     }
-  }, [year, periodCount]);
+  }, [year, periodCount, canFilterRep, codRep]);
 
   useEffect(() => {
     load();
@@ -243,6 +252,18 @@ export default function PrevisaoPage() {
               <option value={4}>4 periodos</option>
               <option value={3}>3 periodos</option>
             </select>
+            {canFilterRep && (
+              <input
+                type="number"
+                value={codRep}
+                onChange={(event) => setCodRep(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") load();
+                }}
+                placeholder="Cód. rep"
+                style={{ width: 110, background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13, outline: "none" }}
+              />
+            )}
             <button
               onClick={load}
               disabled={loading}
