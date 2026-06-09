@@ -1612,6 +1612,53 @@ def order_confirmation_prompt(itens: list[dict] | None = None) -> str:
     return "\n".join(lines)
 
 
+def order_registered_prompt(
+    itens: list[dict] | None,
+    protocolo: str,
+    updated: bool = False,
+) -> str:
+    action = "atualizado" if updated else "registrado"
+    lines = [f"Pedido {action} para revisão do representante.", "", "Resumo:"]
+    total = 0.0
+    has_subtotal = False
+    for item in itens or []:
+        nome = _item_value(item, "nome") or _item_value(item, "produto") or "Item"
+        tipo = _item_value(item, "tipo", "formato", "embalagem")
+        tamanho = _item_value(item, "tamanho", "derivacao", "variacao", "volume")
+        quantidade = _item_value(item, "quantidade")
+        unidade = _item_value(item, "unidade")
+        preco_unitario = _format_brl(item.get("preco_unitario"))
+        subtotal_value = item.get("subtotal")
+        subtotal = _format_brl(subtotal_value)
+        try:
+            total += float(subtotal_value)
+            has_subtotal = True
+        except (TypeError, ValueError):
+            pass
+
+        parts = [
+            part
+            for part in (
+                f"tipo {tipo}" if tipo else "",
+                f"tamanho {tamanho}" if tamanho else "",
+                f"quantidade {quantidade}" if quantidade else "",
+                f"unidade {unidade}" if unidade else "",
+                f"unit. {preco_unitario}" if preco_unitario else "",
+                f"subtotal {subtotal}" if subtotal else "",
+            )
+            if part
+        ]
+        details = f": {' | '.join(parts)}" if parts else ""
+        lines.append(f"- *{nome}*{details}")
+
+    if has_subtotal:
+        lines += ["", f"Total do pedido: *{_format_brl(total)}*"]
+    if protocolo:
+        lines += ["", f"Protocolo: *{protocolo}*"]
+    lines += ["", "O pedido agora está aguardando a revisão do representante."]
+    return "\n".join(lines)
+
+
 def _item_value(item: dict, *keys: str) -> str:
     for key in keys:
         value = item.get(key)
@@ -2222,6 +2269,60 @@ class AgentStore:
             self.use_local = True
             self._local_append(MESSAGES_TABLE, payload)
             return payload
+
+    def add_inbound_message_once(
+        self,
+        conversation_id: str,
+        content: str,
+        payload_json: dict | None,
+        external_message_id: str | None,
+    ) -> tuple[dict, bool]:
+        """Persiste uma mensagem recebida uma única vez por ID da Evolution."""
+        external_id = normalize_text(external_message_id)
+        if not external_id:
+            return self.add_message(conversation_id, "user", content, payload_json=payload_json), False
+
+        deterministic_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"evolution:{conversation_id}:{external_id}")
+        )
+        now = iso_z(utc_now())
+        payload = {
+            "id": deterministic_id,
+            "conversation_id": conversation_id,
+            "role": "user",
+            "content": content,
+            "payload_json": payload_json or {},
+            "created_at": now,
+        }
+
+        if self.use_local:
+            rows = self._local_read(MESSAGES_TABLE)
+            existing = next((row for row in rows if str(row.get("id")) == deterministic_id), None)
+            if existing:
+                return existing, True
+            rows.append(payload)
+            self._local_write(MESSAGES_TABLE, rows)
+            return payload, False
+
+        try:
+            result = self.client.table(MESSAGES_TABLE).insert(payload).execute()
+            return (result.data or [payload])[0], False
+        except Exception as exc:
+            error_text = str(exc).lower()
+            if "duplicate" in error_text or "23505" in error_text or "unique" in error_text:
+                try:
+                    result = (
+                        self.client.table(MESSAGES_TABLE)
+                        .select("*")
+                        .eq("id", deterministic_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    return (result.data or [payload])[0], True
+                except Exception:
+                    return payload, True
+            logger.warning("Falha ao gravar mensagem idempotente no Supabase: %s", exc)
+            return self.add_message(conversation_id, "user", content, payload_json=payload_json), False
 
     def get_module_context(self, phone: str) -> dict | None:
         """
@@ -3013,6 +3114,11 @@ def generate_ai_reply(
                     ensure_ascii=False,
                 )
                 logger.info("Pedido %s para revisao: %s / %s (telefone: %s)", order_action, order_id, order_protocol, phone)
+                return order_registered_prompt(
+                    itens,
+                    order_protocol,
+                    updated=order_action == "updated",
+                )
             except Exception as exc:
                 logger.warning("Falha ao registrar pedido: %s", exc)
                 tool_result = json.dumps({"sucesso": False, "erro": str(exc)}, ensure_ascii=False)
@@ -3053,6 +3159,7 @@ def process_inbound_message(
     text: str,
     payload_json: dict | None = None,
     conversation_key: str | None = None,
+    external_message_id: str | None = None,
     store: "AgentStore | None" = None,
 ) -> dict:
     store = store or AgentStore()
@@ -3065,12 +3172,18 @@ def process_inbound_message(
     conversation = maybe_expire_pause(store, conversation)
 
     normalized_text = normalize_text(text)
-    user_message = store.add_message(
+    user_message, is_duplicate = store.add_inbound_message_once(
         str(conversation["id"]),
-        "user",
         normalized_text,
         payload_json=payload_json,
+        external_message_id=external_message_id,
     )
+    if is_duplicate:
+        return {
+            "action": "ignored_duplicate_message",
+            "should_reply": False,
+            "message_id": external_message_id,
+        }
 
     command_result = apply_pause_command(store, conversation, text)
     if command_result:

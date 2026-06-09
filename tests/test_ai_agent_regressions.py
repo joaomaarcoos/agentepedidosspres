@@ -82,6 +82,52 @@ class AiAgentRegressionTests(unittest.TestCase):
         self.assertTrue(ai_agent.is_final_order_confirmation("Pode mandar aí."))
         self.assertTrue(ai_agent.is_final_order_confirmation("Nada mais, pode mandar."))
 
+    def test_registered_order_reply_never_requests_confirmation_again(self):
+        reply = ai_agent.order_registered_prompt(
+            [
+                {
+                    "produto": "Água de Coco",
+                    "tipo": "copo",
+                    "tamanho": "200ml",
+                    "quantidade": 20,
+                    "unidade": "copos",
+                    "preco_unitario": 2.60,
+                    "subtotal": 52.0,
+                }
+            ],
+            "SP-260609-ABC123",
+        )
+
+        self.assertIn("registrado para revisão", reply)
+        self.assertIn("SP-260609-ABC123", reply)
+        self.assertNotIn("me confirma", reply.lower())
+        self.assertNotIn("se estiver tudo certo", reply.lower())
+
+    def test_inbound_message_id_is_idempotent(self):
+        store = ai_agent.AgentStore.__new__(ai_agent.AgentStore)
+        store.use_local = True
+        rows = []
+        store._local_read = lambda _table: list(rows)
+        store._local_write = lambda _table, values: rows.__setitem__(slice(None), values)
+
+        first, first_duplicate = store.add_inbound_message_once(
+            "conversation-1",
+            "pedido por áudio",
+            {"data": {"key": {"id": "AUDIO-1"}}},
+            "AUDIO-1",
+        )
+        second, second_duplicate = store.add_inbound_message_once(
+            "conversation-1",
+            "pedido por áudio",
+            {"data": {"key": {"id": "AUDIO-1"}}},
+            "AUDIO-1",
+        )
+
+        self.assertFalse(first_duplicate)
+        self.assertTrue(second_duplicate)
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(len(rows), 1)
+
     def test_open_sales_question_uses_catalog_path(self):
         classification = ai_agent.classify_intent("O que voce vende ai?", [])
 

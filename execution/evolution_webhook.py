@@ -96,8 +96,19 @@ def _message_participant_jid(payload: dict, data: dict, key: dict) -> str:
 def _get_audio_base64(payload: dict, instance: str) -> tuple[str, str] | None:
     """Baixa mídia de áudio da Evolution API e retorna (base64, mimetype) ou None."""
     try:
-        api_url, api_key = _evolution_config()
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        message = data.get("message") if isinstance(data.get("message"), dict) else {}
+        audio_message = _audio_message_from_container(message)
+        embedded_base64 = (
+            message.get("base64")
+            or data.get("base64")
+            or payload.get("base64")
+        )
+        if embedded_base64:
+            mimetype = (audio_message or {}).get("mimetype") or "audio/ogg"
+            return str(embedded_base64), str(mimetype)
+
+        api_url, api_key = _evolution_config()
         body = {"message": {"key": data.get("key") or {}, "message": data.get("message") or {}}}
         resp = requests.post(
             f"{api_url}/chat/getBase64FromMediaMessage/{instance}",
@@ -113,6 +124,27 @@ def _get_audio_base64(payload: dict, instance: str) -> tuple[str, str] | None:
             return b64, mimetype
     except Exception as exc:
         logger.warning("Falha ao baixar áudio da Evolution API: %s", exc)
+    return None
+
+
+def _audio_message_from_container(message: dict | None) -> dict | None:
+    current = message if isinstance(message, dict) else {}
+    for _ in range(5):
+        audio = current.get("audioMessage") or current.get("pttMessage")
+        if isinstance(audio, dict):
+            return audio
+        wrapper = (
+            current.get("ephemeralMessage")
+            or current.get("viewOnceMessage")
+            or current.get("viewOnceMessageV2")
+            or current.get("documentWithCaptionMessage")
+        )
+        if not isinstance(wrapper, dict):
+            return None
+        nested = wrapper.get("message")
+        if not isinstance(nested, dict):
+            return None
+        current = nested
     return None
 
 
@@ -178,7 +210,7 @@ def extract_message(payload: dict, instance: str = "") -> dict:
     )
 
     is_audio = False
-    if not text and (message.get("audioMessage") or message.get("pttMessage")):
+    if not text and _audio_message_from_container(message):
         is_audio = True
         if instance:
             audio_data = _get_audio_base64(payload, instance)
@@ -336,6 +368,18 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
 
     incoming = extract_message(payload, instance=instance)
 
+    if incoming["phone"] and incoming["is_audio"] and not incoming["text"]:
+        reply = "Não consegui entender esse áudio. Pode enviar novamente ou escrever a mensagem?"
+        result = {
+            "action": "audio_transcription_failed",
+            "should_reply": True,
+            "reply": reply,
+            "message_id": incoming.get("message_id"),
+        }
+        if send_reply:
+            result["evolution_response"] = send_whatsapp(incoming["phone"], reply, instance)
+        return result
+
     if not incoming["phone"] or not incoming["text"]:
         return {"action": "ignored_empty", "should_reply": False}
 
@@ -382,6 +426,7 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
         text=incoming["text"],
         payload_json=payload,
         conversation_key=incoming["phone"],
+        external_message_id=incoming["message_id"],
     )
 
     if send_reply and result.get("should_reply") and result.get("reply"):

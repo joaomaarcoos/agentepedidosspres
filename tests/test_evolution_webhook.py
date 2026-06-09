@@ -65,6 +65,55 @@ class EvolutionWebhookTests(unittest.TestCase):
         process_command.assert_not_called()
         process_representative.assert_not_called()
 
+    def test_embedded_audio_base64_is_used_without_api_download(self):
+        payload = {
+            "instance": "rep-01",
+            "data": {
+                "key": {"remoteJid": "5511888888888@s.whatsapp.net", "fromMe": False, "id": "AUDIO1"},
+                "message": {
+                    "base64": "YWJj",
+                    "audioMessage": {"mimetype": "audio/ogg; codecs=opus"},
+                },
+            },
+        }
+
+        with patch.object(evolution_webhook, "_transcribe_audio", return_value="pedido por áudio") as transcribe:
+            incoming = evolution_webhook.extract_message(payload, instance="rep-01")
+
+        self.assertEqual(incoming["text"], "pedido por áudio")
+        self.assertTrue(incoming["is_audio"])
+        transcribe.assert_called_once_with("YWJj", "audio/ogg; codecs=opus")
+
+    def test_wrapped_audio_message_is_detected(self):
+        message = {
+            "ephemeralMessage": {
+                "message": {
+                    "audioMessage": {"mimetype": "audio/ogg"},
+                }
+            }
+        }
+
+        self.assertEqual(
+            evolution_webhook._audio_message_from_container(message),
+            {"mimetype": "audio/ogg"},
+        )
+
+    def test_transcription_failure_returns_explicit_reply(self):
+        payload = {
+            "instance": "rep-01",
+            "data": {
+                "key": {"remoteJid": "5511888888888@s.whatsapp.net", "fromMe": False, "id": "AUDIO2"},
+                "message": {"audioMessage": {"mimetype": "audio/ogg"}},
+            },
+        }
+
+        with patch.object(evolution_webhook, "_get_audio_base64", return_value=None):
+            result = evolution_webhook.handle_payload(payload, send_reply=False)
+
+        self.assertEqual(result["action"], "audio_transcription_failed")
+        self.assertTrue(result["should_reply"])
+        self.assertIn("Não consegui entender", result["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()
