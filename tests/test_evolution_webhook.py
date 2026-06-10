@@ -114,6 +114,31 @@ class EvolutionWebhookTests(unittest.TestCase):
         self.assertTrue(result["should_reply"])
         self.assertIn("Não consegui entender", result["reply"])
 
+    def test_post_transcription_failure_returns_temporary_reply(self):
+        payload = {
+            "instance": "rep-01",
+            "data": {
+                "key": {"remoteJid": "5511888888888@s.whatsapp.net", "fromMe": False, "id": "AUDIO3"},
+                "message": {
+                    "base64": "YWJj",
+                    "audioMessage": {"mimetype": "audio/ogg"},
+                },
+            },
+        }
+
+        with patch.object(evolution_webhook, "_transcribe_audio", return_value="quero fazer um pedido"), patch.object(
+            evolution_webhook, "_is_agent_enabled", return_value=True
+        ), patch.object(
+            evolution_webhook, "process_representative_order_command", return_value=None
+        ), patch.object(
+            evolution_webhook, "process_inbound_message", side_effect=NameError("funcao ausente")
+        ):
+            result = evolution_webhook.handle_payload(payload, send_reply=False)
+
+        self.assertEqual(result["action"], "inbound_processing_failed")
+        self.assertTrue(result["should_reply"])
+        self.assertIn("falha temporária", result["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()

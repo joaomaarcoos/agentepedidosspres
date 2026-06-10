@@ -160,7 +160,12 @@ def _transcribe_audio(base64_str: str, mimetype: str = "audio/ogg") -> str | Non
     try:
         from openai import OpenAI
 
-        audio_bytes = _b64.b64decode(base64_str)
+        encoded_audio = str(base64_str or "").strip()
+        if encoded_audio.startswith("data:") and "," in encoded_audio:
+            encoded_audio = encoded_audio.split(",", 1)[1]
+        audio_bytes = _b64.b64decode(encoded_audio, validate=True)
+        if not audio_bytes:
+            raise ValueError("base64 de audio vazio")
         ext = "ogg"
         if "mp4" in mimetype or "mpeg" in mimetype:
             ext = "mp3"
@@ -421,13 +426,30 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
             )
         return result
 
-    result = process_inbound_message(
-        phone=incoming["phone"],
-        text=incoming["text"],
-        payload_json=payload,
-        conversation_key=incoming["phone"],
-        external_message_id=incoming["message_id"],
-    )
+    try:
+        result = process_inbound_message(
+            phone=incoming["phone"],
+            text=incoming["text"],
+            payload_json=payload,
+            conversation_key=incoming["phone"],
+            external_message_id=incoming["message_id"],
+        )
+    except Exception as exc:
+        logger.exception(
+            "Falha no processamento pos-transcricao da mensagem %s",
+            incoming.get("message_id"),
+        )
+        reply = (
+            "Recebi sua mensagem, mas tive uma falha temporária ao processá-la. "
+            "Pode tentar novamente em alguns instantes?"
+        )
+        result = {
+            "action": "inbound_processing_failed",
+            "should_reply": True,
+            "reply": reply,
+            "message_id": incoming.get("message_id"),
+            "error": str(exc),
+        }
 
     if send_reply and result.get("should_reply") and result.get("reply"):
         reply_parts = split_reply(result["reply"])

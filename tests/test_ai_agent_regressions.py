@@ -9,6 +9,19 @@ import ai_agent
 
 
 class AiAgentRegressionTests(unittest.TestCase):
+    def test_catalog_entry_for_order_subagent_uses_public_product_label(self):
+        entry = ai_agent._catalog_entry_for_agent(
+            {
+                "nome_produto": "SUCO GARRAFA LARANJA",
+                "variacao": "900",
+                "preco": 9.17,
+            }
+        )
+
+        self.assertEqual(entry["produto_publico"], "Laranja")
+        self.assertEqual(entry["formato"], "garrafa")
+        self.assertEqual(entry["tamanho"], "900ml")
+
     def test_common_words_are_not_catalog_tokens(self):
         produtos = [{"nome_produto": "ALFAJOR 40G | CHOMEA"}]
 

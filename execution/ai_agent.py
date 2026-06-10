@@ -878,7 +878,7 @@ def _catalog_entry_for_agent(row: dict) -> dict:
     price = row.get("preco") or row.get("preco_base") or row.get("preco_tabela_201")
     return {
         "nome": name,
-        "produto_publico": _display_product_label(name),
+        "produto_publico": _public_product_label(row),
         "formato": _catalog_product_type(row),
         "tamanho": variation,
         "preco": price,
@@ -927,7 +927,11 @@ def resolve_order_with_subagent(
     if not api_key:
         return None
 
-    catalog = [_catalog_entry_for_agent(row) for row in (produtos or [])[:160]]
+    try:
+        catalog = [_catalog_entry_for_agent(row) for row in (produtos or [])[:160]]
+    except Exception as exc:
+        logger.warning("Falha ao preparar catalogo para o subagente: %s", exc)
+        return None
     payload = {
         "mensagem_cliente": normalize_text(text),
         "intencao_classificada": (classification or {}).get("intent"),
