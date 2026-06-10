@@ -19,6 +19,7 @@ import re
 import sys
 import time
 import uuid
+from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -51,7 +52,8 @@ ORDER_RESOLUTION_AGENT_ENABLED = os.getenv("AI_ORDER_RESOLUTION_AGENT", "true").
     "yes",
     "on",
 }
-BACKEND_ORDER_SPECIFICS_GUARD_ENABLED = os.getenv("AI_BACKEND_ORDER_SPECIFICS_GUARD", "true").strip().lower() in {
+ORDER_RESOLUTION_MODEL = os.getenv("AI_ORDER_RESOLUTION_MODEL", "gpt-4.1").strip()
+BACKEND_ORDER_SPECIFICS_GUARD_ENABLED = os.getenv("AI_BACKEND_ORDER_SPECIFICS_GUARD", "false").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -266,9 +268,14 @@ def _catalog_flavor_tokens(row: dict) -> set[str]:
         "ml",
         "litro",
         "litros",
+        "pet",
     }
     tokens = set(re.findall(r"[a-z0-9]+", name))
-    return {token for token in tokens if len(token) >= 4 and token not in ignored and not token.isdigit()}
+    return {
+        token
+        for token in tokens
+        if len(token) >= 3 and token not in ignored and not any(ch.isdigit() for ch in token)
+    }
 
 
 def _catalog_flavor_token_list(row: dict) -> list[str]:
@@ -703,7 +710,15 @@ def _requested_catalog_tokens(text: str, produtos: list[dict] | None, require_tr
     for token in tokens:
         if token in consumed_tokens:
             continue
-        if len(token) < 4 or any(ch.isdigit() for ch in token) or token in stop:
+        is_short_catalog_flavor = len(token) == 3 and any(
+            token in _catalog_flavor_tokens(row) for row in produtos
+        )
+        if (
+            len(token) < 3
+            or (len(token) == 3 and not is_short_catalog_flavor)
+            or any(ch.isdigit() for ch in token)
+            or token in stop
+        ):
             continue
         if re.fullmatch(r"\d+(?:ml|l)?", token):
             continue
@@ -912,15 +927,242 @@ def _recent_dialog_for_agent(history: list[dict], limit: int = 8) -> list[dict]:
     return dialog
 
 
+def _resolution_has_pending_items(resolution: dict | None) -> bool:
+    return any(
+        isinstance(item, dict) and item.get("status") != "encontrado"
+        for item in (resolution or {}).get("itens") or []
+    )
+
+
+def _call_order_resolution_model(
+    client: Any,
+    system_prompt: str,
+    user_prompt: str,
+) -> dict:
+    response = client.chat.completions.create(
+        model=ORDER_RESOLUTION_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+    )
+    content = response.choices[0].message.content or "{}"
+    result = json.loads(content)
+    return result if isinstance(result, dict) else {}
+
+
+def _catalog_search_score(item: dict, row: dict) -> float:
+    product = _lower_ascii(_item_value(item, "produto", "texto_original"))
+    product_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", product)
+        if len(token) >= 3 and token not in _catalog_stop_tokens()
+    }
+    row_label = _lower_ascii(_public_product_label(row))
+    row_tokens = _catalog_flavor_tokens(row)
+    overlap = len(product_tokens & row_tokens)
+    similarity = SequenceMatcher(None, product, row_label).ratio() if product and row_label else 0.0
+
+    requested_type = _lower_ascii(_item_value(item, "formato", "tipo"))
+    requested_size = _norm_size(_item_value(item, "tamanho"))
+    row_type = _lower_ascii(_catalog_product_type(row))
+    row_size = _norm_size(_display_variation(_catalog_variation(row)))
+
+    score = overlap * 12.0 + similarity * 4.0
+    if product_tokens and product_tokens == row_tokens:
+        score += 18.0
+    elif product_tokens and product_tokens.issubset(row_tokens):
+        score += 7.0
+    if requested_type and requested_type == row_type:
+        score += 3.0
+    if requested_size and requested_size == row_size:
+        score += 3.0
+    return score
+
+
+def _catalog_candidates_for_extracted_item(
+    item: dict,
+    produtos: list[dict] | None,
+    limit: int = 12,
+) -> list[dict]:
+    scored = [
+        (_catalog_search_score(item, row), row)
+        for row in (produtos or [])
+    ]
+    scored.sort(key=lambda pair: (-pair[0], _catalog_name(pair[1]), _catalog_variation(pair[1])))
+
+    positive = [row for score, row in scored if score >= 3.0]
+    if len(positive) < limit:
+        requested_type = _lower_ascii(_item_value(item, "formato", "tipo"))
+        requested_size = _norm_size(_item_value(item, "tamanho"))
+        fallback = [
+            row
+            for _, row in scored
+            if (
+                (not requested_type or requested_type == _lower_ascii(_catalog_product_type(row)))
+                and (not requested_size or requested_size == _norm_size(_display_variation(_catalog_variation(row))))
+            )
+        ]
+        positive.extend(fallback)
+
+    return _dedupe_catalog_rows(positive)[:limit]
+
+
+def _extract_requested_items_with_ai(
+    client: Any,
+    text: str,
+    classification: dict | None,
+    history: list[dict] | None,
+    previous_resolution: dict | None,
+) -> dict:
+    system_prompt = (
+        "Você é o extrator de itens de um pedido falado ou escrito em português brasileiro. "
+        "Separe todos os produtos mencionados, sem consultar catálogo e sem decidir se existem. "
+        "Preserve a associação entre cada sabor, quantidade, embalagem e tamanho. "
+        "Entenda frases sem pontuação, áudio transcrito, correções e referências como 'o mesmo para laranja'. "
+        "Tamanhos são medidas do produto, nunca quantidades: 115ml, 200ml, 300ml, 900ml, 1,7L e 5L. "
+        "Não transforme exemplos ou opções citadas pela assistente em itens pedidos pelo cliente. "
+        "Se a mensagem atual complementar uma resolução anterior, devolva a lista acumulada atualizada. "
+        "Se o cliente disser explicitamente que quer um novo ou outro pedido, descarte a resolução anterior. "
+        "Nunca descarte um item porque outro está incompleto. Responda somente JSON válido."
+    )
+    payload = {
+        "mensagem_atual": normalize_text(text),
+        "intencao": (classification or {}).get("intent"),
+        "historico_recente": _recent_dialog_for_agent(history or [], limit=10),
+        "resolucao_anterior_pendente": previous_resolution or None,
+    }
+    user_prompt = (
+        "Extraia os itens neste formato:\n"
+        "{"
+        '"tipo":"pedido|consulta|alteracao|indefinido",'
+        '"itens_solicitados":[{"texto_original":"","produto":"","formato":"","tamanho":"","quantidade":null,"unidade":"","campos_ausentes":[]}],'
+        '"observacao":""'
+        "}\n\n"
+        "Crie um objeto para cada produto distinto solicitado. Se o cliente pedir três produtos, "
+        "itens_solicitados deve conter três objetos, mesmo que algum esteja incompleto.\n\n"
+        f"Dados:\n{json.dumps(payload, ensure_ascii=False, default=str)}"
+    )
+    return _call_order_resolution_model(client, system_prompt, user_prompt)
+
+
+def _resolve_extracted_items_with_ai(
+    client: Any,
+    extraction: dict,
+    produtos: list[dict] | None,
+) -> dict:
+    extracted_items = [
+        item for item in extraction.get("itens_solicitados") or [] if isinstance(item, dict)
+    ]
+    searches = []
+    for index, item in enumerate(extracted_items):
+        candidates = [
+            _catalog_entry_for_agent(row)
+            for row in _catalog_candidates_for_extracted_item(item, produtos)
+        ]
+        searches.append(
+            {
+                "indice_item": index,
+                "item_solicitado": item,
+                "candidatos_catalogo": candidates,
+            }
+        )
+
+    system_prompt = (
+        "Você é o resolvedor de catálogo da Sucos SPRES. Receba itens já separados e, para cada um, "
+        "compare sabor, formato e tamanho com os candidatos reais. Não invente SKU, tamanho ou preço. "
+        "Um produto composto é diferente de um produto simples: 'goiaba com hibisco' não é 'hibisco', "
+        "e 'manga e maracujá' não é 'manga'. Se sabor, formato e tamanho coincidirem, marque encontrado. "
+        "Se o sabor existir mas a combinação não existir, marque nao_encontrado e ofereça candidatos reais "
+        "do mesmo sabor. Se faltar informação, marque ambiguo e pergunte somente o campo ausente. "
+        "Retorne exatamente um resultado por item_solicitado, na mesma ordem. Responda somente JSON válido."
+    )
+    user_prompt = (
+        "Resolva neste formato:\n"
+        "{"
+        '"tipo":"pedido|consulta|alteracao|indefinido",'
+        '"confianca":0.0,'
+        '"itens":[{"indice_item":0,"texto_original":"","status":"encontrado|ambiguo|nao_encontrado","nome_catalogo":"","produto":"","formato":"","tamanho":"","quantidade":null,"unidade":"","preco_unitario":null,"subtotal":null,"faltando":[],"alternativas":[]}],'
+        '"produtos_nao_encontrados":[],'
+        '"perguntas_necessarias":[],'
+        '"orientacao_para_marcela":""'
+        "}\n\n"
+        f"Busca por item:\n{json.dumps(searches, ensure_ascii=False, default=str)}"
+    )
+    result = _call_order_resolution_model(client, system_prompt, user_prompt)
+    result["extracted_item_count"] = len(extracted_items)
+    result["resolved_item_count"] = len(result.get("itens") or [])
+    return result
+
+
+def _complete_resolution_items(
+    result: dict,
+    extraction: dict,
+    produtos: list[dict] | None,
+) -> dict:
+    extracted_items = [
+        item for item in extraction.get("itens_solicitados") or [] if isinstance(item, dict)
+    ]
+    resolved_items = [item for item in result.get("itens") or [] if isinstance(item, dict)]
+    by_index: dict[int, dict] = {}
+    for fallback_index, item in enumerate(resolved_items):
+        raw_index = item.get("indice_item", fallback_index)
+        try:
+            index = int(raw_index)
+        except (TypeError, ValueError):
+            index = fallback_index
+        if 0 <= index < len(extracted_items):
+            by_index[index] = item
+
+    completed: list[dict] = []
+    for index, extracted in enumerate(extracted_items):
+        if index in by_index:
+            item = {**by_index[index], "indice_item": index}
+        else:
+            candidates = _catalog_candidates_for_extracted_item(extracted, produtos)
+            item = {
+                "indice_item": index,
+                "texto_original": _item_value(extracted, "texto_original"),
+                "status": "ambiguo",
+                "nome_catalogo": "",
+                "produto": _item_value(extracted, "produto"),
+                "formato": _item_value(extracted, "formato"),
+                "tamanho": _item_value(extracted, "tamanho"),
+                "quantidade": extracted.get("quantidade"),
+                "unidade": _item_value(extracted, "unidade"),
+                "preco_unitario": None,
+                "subtotal": None,
+                "faltando": extracted.get("campos_ausentes") or ["confirmar opção do catálogo"],
+                "alternativas": [
+                    f"{_public_product_label(row)}: {_catalog_product_type(row)} "
+                    f"{_display_variation(_catalog_variation(row))}"
+                    for row in candidates[:8]
+                ],
+            }
+        completed.append(item)
+
+    completed_result = {**result, "itens": completed}
+    completed_result["resolved_item_count"] = len(completed)
+    completed_result["completion_repaired"] = len(resolved_items) != len(extracted_items)
+    return completed_result
+
+
 def resolve_order_with_subagent(
     text: str,
     produtos: list[dict] | None,
     classification: dict | None = None,
     history: list[dict] | None = None,
     open_review_order: dict | None = None,
+    previous_resolution: dict | None = None,
 ) -> dict | None:
     """Subagente de interpretação flexível. Não salva pedido e não responde ao cliente."""
-    if not _should_run_order_resolution_agent(text, classification, produtos):
+    should_continue_pending = (
+        _resolution_has_pending_items(previous_resolution)
+        and not is_final_order_confirmation(text)
+    )
+    if not should_continue_pending and not _should_run_order_resolution_agent(text, classification, produtos):
         return None
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -928,65 +1170,213 @@ def resolve_order_with_subagent(
         return None
 
     try:
-        catalog = [_catalog_entry_for_agent(row) for row in (produtos or [])[:160]]
-    except Exception as exc:
-        logger.warning("Falha ao preparar catalogo para o subagente: %s", exc)
-        return None
-    payload = {
-        "mensagem_cliente": normalize_text(text),
-        "intencao_classificada": (classification or {}).get("intent"),
-        "entidades_classificadas": (classification or {}).get("entities") or {},
-        "historico_recente": _recent_dialog_for_agent(history or []),
-        "pedido_em_revisao": open_review_order or None,
-        "catalogo": catalog,
-    }
-    system_prompt = (
-        "Você é um subagente interno de resolução de produtos e pedidos da Sucos SPRES. "
-        "Sua tarefa é interpretar a mensagem do cliente usando somente o catálogo recebido. "
-        "Você não responde ao cliente e não registra pedido. "
-        "Entenda áudio transcrito, frases com vírgulas, quantidades por extenso, múltiplos itens, "
-        "referências como 'o mesmo para laranja' e produtos compostos como 'água de coco'. "
-        "Nunca trate palavras de quantidade como produto. "
-        "Se um produto/formato/tamanho existir no catálogo, marque como encontrado. "
-        "Se houver mais de uma opção possível ou faltar dado, marque como ambiguo e liste o que falta. "
-        "Se não existir, marque como nao_encontrado e liste alternativas reais próximas. "
-        "Responda apenas JSON válido, sem markdown."
-    )
-    user_prompt = (
-        "Resolva a mensagem abaixo contra o catálogo e retorne JSON neste formato:\n"
-        "{"
-        '"tipo":"pedido|consulta|alteracao|indefinido",'
-        '"confianca":0.0,'
-        '"itens":[{"texto_original":"","status":"encontrado|ambiguo|nao_encontrado","nome_catalogo":"","produto":"","formato":"","tamanho":"","quantidade":null,"unidade":"","preco_unitario":null,"subtotal":null,"faltando":[],"alternativas":[]}],'
-        '"produtos_nao_encontrados":[],'
-        '"perguntas_necessarias":[],'
-        '"orientacao_para_marcela":""'
-        "}\n\n"
-        f"Dados:\n{json.dumps(payload, ensure_ascii=False, default=str)}"
-    )
-
-    try:
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0,
+        extraction = _extract_requested_items_with_ai(
+            client,
+            text,
+            classification,
+            history,
+            previous_resolution,
         )
-        content = response.choices[0].message.content or "{}"
-        result = json.loads(content)
-        if not isinstance(result, dict):
+        if not extraction.get("itens_solicitados"):
             return None
+        result = _resolve_extracted_items_with_ai(client, extraction, produtos)
+        if result.get("resolved_item_count") != result.get("extracted_item_count"):
+            logger.warning(
+                "Subagente omitiu itens: extraidos=%s resolvidos=%s",
+                result.get("extracted_item_count"),
+                result.get("resolved_item_count"),
+            )
+            result = _complete_resolution_items(result, extraction, produtos)
         result["source"] = "order_resolution_subagent"
+        result["pipeline"] = "extract_search_resolve"
+        result["extraction"] = extraction
         return result
     except Exception as exc:
         logger.warning("Falha no subagente de resolução de pedido: %s", exc)
         return None
+
+
+def _dedupe_catalog_rows(rows: list[dict]) -> list[dict]:
+    unique: dict[tuple[str, str, str], dict] = {}
+    for row in rows:
+        key = (
+            _lower_ascii(_catalog_name(row)),
+            _lower_ascii(_catalog_variation(row)),
+            normalize_text(row.get("cod_produto")),
+        )
+        unique.setdefault(key, row)
+    return list(unique.values())
+
+
+def _resolution_product_tokens(item: dict, produtos: list[dict] | None) -> set[str]:
+    product_text = _item_value(item, "produto", "nome_catalogo", "texto_original")
+    return set(_requested_catalog_tokens(product_text, produtos, require_trigger=False))
+
+
+def _reconcile_catalog_resolution(
+    resolution: dict | None,
+    produtos: list[dict] | None,
+) -> dict | None:
+    """Confere a saída do subagente no catálogo antes de usá-la na conversa."""
+    if not isinstance(resolution, dict) or not produtos:
+        return resolution
+
+    reconciled = {**resolution}
+    reconciled_items: list[dict] = []
+    questions: list[str] = []
+    unavailable_products: list[str] = []
+
+    for raw_item in resolution.get("itens") or []:
+        if not isinstance(raw_item, dict):
+            continue
+        item = {**raw_item}
+        canonical_name = _lower_ascii(_item_value(item, "nome_catalogo"))
+        canonical_candidates = [
+            row for row in produtos if canonical_name and _lower_ascii(_catalog_name(row)) == canonical_name
+        ]
+        product_tokens = _resolution_product_tokens(item, produtos)
+        broad_candidates = _catalog_options_for_item(item, produtos)
+        exact_flavor_candidates = [
+            row
+            for row in broad_candidates
+            if product_tokens and _catalog_flavor_tokens(row) == product_tokens
+        ]
+        flavor_candidates = exact_flavor_candidates if product_tokens else broad_candidates
+
+        wanted_type = _lower_ascii(_item_value(item, "formato", "tipo", "embalagem"))
+        wanted_size = _norm_size(_item_value(item, "tamanho", "variacao", "derivacao", "volume"))
+        exact_candidates = []
+        for row in canonical_candidates or flavor_candidates:
+            row_type = _lower_ascii(_catalog_product_type(row))
+            row_size = _norm_size(_display_variation(_catalog_variation(row)))
+            type_ok = not wanted_type or wanted_type == row_type
+            size_ok = not wanted_size or wanted_size == row_size
+            if type_ok and size_ok:
+                exact_candidates.append(row)
+        exact_candidates = _dedupe_catalog_rows(exact_candidates)
+
+        missing = []
+        if not wanted_type:
+            missing.append("tipo/formato")
+        if not wanted_size:
+            missing.append("tamanho")
+
+        if len(exact_candidates) == 1 and item.get("status") != "nao_encontrado":
+            row = exact_candidates[0]
+            quantity = item.get("quantidade")
+            price = row.get("preco") or row.get("preco_base") or row.get("preco_tabela_201")
+            item.update(
+                {
+                    "status": "encontrado",
+                    "nome_catalogo": _catalog_name(row),
+                    "produto": _public_product_label(row),
+                    "formato": _catalog_product_type(row),
+                    "tamanho": _display_variation(_catalog_variation(row)),
+                    "preco_unitario": price,
+                    "subtotal": float(quantity) * float(price) if quantity and price else None,
+                    "faltando": [],
+                    "alternativas": [],
+                }
+            )
+        elif missing and exact_candidates:
+            item["status"] = "ambiguo"
+            item["faltando"] = missing
+            item["alternativas"] = [
+                f"{_catalog_name(row)} {_display_variation(_catalog_variation(row))}".strip()
+                for row in exact_candidates[:8]
+            ]
+            questions.append(
+                f"Qual {' e '.join(missing)} de {_item_value(item, 'produto', 'texto_original')}?"
+            )
+        else:
+            item["status"] = "nao_encontrado"
+            item["faltando"] = []
+            alternatives = _dedupe_catalog_rows(flavor_candidates or broad_candidates)
+            item["alternativas"] = [
+                f"{_public_product_label(row)}: {_catalog_product_type(row)} "
+                f"{_display_variation(_catalog_variation(row))}"
+                for row in alternatives[:8]
+            ]
+            label = _item_value(item, "produto", "texto_original") or "produto solicitado"
+            unavailable_products.append(label)
+
+        reconciled_items.append(item)
+
+    reconciled["itens"] = reconciled_items
+    reconciled["produtos_nao_encontrados"] = list(dict.fromkeys(unavailable_products))
+    reconciled["perguntas_necessarias"] = list(dict.fromkeys(questions))
+    reconciled["catalog_reconciled"] = True
+    return reconciled
+
+
+def _resolution_order_items(resolution: dict | None) -> list[dict]:
+    items: list[dict] = []
+    for item in (resolution or {}).get("itens") or []:
+        if not isinstance(item, dict) or item.get("status") != "encontrado":
+            continue
+        items.append(
+            {
+                "nome": _item_value(item, "nome_catalogo", "produto"),
+                "produto": _item_value(item, "nome_catalogo", "produto"),
+                "tipo": _item_value(item, "formato", "tipo"),
+                "tamanho": _item_value(item, "tamanho"),
+                "quantidade": item.get("quantidade"),
+                "unidade": _item_value(item, "unidade") or "unidades",
+                "preco_unitario": item.get("preco_unitario"),
+                "subtotal": item.get("subtotal"),
+            }
+        )
+    return items
+
+
+def catalog_resolution_reply(resolution: dict | None) -> str:
+    items = (resolution or {}).get("itens") or []
+    if not items:
+        return ""
+
+    found = [item for item in items if isinstance(item, dict) and item.get("status") == "encontrado"]
+    issues = [item for item in items if isinstance(item, dict) and item.get("status") != "encontrado"]
+    order_items = _resolution_order_items(resolution)
+
+    if not issues and order_items and all(item.get("quantidade") for item in order_items):
+        return order_confirmation_prompt(order_items)
+
+    lines = ["Conferi os itens na tabela disponível:"]
+    if found:
+        lines.append("")
+        for item in found:
+            quantity = item.get("quantidade")
+            unit = _item_value(item, "unidade") or "unidades"
+            suffix = f", {quantity} {unit}" if quantity else ""
+            lines.append(
+                f"- {_item_value(item, 'produto', 'nome_catalogo')}: "
+                f"{_item_value(item, 'formato')} {_item_value(item, 'tamanho')}{suffix}"
+            )
+
+    for item in issues:
+        lines.append("")
+        product = _item_value(item, "produto", "texto_original") or "Esse produto"
+        requested = " ".join(
+            part for part in (_item_value(item, "formato"), _item_value(item, "tamanho")) if part
+        )
+        if item.get("status") == "nao_encontrado":
+            lines.append(f"Não temos {product}{f' em {requested}' if requested else ''}.")
+        else:
+            missing = ", ".join(item.get("faltando") or [])
+            lines.append(f"Preciso confirmar {missing or 'a opção exata'} de {product}.")
+        alternatives = item.get("alternativas") or []
+        if alternatives:
+            lines.append("Opções próximas disponíveis:")
+            lines.extend(f"- {option}" for option in alternatives[:8])
+
+    if issues:
+        lines += ["", "Me diga somente qual das opções acima você prefere para os itens pendentes."]
+    elif found:
+        lines += ["", "Quantas unidades de cada item você quer?"]
+    return "\n".join(lines)
 
 
 def product_options_reply(text: str, produtos: list[dict] | None) -> str:
@@ -3118,6 +3508,11 @@ def generate_ai_reply(
                     ensure_ascii=False,
                 )
                 logger.info("Pedido %s para revisao: %s / %s (telefone: %s)", order_action, order_id, order_protocol, phone)
+                if conversation_id:
+                    state = store.get_conversation_state(conversation_id)
+                    state.pop("catalog_resolution", None)
+                    state["order_in_progress"] = False
+                    store.save_conversation_state(conversation_id, state)
                 return order_registered_prompt(
                     itens,
                     order_protocol,
@@ -3286,9 +3681,32 @@ def process_inbound_message(
         classification=classification,
         history=history,
         open_review_order=open_review_order,
+        previous_resolution=conversation_state.get("catalog_resolution"),
     )
     if catalog_resolution:
+        catalog_resolution = _reconcile_catalog_resolution(catalog_resolution, produtos)
         module_context["catalog_resolution"] = catalog_resolution
+        conversation_state["catalog_resolution"] = catalog_resolution
+        store.save_conversation_state(str(conversation["id"]), conversation_state)
+
+        resolution_reply = normalize_customer_facing_ptbr(catalog_resolution_reply(catalog_resolution))
+        if resolution_reply:
+            store.add_message(
+                str(conversation["id"]),
+                "assistant",
+                resolution_reply,
+                payload_json={
+                    "source": "order_resolution_subagent",
+                    "catalog_resolution": catalog_resolution,
+                },
+            )
+            return {
+                "action": "order_resolution_reply",
+                "should_reply": True,
+                "reply": resolution_reply,
+                "context_messages": len(history),
+                "intent": classification.get("intent"),
+            }
 
     catalog_reply = (
         catalog_guard_prompt(normalized_text, produtos)
@@ -3373,7 +3791,15 @@ def process_inbound_message(
             "context_messages": len(history),
         }
 
-    store.add_message(str(conversation["id"]), "assistant", reply, payload_json={"source": "ai"})
+    store.add_message(
+        str(conversation["id"]),
+        "assistant",
+        reply,
+        payload_json={
+            "source": "ai",
+            **({"catalog_resolution": catalog_resolution} if catalog_resolution else {}),
+        },
+    )
     return {
         "action": "reply",
         "should_reply": True,

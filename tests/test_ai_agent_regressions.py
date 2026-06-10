@@ -318,6 +318,154 @@ class AiAgentRegressionTests(unittest.TestCase):
         self.assertIn("Não temos cajá", reply)
         self.assertIn("Não temos tamarindo", reply)
 
+    def test_subagent_resolution_is_reconciled_against_exact_catalog_size(self):
+        produtos = [
+            {"cod_produto": "SGRSSUVA", "nome_produto": "NECTAR GARRAFA UVA", "variacao": "1L7", "preco": 15.81},
+            {"cod_produto": "SGRSSMAR", "nome_produto": "SUCO GARRAFA MARACUJA", "variacao": "900", "preco": 8.80},
+        ]
+        resolution = {
+            "itens": [
+                {
+                    "status": "ambiguo",
+                    "produto": "Uva",
+                    "formato": "garrafa",
+                    "tamanho": "900ml",
+                    "quantidade": 10,
+                },
+                {
+                    "status": "ambiguo",
+                    "produto": "Maracuja",
+                    "formato": "garrafa",
+                    "tamanho": "900ml",
+                    "quantidade": 10,
+                },
+            ]
+        }
+
+        reconciled = ai_agent._reconcile_catalog_resolution(resolution, produtos)
+
+        self.assertEqual(reconciled["itens"][0]["status"], "nao_encontrado")
+        self.assertIn("garrafa 1,7L", reconciled["itens"][0]["alternativas"][0])
+        self.assertEqual(reconciled["itens"][1]["status"], "encontrado")
+        self.assertEqual(reconciled["itens"][1]["nome_catalogo"], "SUCO GARRAFA MARACUJA")
+
+    def test_standalone_hibisco_does_not_match_compound_product_as_exact(self):
+        produtos = [
+            {
+                "cod_produto": "SGRSSGOH",
+                "nome_produto": "SUCO GARRAFA GOIABA COM HIBISCO",
+                "variacao": "900",
+                "preco": 10.78,
+            }
+        ]
+        resolution = {
+            "itens": [
+                {
+                    "status": "encontrado",
+                    "produto": "Hibisco",
+                    "formato": "garrafa",
+                    "tamanho": "900ml",
+                    "quantidade": 5,
+                }
+            ]
+        }
+
+        reconciled = ai_agent._reconcile_catalog_resolution(resolution, produtos)
+        reply = ai_agent.catalog_resolution_reply(reconciled)
+
+        self.assertEqual(reconciled["itens"][0]["status"], "nao_encontrado")
+        self.assertIn("Goiaba Com Hibisco", reconciled["itens"][0]["alternativas"][0])
+        self.assertIn("Não temos Hibisco em garrafa 900ml", reply)
+
+    def test_resolved_multi_item_order_generates_single_confirmation(self):
+        produtos = [
+            {"cod_produto": "SCPSSCAJ", "nome_produto": "SUCO COPO CAJU", "variacao": "200", "preco": 1.72},
+            {"cod_produto": "SCPSSGOI", "nome_produto": "SUCO COPO GOIABA", "variacao": "200", "preco": 1.72},
+            {"cod_produto": "SCPSSLAR", "nome_produto": "SUCO COPO LARANJA 200ML", "variacao": "200", "preco": 2.24},
+        ]
+        resolution = {
+            "itens": [
+                {"produto": "Caju", "formato": "copo", "tamanho": "200ml", "quantidade": 5},
+                {"produto": "Goiaba", "formato": "copo", "tamanho": "200ml", "quantidade": 5},
+                {"produto": "Laranja", "formato": "copo", "tamanho": "200ml", "quantidade": 5},
+            ]
+        }
+
+        reconciled = ai_agent._reconcile_catalog_resolution(resolution, produtos)
+        reply = ai_agent.catalog_resolution_reply(reconciled)
+
+        self.assertEqual([item["status"] for item in reconciled["itens"]], ["encontrado"] * 3)
+        self.assertIn("Só para confirmar, ficou assim:", reply)
+        self.assertNotIn("Qual formato", reply)
+        self.assertNotIn("Qual tamanho", reply)
+
+    def test_catalog_search_reaches_products_after_old_160_item_limit(self):
+        produtos = [
+            {
+                "cod_produto": f"ITEM{i:03d}",
+                "nome_produto": f"SUCO GARRAFA SABOR{i:03d}",
+                "variacao": "900",
+                "preco": 5.0,
+            }
+            for i in range(200)
+        ]
+        produtos.append(
+            {
+                "cod_produto": "SGRSSUVA",
+                "nome_produto": "NECTAR GARRAFA UVA",
+                "variacao": "1L7",
+                "preco": 15.81,
+            }
+        )
+
+        candidates = ai_agent._catalog_candidates_for_extracted_item(
+            {"produto": "uva", "formato": "garrafa", "tamanho": "1,7L"},
+            produtos,
+        )
+
+        self.assertEqual(candidates[0]["nome_produto"], "NECTAR GARRAFA UVA")
+
+    def test_missing_subagent_result_is_completed_without_dropping_item(self):
+        extraction = {
+            "itens_solicitados": [
+                {"produto": "caju", "formato": "copo", "tamanho": "200ml", "quantidade": 5},
+                {"produto": "goiaba", "formato": "copo", "tamanho": "200ml", "quantidade": 10},
+                {"produto": "uva", "formato": "garrafa", "tamanho": "1,7L", "quantidade": 3},
+            ]
+        }
+        partial = {
+            "itens": [
+                {
+                    "indice_item": 0,
+                    "produto": "caju",
+                    "status": "encontrado",
+                    "formato": "copo",
+                    "tamanho": "200ml",
+                    "quantidade": 5,
+                },
+                {
+                    "indice_item": 2,
+                    "produto": "uva",
+                    "status": "encontrado",
+                    "formato": "garrafa",
+                    "tamanho": "1,7L",
+                    "quantidade": 3,
+                },
+            ]
+        }
+        produtos = [
+            {"nome_produto": "SUCO COPO CAJU", "variacao": "200", "preco": 1.72},
+            {"nome_produto": "SUCO COPO GOIABA", "variacao": "200", "preco": 1.72},
+            {"nome_produto": "NECTAR GARRAFA UVA", "variacao": "1L7", "preco": 15.81},
+        ]
+
+        completed = ai_agent._complete_resolution_items(partial, extraction, produtos)
+
+        self.assertEqual(len(completed["itens"]), 3)
+        self.assertEqual(completed["itens"][1]["produto"], "goiaba")
+        self.assertEqual(completed["itens"][1]["status"], "ambiguo")
+        self.assertTrue(completed["completion_repaired"])
+
 
 if __name__ == "__main__":
     unittest.main()
