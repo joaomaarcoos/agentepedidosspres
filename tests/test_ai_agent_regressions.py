@@ -546,6 +546,137 @@ class AiAgentRegressionTests(unittest.TestCase):
         self.assertEqual(reconciled["itens"][0]["status"], "encontrado")
         self.assertEqual(reconciled["produtos_nao_encontrados"], [])
 
+    def test_latest_extracted_size_overrides_stale_resolver_size(self):
+        extraction = {
+            "itens_solicitados": [
+                {
+                    "produto": "maçã",
+                    "formato": "copo",
+                    "tamanho": "115ml",
+                    "quantidade": 20,
+                    "texto_original": "quero então o de 115",
+                }
+            ]
+        }
+        stale_result = {
+            "itens": [
+                {
+                    "indice_item": 0,
+                    "status": "nao_encontrado",
+                    "produto": "Maca 115Ml",
+                    "formato": "copo",
+                    "tamanho": "200ml",
+                    "quantidade": 20,
+                    "alternativas": ["Maca 115Ml: copo 115ml"],
+                }
+            ]
+        }
+        produtos = [
+            {
+                "nome_produto": "SUCO COPO MACA 115ML",
+                "variacao": "115",
+                "preco": 1.37,
+            }
+        ]
+
+        aligned = ai_agent._align_resolution_with_extraction(stale_result, extraction)
+        reconciled = ai_agent._reconcile_catalog_resolution(aligned, produtos)
+
+        self.assertEqual(aligned["itens"][0]["tamanho"], "115ml")
+        self.assertEqual(aligned["itens"][0]["produto"], "maçã")
+        self.assertEqual(reconciled["itens"][0]["status"], "encontrado")
+        self.assertEqual(reconciled["itens"][0]["nome_catalogo"], "SUCO COPO MACA 115ML")
+
+    def test_valid_variant_does_not_hide_invalid_variant_of_same_flavor(self):
+        produtos = [
+            {"nome_produto": "NECTAR COPO UVA", "variacao": "200", "preco": 2.34},
+            {"nome_produto": "NECTAR GARRAFA UVA", "variacao": "1L7", "preco": 15.81},
+        ]
+        resolution = {
+            "itens": [
+                {
+                    "status": "encontrado",
+                    "produto": "uva",
+                    "formato": "copo",
+                    "tamanho": "200ml",
+                    "quantidade": 10,
+                },
+                {
+                    "status": "nao_encontrado",
+                    "produto": "uva",
+                    "formato": "garrafa",
+                    "tamanho": "900ml",
+                    "quantidade": 5,
+                    "alternativas": ["Uva: garrafa 1,7L"],
+                },
+            ]
+        }
+
+        reconciled = ai_agent._reconcile_catalog_resolution(resolution, produtos)
+
+        self.assertEqual(len(reconciled["itens"]), 2)
+        self.assertEqual(reconciled["itens"][0]["status"], "encontrado")
+        self.assertEqual(reconciled["itens"][1]["status"], "nao_encontrado")
+        self.assertEqual(reconciled["itens"][1]["tamanho"], "900ml")
+
+    def test_non_order_topic_bypasses_pending_product_resolution(self):
+        for intent in (
+            "history_query",
+            "delivery_query",
+            "time_query",
+            "greeting",
+            "complaint",
+            "disengage",
+        ):
+            with self.subTest(intent=intent):
+                self.assertTrue(
+                    ai_agent._intent_bypasses_pending_resolution({"intent": intent})
+                )
+
+        self.assertFalse(
+            ai_agent._intent_bypasses_pending_resolution({"intent": "order_adjustment"})
+        )
+        self.assertFalse(
+            ai_agent._intent_bypasses_pending_resolution({"intent": "commercial_unknown"})
+        )
+
+    def test_package_synonym_saco_is_validated_as_bolsa(self):
+        extraction = {
+            "itens_solicitados": [
+                {
+                    "produto": "laranja",
+                    "formato": "saco",
+                    "tamanho": "5L",
+                    "quantidade": 10,
+                }
+            ]
+        }
+        resolver = {
+            "itens": [
+                {
+                    "indice_item": 0,
+                    "status": "encontrado",
+                    "produto": "laranja",
+                    "formato": "bolsa",
+                    "tamanho": "5L",
+                    "quantidade": 10,
+                }
+            ]
+        }
+        produtos = [
+            {
+                "nome_produto": "SUCO BOLSA LARANJA",
+                "variacao": "05L",
+                "preco": 40.58,
+            }
+        ]
+
+        aligned = ai_agent._align_resolution_with_extraction(resolver, extraction)
+        reconciled = ai_agent._reconcile_catalog_resolution(aligned, produtos)
+
+        self.assertEqual(aligned["itens"][0]["formato"], "bolsa")
+        self.assertEqual(reconciled["itens"][0]["status"], "encontrado")
+
 
 if __name__ == "__main__":
     unittest.main()

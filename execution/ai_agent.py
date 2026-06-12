@@ -456,6 +456,16 @@ def _selected_product_type_from_text(text: str) -> str:
     return ""
 
 
+def _normalize_product_type(value: str) -> str:
+    normalized = _lower_ascii(value)
+    if not normalized:
+        return ""
+    if contains_any(normalized, ("saco", "sacola")):
+        return "bolsa"
+    detected = _selected_product_type_from_text(normalized)
+    return detected or normalized
+
+
 def _requested_size_from_text(text: str) -> str:
     value = _lower_ascii(text)
     match = re.search(r"\b(115|200|300|900)\s*(?:ml)?\b", value)
@@ -935,6 +945,19 @@ def _resolution_has_pending_items(resolution: dict | None) -> bool:
     )
 
 
+def _intent_bypasses_pending_resolution(classification: dict | None) -> bool:
+    return (classification or {}).get("intent") in {
+        "history_query",
+        "delivery_query",
+        "time_query",
+        "greeting",
+        "complaint",
+        "out_of_scope",
+        "disengage",
+        "prompt_attack",
+    }
+
+
 def _call_order_resolution_model(
     client: Any,
     system_prompt: str,
@@ -1150,6 +1173,49 @@ def _complete_resolution_items(
     return completed_result
 
 
+def _align_resolution_with_extraction(
+    result: dict,
+    extraction: dict,
+) -> dict:
+    """Impede o resolvedor de sobrescrever dados explícitos da mensagem atual."""
+    extracted_items = [
+        item for item in extraction.get("itens_solicitados") or [] if isinstance(item, dict)
+    ]
+    aligned_items: list[dict] = []
+    for fallback_index, raw_item in enumerate(result.get("itens") or []):
+        if not isinstance(raw_item, dict):
+            continue
+        item = {**raw_item}
+        try:
+            index = int(item.get("indice_item", fallback_index))
+        except (TypeError, ValueError):
+            index = fallback_index
+        if 0 <= index < len(extracted_items):
+            extracted = extracted_items[index]
+            for source_key, target_key in (
+                ("produto", "produto"),
+                ("formato", "formato"),
+                ("tamanho", "tamanho"),
+                ("unidade", "unidade"),
+            ):
+                value = _item_value(extracted, source_key)
+                if value:
+                    item[target_key] = (
+                        _normalize_product_type(value)
+                        if target_key == "formato"
+                        else value
+                    )
+            if extracted.get("quantidade") is not None:
+                item["quantidade"] = extracted.get("quantidade")
+            item["texto_original"] = (
+                _item_value(extracted, "texto_original")
+                or _item_value(item, "texto_original")
+            )
+            item["indice_item"] = index
+        aligned_items.append(item)
+    return {**result, "itens": aligned_items}
+
+
 def resolve_order_with_subagent(
     text: str,
     produtos: list[dict] | None,
@@ -1162,6 +1228,7 @@ def resolve_order_with_subagent(
     should_continue_pending = (
         _resolution_has_pending_items(previous_resolution)
         and not is_final_order_confirmation(text)
+        and not _intent_bypasses_pending_resolution(classification)
     )
     if not should_continue_pending and not _should_run_order_resolution_agent(text, classification, produtos):
         return None
@@ -1191,6 +1258,7 @@ def resolve_order_with_subagent(
                 result.get("resolved_item_count"),
             )
             result = _complete_resolution_items(result, extraction, produtos)
+        result = _align_resolution_with_extraction(result, extraction)
         result["source"] = "order_resolution_subagent"
         result["pipeline"] = "extract_search_resolve"
         result["extraction"] = extraction
@@ -1248,9 +1316,25 @@ def _alternative_product_tokens(value: str) -> set[str]:
     return _resolution_product_tokens({"produto": label}, None)
 
 
+def _resolution_variant_key(item: dict) -> tuple[frozenset[str], str, str]:
+    return (
+        frozenset(_resolution_product_tokens(item, None)),
+        _lower_ascii(_item_value(item, "formato", "tipo")),
+        _norm_size(_item_value(item, "tamanho")),
+    )
+
+
+def _alternative_variant_key(value: str) -> tuple[frozenset[str], str, str]:
+    return (
+        frozenset(_alternative_product_tokens(value)),
+        _lower_ascii(_selected_product_type_from_text(value)),
+        _norm_size(_requested_size_from_text(value)),
+    )
+
+
 def _drop_superseded_resolution_items(items: list[dict]) -> list[dict]:
-    found_identities = {
-        frozenset(_resolution_product_tokens(item, None))
+    found_variants = {
+        _resolution_variant_key(item)
         for item in items
         if item.get("status") == "encontrado" and _resolution_product_tokens(item, None)
     }
@@ -1259,15 +1343,59 @@ def _drop_superseded_resolution_items(items: list[dict]) -> list[dict]:
         if item.get("status") == "encontrado":
             filtered.append(item)
             continue
-        alternative_identities = {
-            frozenset(_alternative_product_tokens(option))
+        item_tokens = frozenset(_resolution_product_tokens(item, None))
+        item_type = _lower_ascii(_item_value(item, "formato", "tipo"))
+        item_size = _norm_size(_item_value(item, "tamanho"))
+        if item_type or item_size:
+            matching_found = any(
+                tokens == item_tokens
+                and (not item_type or found_type == item_type)
+                and (not item_size or found_size == item_size)
+                for tokens, found_type, found_size in found_variants
+            )
+            if matching_found:
+                continue
+            filtered.append(item)
+            continue
+        alternative_variants = {
+            _alternative_variant_key(option)
             for option in item.get("alternativas") or []
             if _alternative_product_tokens(option)
         }
-        if found_identities & alternative_identities:
+        if found_variants & alternative_variants:
             continue
         filtered.append(item)
-    return filtered
+
+    deduped: list[dict] = []
+    found_indexes: dict[tuple[str, str, str], int] = {}
+    for item in filtered:
+        if item.get("status") != "encontrado":
+            deduped.append(item)
+            continue
+        key = (
+            _lower_ascii(_item_value(item, "nome_catalogo", "produto")),
+            _lower_ascii(_item_value(item, "formato", "tipo")),
+            _norm_size(_item_value(item, "tamanho")),
+        )
+        existing_index = found_indexes.get(key)
+        if existing_index is None:
+            found_indexes[key] = len(deduped)
+            deduped.append(item)
+            continue
+
+        current = deduped[existing_index]
+        current_was_pending = current.get("_resolution_original_status") != "encontrado"
+        item_was_pending = item.get("_resolution_original_status") != "encontrado"
+        if current_was_pending == item_was_pending:
+            deduped.append(item)
+            continue
+
+        preferred = item if current_was_pending and not item_was_pending else current
+        deduped[existing_index] = preferred
+
+    for item in deduped:
+        item.pop("_resolution_original_status", None)
+    return deduped
 
 
 def _reconcile_catalog_resolution(
@@ -1287,6 +1415,7 @@ def _reconcile_catalog_resolution(
         if not isinstance(raw_item, dict):
             continue
         item = {**raw_item}
+        item["_resolution_original_status"] = item.get("status")
         canonical_name = _lower_ascii(_item_value(item, "nome_catalogo"))
         canonical_candidates = [
             row for row in produtos if canonical_name and _lower_ascii(_catalog_name(row)) == canonical_name
@@ -1300,7 +1429,9 @@ def _reconcile_catalog_resolution(
         ]
         flavor_candidates = exact_flavor_candidates if product_tokens else broad_candidates
 
-        wanted_type = _lower_ascii(_item_value(item, "formato", "tipo", "embalagem"))
+        wanted_type = _normalize_product_type(
+            _item_value(item, "formato", "tipo", "embalagem")
+        )
         wanted_size = _norm_size(_item_value(item, "tamanho", "variacao", "derivacao", "volume"))
         exact_candidates = []
         for row in canonical_candidates or flavor_candidates:
@@ -1318,7 +1449,7 @@ def _reconcile_catalog_resolution(
         if not wanted_size:
             missing.append("tamanho")
 
-        if len(exact_candidates) == 1 and item.get("status") != "nao_encontrado":
+        if len(exact_candidates) == 1:
             row = exact_candidates[0]
             quantity = item.get("quantidade")
             price = row.get("preco") or row.get("preco_base") or row.get("preco_tabela_201")
