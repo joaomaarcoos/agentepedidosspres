@@ -258,6 +258,7 @@ def _customer_section(ctx: dict) -> str:
             "",
             "Use estes dados para responder sobre historico, repetir pedido ou sugerir recompra.",
             "Ao mencionar historico ou repetir pedido, preserve produto, formato e tamanho/derivacao quando existirem. Exemplo: copo laranja 115ml, copo uva 200ml, garrafa caju 900ml.",
+            "Itens marcados como indisponiveis pertencem somente ao historico: informe que nao estao na tabela atual e nao os ofereca nem repita automaticamente.",
             "Nao use valores historicos para calcular ou prometer preco de pedido novo.",
         ]
 
@@ -597,6 +598,19 @@ def _norm_price(value) -> float | None:
         return None
 
 
+def _norm_variation(value) -> str:
+    raw = _norm_text(value).replace(" ", "").replace(",", ".")
+    if raw in {"05L", "5L", "5.0L"}:
+        return "5L"
+    if raw in {"1L7", "1.7L", "17L"}:
+        return "1.7L"
+    if raw.endswith("ML"):
+        raw = raw[:-2]
+    if raw.isdigit():
+        return f"{int(raw)}ML"
+    return raw
+
+
 def _catalog_match(item: dict, produtos: list[dict]) -> dict | None:
     cod = _norm_text(item.get("codPro") or item.get("cod_produto"))
     if not cod:
@@ -608,6 +622,22 @@ def _catalog_match(item: dict, produtos: list[dict]) -> dict | None:
     ]
     if not candidates:
         return None
+
+    item_variation = _norm_variation(
+        item.get("variacao") or item.get("derivacao") or item.get("tamanho")
+    )
+    if item_variation:
+        variation_matches = [
+            row
+            for row in candidates
+            if _norm_variation(row.get("variacao") or row.get("derivacao")) == item_variation
+        ]
+        if len(variation_matches) == 1:
+            return variation_matches[0]
+        if not variation_matches:
+            return None
+        candidates = variation_matches
+
     if len(candidates) == 1:
         return candidates[0]
 
@@ -618,13 +648,6 @@ def _catalog_match(item: dict, produtos: list[dict]) -> dict | None:
                 row_price = _norm_price(row.get(key))
                 if row_price is not None and abs(row_price - item_price) <= 0.01:
                     return row
-
-    item_variation = _norm_text(item.get("variacao") or item.get("derivacao") or item.get("tamanho"))
-    if item_variation:
-        for row in candidates:
-            row_variation = _norm_text(row.get("variacao") or row.get("derivacao"))
-            if row_variation == item_variation:
-                return row
 
     return None
 
@@ -643,6 +666,7 @@ def _fmt_recent_orders(orders: list[dict], produtos: list[dict] | None = None) -
             continue
         for item in items[:12]:
             catalog_item = _catalog_match(item, produtos)
+            available_now = bool(catalog_item)
             cod = item.get("codPro") or item.get("cod_produto") or ""
             nome = (
                 (catalog_item or {}).get("nome_produto")
@@ -670,5 +694,7 @@ def _fmt_recent_orders(orders: list[dict], produtos: list[dict] | None = None) -
             detalhe += f": qtd {qtd}"
             if unidade:
                 detalhe += f" {unidade}"
+            if produtos and not available_now:
+                detalhe += " | indisponivel na tabela atual"
             linhas.append(detalhe)
     return "\n".join(linhas)

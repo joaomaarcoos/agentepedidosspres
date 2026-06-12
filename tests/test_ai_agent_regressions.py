@@ -466,6 +466,86 @@ class AiAgentRegressionTests(unittest.TestCase):
         self.assertEqual(completed["itens"][1]["status"], "ambiguo")
         self.assertTrue(completed["completion_repaired"])
 
+    def test_generic_agua_de_coco_is_ambiguous_not_unavailable(self):
+        produtos = [
+            {"nome_produto": "SUCO COPO AGUA COCO", "variacao": "200", "preco": 2.60},
+            {"nome_produto": "AGUA GARRAFA DE COCO", "variacao": "900", "preco": 10.20},
+        ]
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "água de coco",
+                    "formato": "",
+                    "tamanho": "",
+                }
+            ]
+        }
+
+        reconciled = ai_agent._reconcile_catalog_resolution(resolution, produtos)
+
+        self.assertEqual(reconciled["itens"][0]["status"], "ambiguo")
+        self.assertEqual(reconciled["itens"][0]["faltando"], ["tipo/formato", "tamanho"])
+        self.assertEqual(reconciled["produtos_nao_encontrados"], [])
+
+    def test_pasteurized_descriptor_does_not_hide_laranja_bottles(self):
+        produtos = [
+            {"nome_produto": "SUCO BOLSA LARANJA", "variacao": "05L", "preco": 40.58},
+            {"nome_produto": "SUCO GARRAFA PASTEURIZADO DE LARANJA", "variacao": "300", "preco": 3.89},
+            {"nome_produto": "SUCO GARRAFA PASTEURIZADO DE LARANJA", "variacao": "900", "preco": 9.17},
+            {"nome_produto": "SUCO GARRAFA PASTEURIZADO DE LARANJA", "variacao": "1L7", "preco": 16.26},
+        ]
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "laranja",
+                    "formato": "garrafa",
+                    "tamanho": "",
+                }
+            ]
+        }
+
+        reconciled = ai_agent._reconcile_catalog_resolution(resolution, produtos)
+
+        self.assertEqual(reconciled["itens"][0]["status"], "ambiguo")
+        self.assertEqual(reconciled["itens"][0]["faltando"], ["tamanho"])
+        self.assertTrue(
+            any("900ml" in option for option in reconciled["itens"][0]["alternativas"])
+        )
+
+    def test_corrected_compound_product_removes_stale_unavailable_item(self):
+        produtos = [
+            {
+                "nome_produto": "SUCO GARRAFA GOIABA COM HIBISCO",
+                "variacao": "900",
+                "preco": 10.78,
+            }
+        ]
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "goiaba com hibisco",
+                    "alternativas": ["Goiaba Com Hibisco: garrafa 900ml"],
+                },
+                {
+                    "status": "encontrado",
+                    "produto": "Goiaba Com Hibisco",
+                    "nome_catalogo": "SUCO GARRAFA GOIABA COM HIBISCO",
+                    "formato": "garrafa",
+                    "tamanho": "900ml",
+                    "quantidade": 10,
+                },
+            ]
+        }
+
+        reconciled = ai_agent._reconcile_catalog_resolution(resolution, produtos)
+
+        self.assertEqual(len(reconciled["itens"]), 1)
+        self.assertEqual(reconciled["itens"][0]["status"], "encontrado")
+        self.assertEqual(reconciled["produtos_nao_encontrados"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

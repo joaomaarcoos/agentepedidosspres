@@ -260,6 +260,7 @@ def _catalog_flavor_tokens(row: dict) -> set[str]:
         "concentrada",
         "concentrado",
         "integral",
+        "pasteurizado",
         "com",
         "sem",
         "polpa",
@@ -1213,7 +1214,60 @@ def _dedupe_catalog_rows(rows: list[dict]) -> list[dict]:
 
 def _resolution_product_tokens(item: dict, produtos: list[dict] | None) -> set[str]:
     product_text = _item_value(item, "produto", "nome_catalogo", "texto_original")
-    return set(_requested_catalog_tokens(product_text, produtos, require_trigger=False))
+    ignored = {
+        "suco",
+        "nectar",
+        "copo",
+        "garrafa",
+        "bolsa",
+        "galao",
+        "pet",
+        "concentrado",
+        "concentrada",
+        "integral",
+        "pasteurizado",
+        "com",
+        "sem",
+        "de",
+        "da",
+        "do",
+        "e",
+        "ml",
+        "litro",
+        "litros",
+    }
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", _lower_ascii(product_text))
+        if len(token) >= 3 and token not in ignored and not any(ch.isdigit() for ch in token)
+    }
+
+
+def _alternative_product_tokens(value: str) -> set[str]:
+    label = normalize_text(value).split(":", 1)[0]
+    return _resolution_product_tokens({"produto": label}, None)
+
+
+def _drop_superseded_resolution_items(items: list[dict]) -> list[dict]:
+    found_identities = {
+        frozenset(_resolution_product_tokens(item, None))
+        for item in items
+        if item.get("status") == "encontrado" and _resolution_product_tokens(item, None)
+    }
+    filtered: list[dict] = []
+    for item in items:
+        if item.get("status") == "encontrado":
+            filtered.append(item)
+            continue
+        alternative_identities = {
+            frozenset(_alternative_product_tokens(option))
+            for option in item.get("alternativas") or []
+            if _alternative_product_tokens(option)
+        }
+        if found_identities & alternative_identities:
+            continue
+        filtered.append(item)
+    return filtered
 
 
 def _reconcile_catalog_resolution(
@@ -1305,9 +1359,23 @@ def _reconcile_catalog_resolution(
 
         reconciled_items.append(item)
 
+    reconciled_items = _drop_superseded_resolution_items(reconciled_items)
     reconciled["itens"] = reconciled_items
-    reconciled["produtos_nao_encontrados"] = list(dict.fromkeys(unavailable_products))
-    reconciled["perguntas_necessarias"] = list(dict.fromkeys(questions))
+    reconciled["produtos_nao_encontrados"] = list(
+        dict.fromkeys(
+            _item_value(item, "produto", "texto_original")
+            for item in reconciled_items
+            if item.get("status") == "nao_encontrado"
+        )
+    )
+    reconciled["perguntas_necessarias"] = list(
+        dict.fromkeys(
+            f"Qual {' e '.join(item.get('faltando') or [])} de "
+            f"{_item_value(item, 'produto', 'texto_original')}?"
+            for item in reconciled_items
+            if item.get("status") == "ambiguo" and item.get("faltando")
+        )
+    )
     reconciled["catalog_reconciled"] = True
     return reconciled
 

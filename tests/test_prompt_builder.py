@@ -73,6 +73,39 @@ class PromptBuilderTests(unittest.TestCase):
         self.assertIn("SUCO COPO AGUA COCO", prompt)
         self.assertIn("Nao exponha ao cliente que existe subagente", prompt)
 
+    def test_recent_order_marks_variation_missing_from_current_catalog(self):
+        prompt = build_prompt(
+            {
+                "recent_orders": [
+                    {
+                        "num_ped": "123",
+                        "dat_emi": "2026-06-01",
+                        "sit_ped": "FATURADO",
+                        "items_json": [
+                            {
+                                "codPro": "SGRSSUVA",
+                                "desPro": "NECTAR GARRAFA UVA 900ML",
+                                "variacao": "900",
+                                "qtdPed": 10,
+                            }
+                        ],
+                    }
+                ],
+                "produtos": [
+                    {
+                        "cod_produto": "SGRSSUVA",
+                        "nome_produto": "NECTAR GARRAFA UVA",
+                        "variacao": "1L7",
+                        "preco": 15.81,
+                    }
+                ],
+            }
+        )
+
+        self.assertIn("NECTAR GARRAFA UVA 900ML", prompt)
+        self.assertIn("indisponivel na tabela atual", prompt)
+        self.assertIn("nao os ofereca nem repita automaticamente", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
