@@ -1456,6 +1456,7 @@ def _reconcile_catalog_resolution(
             item.update(
                 {
                     "status": "encontrado",
+                    "cod_produto": normalize_text(row.get("cod_produto")),
                     "nome_catalogo": _catalog_name(row),
                     "produto": _public_product_label(row),
                     "formato": _catalog_product_type(row),
@@ -1520,6 +1521,7 @@ def _resolution_order_items(resolution: dict | None) -> list[dict]:
             {
                 "nome": _item_value(item, "nome_catalogo", "produto"),
                 "produto": _item_value(item, "nome_catalogo", "produto"),
+                "cod_produto": _item_value(item, "cod_produto"),
                 "tipo": _item_value(item, "formato", "tipo"),
                 "tamanho": _item_value(item, "tamanho"),
                 "quantidade": item.get("quantidade"),

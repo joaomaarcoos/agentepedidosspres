@@ -164,6 +164,8 @@ export interface PrevisaoOverview {
     total_qtd: number;
     total_valor: number;
     products_count: number;
+    secretary_orders_count: number;
+    secretary_total_value: number;
   };
   periods: PrevisaoPeriodo[];
   months?: PrevisaoMes[];
@@ -198,6 +200,89 @@ export interface EvolutionInstance {
   status: string;
   profilePictureUrl?: string | null;
   phoneNumber?: string | null;
+  agent_type?: AgentType;
+  agent_enabled?: boolean;
+}
+
+export type AgentType = "sales" | "secretary";
+
+export type SecretaryOrderStatus =
+  | "draft"
+  | "awaiting_confirmation"
+  | "submitting"
+  | "submitted"
+  | "synced"
+  | "failed"
+  | "cancelled";
+
+export interface SecretaryOrderItem {
+  cod_produto?: string | number | null;
+  nome?: string | null;
+  derivacao?: string | null;
+  quantidade?: number | null;
+  unidade?: string | null;
+  preco_unitario?: number | null;
+  subtotal?: number | null;
+}
+
+export interface SecretaryOrder {
+  id: string;
+  protocol: string;
+  instance_name: string;
+  cod_rep: number;
+  representative_phone?: string | null;
+  customer_code?: string | number | null;
+  customer_name?: string | null;
+  items_json: SecretaryOrderItem[];
+  total: number;
+  status: SecretaryOrderStatus;
+  clic_order_number?: string | null;
+  clic_status?: string | null;
+  error_message?: string | null;
+  confirmed_at?: string | null;
+  submitted_at?: string | null;
+  synced_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SecretaryMetrics {
+  orders_started: number;
+  orders_confirmed: number;
+  orders_sent: number;
+  orders_synced: number;
+  orders_failed: number;
+  total_value: number;
+  average_ticket: number;
+  customers: number;
+  representatives: number;
+  instances: number;
+  status_breakdown: Record<string, number>;
+  products: Array<{
+    code?: string | number | null;
+    name?: string | null;
+    quantity: number;
+    value: number;
+  }>;
+  daily: Array<{ date: string; started: number; sent: number; value: number }>;
+  representative_totals: Array<{
+    cod_rep: number;
+    name: string;
+    orders: number;
+    value: number;
+  }>;
+}
+
+export interface SecretaryDashboard {
+  metrics: SecretaryMetrics;
+  orders: SecretaryOrder[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+  updated_at: string;
+  secretary_instances?: EvolutionInstance[];
+  can_view_results: boolean;
 }
 
 export interface EvolutionInstancesResponse {
@@ -213,6 +298,8 @@ export interface CreateInstanceResult {
   instanceName: string;
   instanceId: string;
   status: string;
+  agent_type: AgentType;
+  agent_enabled: boolean;
   qrcode?: { code: string; base64: string } | null;
 }
 

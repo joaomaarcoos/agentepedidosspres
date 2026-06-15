@@ -28,6 +28,7 @@ from review_order_whatsapp import (
     process_representative_message,
     process_representative_order_command,
 )
+from secretary_agent import process_secretary_message
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -362,6 +363,38 @@ def _is_agent_enabled(instance: str) -> bool:
     return True
 
 
+def _agent_config(instance: str) -> dict:
+    default = {"agent_type": "sales", "agent_enabled": True}
+    if not instance:
+        return default
+    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+    if not supabase_url or not supabase_key:
+        return {**default, "agent_enabled": _is_agent_enabled(instance)}
+    try:
+        from supabase import create_client
+
+        rows = (
+            create_client(supabase_url, supabase_key)
+            .table("system_settings")
+            .select("value")
+            .eq("key", f"agent_instance_config__{instance}")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        value = rows[0].get("value") if rows else None
+        if isinstance(value, dict):
+            return {
+                "agent_type": str(value.get("agent_type") or "sales"),
+                "agent_enabled": bool(value.get("agent_enabled", True)),
+            }
+    except Exception as exc:
+        logger.warning("Falha ao carregar configuracao do agente %s: %s", instance, exc)
+    return {**default, "agent_enabled": _is_agent_enabled(instance)}
+
+
 def handle_payload(payload: dict, send_reply: bool = True) -> dict:
     # Instance name comes from the payload — no hardcoded prefix
     instance = (
@@ -391,8 +424,39 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
     if AI_OUTGOING_MARKER in incoming["text"]:
         return {"action": "ignored_ai_outgoing", "should_reply": False}
 
-    if not _is_agent_enabled(instance):
+    agent_config = _agent_config(instance)
+    if not agent_config.get("agent_enabled", True):
         return {"action": "agent_disabled", "should_reply": False}
+
+    if agent_config.get("agent_type") == "secretary":
+        if incoming["from_me"]:
+            return {"action": "ignored_from_me", "should_reply": False}
+        try:
+            result = process_secretary_message(
+                phone=incoming["phone"],
+                text=incoming["text"],
+                instance_name=instance,
+                external_message_id=incoming.get("message_id"),
+                payload_json=payload,
+            )
+        except Exception as exc:
+            logger.exception("Falha no processamento da Marcela Secretaria")
+            result = {
+                "action": "secretary_processing_failed",
+                "should_reply": True,
+                "reply": "Tive uma falha temporaria ao processar sua solicitacao. Tente novamente em alguns instantes.",
+                "error": str(exc),
+            }
+        if send_reply and result.get("should_reply") and result.get("reply"):
+            reply_parts = split_reply(result["reply"])
+            responses = []
+            for index, part in enumerate(reply_parts):
+                if index > 0 and REPLY_SPLIT_DELAY_SECONDS > 0:
+                    time.sleep(REPLY_SPLIT_DELAY_SECONDS)
+                responses.append(send_whatsapp(incoming["phone"], part, instance))
+            result["reply_parts"] = reply_parts
+            result["evolution_response"] = responses[0] if len(responses) == 1 else responses
+        return result
 
     representative_result = process_representative_order_command(
         phone=incoming["phone"],

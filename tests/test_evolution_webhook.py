@@ -140,5 +140,36 @@ class EvolutionWebhookTests(unittest.TestCase):
         self.assertIn("falha temporária", result["reply"])
 
 
+    def test_secretary_instance_routes_to_secretary_agent(self):
+        payload = {
+            "instance": "secretaria-01",
+            "data": {
+                "key": {
+                    "remoteJid": "5511999999999@s.whatsapp.net",
+                    "fromMe": False,
+                    "id": "SEC1",
+                },
+                "message": {"conversation": "pedido para Mercado Central"},
+            },
+        }
+        with patch.object(
+            evolution_webhook,
+            "_agent_config",
+            return_value={"agent_type": "secretary", "agent_enabled": True},
+        ), patch.object(
+            evolution_webhook,
+            "process_secretary_message",
+            return_value={"action": "secretary_reply", "should_reply": False},
+        ) as secretary, patch.object(
+            evolution_webhook,
+            "process_inbound_message",
+        ) as sales:
+            result = evolution_webhook.handle_payload(payload, send_reply=False)
+
+        self.assertEqual(result["action"], "secretary_reply")
+        secretary.assert_called_once()
+        sales.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

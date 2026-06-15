@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     const periodCount = Number(searchParams.get("period_count") ?? 4);
     const limit = Number(searchParams.get("limit") ?? 10);
 
-    if (!Number.isFinite(periodCount) || ![3, 4].includes(periodCount)) {
+    if (!Number.isFinite(periodCount) || ![2, 3, 4].includes(periodCount)) {
       return NextResponse.json({ error: "Parametro period_count invalido" }, { status: 400 });
     }
     if (!Number.isFinite(limit) || limit < 1 || limit > 50) {

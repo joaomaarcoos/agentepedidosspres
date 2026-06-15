@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
+  Bot,
   Boxes,
   CalendarDays,
   DollarSign,
@@ -181,7 +182,7 @@ export default function PrevisaoPage() {
   const [data, setData] = useState<PrevisaoOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [year, setYear] = useState<number | undefined>(undefined);
-  const [periodCount, setPeriodCount] = useState<3 | 4>(4);
+  const [periodCount, setPeriodCount] = useState<2 | 3 | 4>(2);
   const [codRep, setCodRep] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -246,11 +247,12 @@ export default function PrevisaoPage() {
             </select>
             <select
               value={periodCount}
-              onChange={(event) => setPeriodCount(Number(event.target.value) as 3 | 4)}
+              onChange={(event) => setPeriodCount(Number(event.target.value) as 2 | 3 | 4)}
               style={{ background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}
             >
-              <option value={4}>4 periodos</option>
-              <option value={3}>3 periodos</option>
+              <option value={2}>2 semestres</option>
+              <option value={4}>4 trimestres</option>
+              <option value={3}>3 períodos</option>
             </select>
             {canFilterRep && (
               <input
@@ -300,6 +302,13 @@ export default function PrevisaoPage() {
           <StatBlock label="Produtos unicos" value={data ? fmtNumber(data.summary.products_count) : "-"} icon={Package} />
           <StatBlock label="Unidades vendidas" value={data ? fmtNumber(data.summary.total_qtd) : "-"} icon={Boxes} accent />
           <StatBlock label="Valor vendido" value={data ? fmtBRL(data.summary.total_valor) : "-"} icon={DollarSign} accent />
+          <StatBlock
+            label="Gerado pela Secretária"
+            value={data ? fmtBRL(data.summary.secretary_total_value) : "-"}
+            sub={data ? `${fmtNumber(data.summary.secretary_orders_count)} pedidos identificados` : undefined}
+            icon={Bot}
+            accent
+          />
           <StatBlock label="Periodo mais forte" value={strongestPeriod?.label ?? "-"} sub={strongestPeriod ? `${fmtNumber(strongestPeriod.total_qtd)} unidades` : undefined} icon={CalendarDays} />
         </div>
 

@@ -18,6 +18,7 @@ from supabase_client import SupabaseClient
 logger = logging.getLogger(__name__)
 
 REP_DOCUMENT = os.getenv("CLIC_VENDAS_REP_DOCUMENT", "18325136880")
+SECRETARY_REFERENCE_RE = re.compile(r"\b(MSE-\d{6}-[A-Z0-9]{6})\b", re.I)
 
 
 def emit(payload: dict) -> None:
@@ -121,6 +122,76 @@ def _upsert_tabela_preco_clientes(pedidos: list[dict]) -> None:
         logger.warning("Erro ao upsert tabela de preço em clic_clientes: %s", exc)
 
 
+def _secretary_order_maps(db: SupabaseClient) -> tuple[dict[str, dict], dict[str, dict]]:
+    if db.use_local or not db.client:
+        return {}, {}
+    try:
+        rows = (
+            db.client.table("secretary_orders")
+            .select("id,protocol,instance_name,cod_rep,clic_order_number,status")
+            .in_("status", ["submitted", "synced"])
+            .limit(10000)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("Falha ao carregar pedidos da Secretaria: %s", exc)
+        return {}, {}
+    by_number = {
+        str(row.get("clic_order_number")): row
+        for row in rows
+        if row.get("clic_order_number") not in (None, "")
+    }
+    by_protocol = {
+        str(row.get("protocol") or "").upper(): row
+        for row in rows
+        if row.get("protocol")
+    }
+    return by_number, by_protocol
+
+
+def _secretary_origin(
+    pedido: dict,
+    by_number: dict[str, dict],
+    by_protocol: dict[str, dict],
+) -> dict | None:
+    number = str(pedido.get("numPed") or "")
+    if number and number in by_number:
+        return by_number[number]
+    match = SECRETARY_REFERENCE_RE.search(str(pedido.get("observacao") or ""))
+    return by_protocol.get(match.group(1).upper()) if match else None
+
+
+def _mark_secretary_orders_synced(
+    db: SupabaseClient,
+    matches: list[tuple[dict, dict]],
+    synced_at: str,
+) -> None:
+    if db.use_local or not db.client:
+        return
+    for origin, pedido in matches:
+        try:
+            db.client.table("secretary_orders").update(
+                {
+                    "status": "synced",
+                    "clic_order_number": str(
+                        pedido.get("numPed") or origin.get("clic_order_number") or ""
+                    ) or None,
+                    "clic_external_id": pedido.get("externalId") or None,
+                    "clic_status": pedido.get("sitPed") or None,
+                    "synced_at": synced_at,
+                    "updated_at": synced_at,
+                }
+            ).eq("id", origin["id"]).execute()
+        except Exception as exc:
+            logger.warning(
+                "Falha ao reconciliar pedido da Secretaria %s: %s",
+                origin.get("protocol"),
+                exc,
+            )
+
+
 def run_sync(dias: int, triggered_by: str) -> dict:
     db = SupabaseClient()
     start = time.time()
@@ -130,7 +201,7 @@ def run_sync(dias: int, triggered_by: str) -> dict:
         {
             "triggered_by": triggered_by,
             "status": "running",
-            "rep_document": REP_DOCUMENT,
+            "rep_document": None,
             "date_from": date_from,
         }
     )
@@ -140,7 +211,6 @@ def run_sync(dias: int, triggered_by: str) -> dict:
         raw = client.get(
             "/extpedidos",
             params={
-                "numeroDocumentoRepresentante": REP_DOCUMENT,
                 "dataAlteracao": date_from,
                 "sortBy": "dataCriacao",
                 "sortDescAsc": "DESC",
@@ -155,9 +225,18 @@ def run_sync(dias: int, triggered_by: str) -> dict:
 
         # Garante que os representantes existam antes de inserir pedidos
         _ensure_representatives(pedidos, db)
+        secretary_by_number, secretary_by_protocol = _secretary_order_maps(db)
 
         order_rows = []
+        secretary_matches: list[tuple[dict, dict]] = []
         for pedido in pedidos:
+            origin = _secretary_origin(
+                pedido,
+                secretary_by_number,
+                secretary_by_protocol,
+            )
+            if origin:
+                secretary_matches.append((origin, pedido))
             order_rows.append(
                 {
                     "id": str(uuid.uuid4()),
@@ -170,6 +249,14 @@ def run_sync(dias: int, triggered_by: str) -> dict:
                     "items_json": pedido.get("itens", []),
                     "has_items": bool(pedido.get("itens")),
                     "source": "clic_vendas",
+                    "customer_name": pedido.get("nomeCliente"),
+                    "external_id": pedido.get("externalId"),
+                    "observation": pedido.get("observacao"),
+                    "origin_agent": "marcela_secretaria" if origin else None,
+                    "origin_order_id": origin.get("id") if origin else None,
+                    "origin_instance": origin.get("instance_name") if origin else None,
+                    "origin_cod_rep": origin.get("cod_rep") if origin else None,
+                    "origin_protocol": origin.get("protocol") if origin else None,
                     "erp_synced_at": synced_at,
                     "created_at": synced_at,
                     "updated_at": synced_at,
@@ -177,6 +264,7 @@ def run_sync(dias: int, triggered_by: str) -> dict:
             )
 
         total_upserted = db.upsert_rep_order_base(order_rows) if order_rows else 0
+        _mark_secretary_orders_synced(db, secretary_matches, synced_at)
 
         # Persiste tabela de preço por cliente em clic_clientes (mais recente vence)
         _upsert_tabela_preco_clientes(pedidos)
@@ -204,6 +292,7 @@ def run_sync(dias: int, triggered_by: str) -> dict:
                     "status_breakdown": status_breakdown,
                     "date_from": date_from,
                     "dias": dias,
+                    "secretary_orders_reconciled": len(secretary_matches),
                 },
             },
         )
@@ -326,6 +415,8 @@ def _period_for_month(month: int, period_count: int) -> int:
 
 
 def _period_label(period: int, period_count: int) -> str:
+    if period_count == 2:
+        return f"{period}o semestre"
     if period_count == 4:
         return f"{period}o trimestre"
     return f"Periodo {period}"
@@ -351,13 +442,13 @@ def _month_label(month: int) -> str:
 
 def list_previsao(year: int | None, period_count: int, limit: int, cod_rep: int | None = None) -> dict:
     """Agrupa itens de pedidos por periodo anual para indicar produtos mais vendidos."""
-    if period_count not in (3, 4):
-        raise ValueError("period_count deve ser 3 ou 4")
+    if period_count not in (2, 3, 4):
+        raise ValueError("period_count deve ser 2, 3 ou 4")
 
     db = _db_direct()
     rows = (
         db.table("rep_order_base")
-        .select("num_ped, cod_rep, dat_emi, sit_ped, order_total_value, items_json")
+        .select("num_ped, cod_rep, dat_emi, sit_ped, order_total_value, items_json, origin_agent")
         .order("dat_emi", desc=True)
         .limit(10000)
         .execute()
@@ -392,6 +483,8 @@ def list_previsao(year: int | None, period_count: int, limit: int, cod_rep: int 
             "months": defaultdict(lambda: {"qtd": 0.0, "valor": 0.0, "pedidos": set()}),
         }
     )
+    secretary_order_ids: set[str] = set()
+    secretary_total_value = 0.0
 
     for period in range(1, period_count + 1):
         period_stats[period] = {
@@ -426,6 +519,9 @@ def list_previsao(year: int | None, period_count: int, limit: int, cod_rep: int 
             continue
 
         order_key = str(row.get("num_ped") or "")
+        if row.get("origin_agent") == "marcela_secretaria":
+            secretary_order_ids.add(order_key)
+            secretary_total_value += float(row.get("order_total_value") or 0)
         period_stats[period]["orders_count"] += 1
         month_stats[month]["orders_count"] += 1
 
@@ -555,6 +651,8 @@ def list_previsao(year: int | None, period_count: int, limit: int, cod_rep: int 
             "total_qtd": round(sum(p["total_qtd"] for p in period_stats.values()), 2),
             "total_valor": round(sum(p["total_valor"] for p in period_stats.values()), 2),
             "products_count": len(products),
+            "secretary_orders_count": len(secretary_order_ids),
+            "secretary_total_value": round(secretary_total_value, 2),
         },
         "periods": list(period_stats.values()),
         "months": list(month_stats.values()),

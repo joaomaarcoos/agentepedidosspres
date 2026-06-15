@@ -18,6 +18,7 @@ import {
 import Header from "@/components/layout/Header";
 import { conexaoApi } from "@/lib/api";
 import type {
+  AgentType,
   ConexaoStatus,
   CreateInstanceResult,
   EvolutionInstance,
@@ -181,6 +182,7 @@ function CreateModal({
   existingNames: string[];
 }) {
   const [name, setName] = useState("");
+  const [agentType, setAgentType] = useState<AgentType | "">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -196,11 +198,11 @@ function CreateModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!nameTrimmed || isDuplicate) return;
+    if (!nameTrimmed || isDuplicate || !agentType) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await conexaoApi.createInstance({ name: nameTrimmed });
+      const result = await conexaoApi.createInstance({ name: nameTrimmed, agent_type: agentType });
       onCreated(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar instancia");
@@ -264,6 +266,33 @@ function CreateModal({
             )}
           </div>
 
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Agente conectado *
+            </label>
+            <select
+              value={agentType}
+              onChange={(e) => setAgentType(e.target.value as AgentType)}
+              required
+              style={{
+                background: "var(--surface2)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "10px 12px",
+                fontSize: 13,
+                color: "var(--text)",
+                outline: "none",
+              }}
+            >
+              <option value="">Selecione o agente</option>
+              <option value="sales">Marcela Vendas</option>
+              <option value="secretary">Marcela Secretária</option>
+            </select>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>
+              A Marcela Secretária em número central só pode ser criada por perfil administrativo.
+            </span>
+          </div>
+
           {/* Info: configurações automáticas */}
           <div
             style={{
@@ -304,14 +333,14 @@ function CreateModal({
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <button
               type="submit"
-              disabled={loading || !nameTrimmed || isDuplicate}
+              disabled={loading || !nameTrimmed || isDuplicate || !agentType}
               style={{
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 background: "var(--accent)", color: "#fff", border: "none",
                 borderRadius: 8, padding: "10px 0",
                 fontSize: 14, fontWeight: 700,
-                cursor: (loading || !nameTrimmed || isDuplicate) ? "not-allowed" : "pointer",
-                opacity: (loading || !nameTrimmed || isDuplicate) ? 0.6 : 1,
+                cursor: (loading || !nameTrimmed || isDuplicate || !agentType) ? "not-allowed" : "pointer",
+                opacity: (loading || !nameTrimmed || isDuplicate || !agentType) ? 0.6 : 1,
               }}
             >
               {loading ? <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} /> : <QrCode size={15} />}
@@ -443,6 +472,9 @@ function InstanceCard({
           <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {instance.instanceName}
           </div>
+          <div style={{ fontSize: 11, color: "var(--accent)", marginTop: 2, fontWeight: 600 }}>
+            {instance.agent_type === "secretary" ? "Marcela Secretária" : "Marcela Vendas"}
+          </div>
           {instance.phoneNumber && (
             <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>{instance.phoneNumber}</div>
           )}
@@ -473,7 +505,7 @@ function InstanceCard({
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
-              Agente Marcela
+              {instance.agent_type === "secretary" ? "Marcela Secretária" : "Marcela Vendas"}
             </span>
             <span style={{ fontSize: 11, color: agentEnabled ? "var(--success)" : "var(--muted)" }}>
               {agentEnabled ? "Respondendo automaticamente" : "Silenciada"}
@@ -627,16 +659,13 @@ export default function ConexaoPage() {
       setApiStatus(status);
       if (instances) {
         setData(instances);
-        const connected = (instances.instances ?? []).filter(
-          (i) => ["open", "connected"].includes(i.status.toLowerCase())
-        );
-        const agentStatuses = await Promise.all(
-          connected.map((i) =>
-            conexaoApi.getAgentStatus(i.instanceName).catch(() => ({ instanceName: i.instanceName, agent_enabled: true }))
-          )
-        );
         setAgentMap(
-          Object.fromEntries(agentStatuses.map((s) => [s.instanceName, s.agent_enabled]))
+          Object.fromEntries(
+            (instances.instances ?? []).map((instance) => [
+              instance.instanceName,
+              instance.agent_enabled !== false,
+            ])
+          )
         );
       }
     } catch (err) {
@@ -714,6 +743,8 @@ export default function ConexaoPage() {
       instanceName: result.instanceName,
       instanceId: result.instanceId,
       status: result.status,
+      agent_type: result.agent_type,
+      agent_enabled: result.agent_enabled,
     };
     setQrInstance(inst);
   }

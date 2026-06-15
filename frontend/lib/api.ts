@@ -69,7 +69,7 @@ export const produtosApi = {
 export const conexaoApi = {
   status: () => api.get<import("./types").ConexaoStatus>("/api/conexao/status"),
   listInstances: () => api.get<import("./types").EvolutionInstancesResponse>("/api/conexao/instances"),
-  createInstance: (body: { name: string }) =>
+  createInstance: (body: { name: string; agent_type: import("./types").AgentType }) =>
     api.post<import("./types").CreateInstanceResult>("/api/conexao/instances", body),
   getQrCode: (name: string) =>
     api.get<import("./types").QrCodeResult>(`/api/conexao/instances/${encodeURIComponent(name)}/qrcode`),
@@ -80,7 +80,7 @@ export const conexaoApi = {
   restartInstance: (name: string) =>
     api.post<import("./types").InstanceActionResult>(`/api/conexao/instances/${encodeURIComponent(name)}/restart`),
   getAgentStatus: (name: string) =>
-    api.get<{ instanceName: string; agent_enabled: boolean }>(`/api/conexao/instances/${encodeURIComponent(name)}/agent`),
+    api.get<{ instanceName: string; agent_enabled: boolean; agent_type: import("./types").AgentType }>(`/api/conexao/instances/${encodeURIComponent(name)}/agent`),
   toggleAgent: (name: string, enabled: boolean) =>
     api.post<{ instanceName: string; agent_enabled: boolean }>(`/api/conexao/instances/${encodeURIComponent(name)}/agent`, { enabled }),
 };
@@ -167,8 +167,30 @@ export const resultadosApi = {
   },
 };
 
+export const secretariaApi = {
+  dashboard: (params?: {
+    dateFrom?: string;
+    dateTo?: string;
+    status?: import("./types").SecretaryOrderStatus | "all";
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.dateFrom) q.set("date_from", params.dateFrom);
+    if (params?.dateTo) q.set("date_to", params.dateTo);
+    if (params?.status && params.status !== "all") q.set("status", params.status);
+    if (params?.search) q.set("search", params.search);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.pageSize) q.set("page_size", String(params.pageSize));
+    return api.get<import("./types").SecretaryDashboard>(
+      `/api/secretaria${q.size ? `?${q}` : ""}`
+    );
+  },
+};
+
 export const previsaoApi = {
-  list: (params?: { year?: number; periodCount?: 3 | 4; limit?: number; cod_rep?: number }) => {
+  list: (params?: { year?: number; periodCount?: 2 | 3 | 4; limit?: number; cod_rep?: number }) => {
     const q = new URLSearchParams();
     if (params?.year) q.set("year", String(params.year));
     if (params?.periodCount) q.set("period_count", String(params.periodCount));

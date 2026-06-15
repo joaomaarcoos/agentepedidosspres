@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   Activity,
   BarChart2,
+  Bot,
   BrainCircuit,
   ClipboardCheck,
   Download,
@@ -43,6 +44,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "/tabela-preco": Tag,
   "/revisaopedido": ClipboardCheck,
   "/conexao": Activity,
+  "/ia-secretaria": Bot,
   "/agente-studio": BrainCircuit,
   "/admin/usuarios": Settings2,
   "/perfil": User,
@@ -70,7 +72,7 @@ const MENU_SECTIONS = [
   {
     type: "group",
     label: "AI",
-    items: ["/agente-studio"],
+    items: ["/ia-secretaria", "/agente-studio"],
   },
   {
     type: "group",

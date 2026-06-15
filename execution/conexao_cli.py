@@ -436,6 +436,10 @@ def _agent_key(name: str) -> str:
     return f"agent_instance__{name}"
 
 
+def _agent_config_key(name: str) -> str:
+    return f"agent_instance_config__{name}"
+
+
 def _agent_db():
     url = os.getenv("SUPABASE_URL", "").rstrip("/")
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
@@ -471,14 +475,25 @@ def _agent_write_fallback(name: str, enabled: bool) -> None:
 def cmd_agent_status(name: str) -> int:
     try:
         db = _agent_db()
+        config_res = (
+            db.table("system_settings")
+            .select("value")
+            .eq("key", _agent_config_key(name))
+            .limit(1)
+            .execute()
+        )
+        config_rows = config_res.data or []
+        config = config_rows[0]["value"] if config_rows and isinstance(config_rows[0].get("value"), dict) else {}
         key = _agent_key(name)
         res = db.table("system_settings").select("value").eq("key", key).limit(1).execute()
         rows = res.data or []
-        enabled = bool(rows[0]["value"]) if rows else True
+        enabled = bool(config.get("agent_enabled", rows[0]["value"] if rows else True))
+        agent_type = str(config.get("agent_type") or "sales")
     except Exception:
         enabled = _agent_read_fallback(name)
+        agent_type = "sales"
 
-    return success({"instanceName": name, "agent_enabled": enabled})
+    return success({"instanceName": name, "agent_enabled": enabled, "agent_type": agent_type})
 
 
 def cmd_agent_toggle(name: str, enabled: bool) -> int:
@@ -488,6 +503,16 @@ def cmd_agent_toggle(name: str, enabled: bool) -> int:
         db = _agent_db()
         db.table("system_settings").upsert(
             {"key": key, "value": enabled, "updated_at": now}
+        ).execute()
+        config_key = _agent_config_key(name)
+        rows = db.table("system_settings").select("value").eq("key", config_key).limit(1).execute().data or []
+        config = rows[0].get("value") if rows and isinstance(rows[0].get("value"), dict) else {}
+        db.table("system_settings").upsert(
+            {
+                "key": config_key,
+                "value": {**config, "agent_type": config.get("agent_type") or "sales", "agent_enabled": enabled},
+                "updated_at": now,
+            }
         ).execute()
     except Exception:
         _agent_write_fallback(name, enabled)

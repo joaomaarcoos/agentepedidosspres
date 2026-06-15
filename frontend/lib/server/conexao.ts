@@ -2,6 +2,7 @@ import { runPythonJson } from "@/lib/server/python";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import type { ApiAuthSuccess } from "@/lib/server/api-auth";
 import type {
+  AgentType,
   ConexaoStatus,
   CreateInstanceResult,
   EvolutionInstance,
@@ -28,12 +29,34 @@ export function getConexaoStatus() {
   return call<ConexaoStatus>(["status"]);
 }
 
-export function listInstances() {
-  return call<EvolutionInstancesResponse>(["list"]);
+export async function listInstances() {
+  const result = await call<EvolutionInstancesResponse>(["list"]);
+  const client = settingsClient();
+  if (!client || !(result.instances ?? []).length) return result;
+  const keys = result.instances.map((instance) => agentConfigKey(instance.instanceName));
+  const { data } = await client.from("system_settings").select("key,value").in("key", keys);
+  const configs = new Map(
+    (data ?? []).map((row) => [String(row.key), row.value as Record<string, unknown>])
+  );
+  return {
+    ...result,
+    instances: result.instances.map((instance) => {
+      const config = configs.get(agentConfigKey(instance.instanceName));
+      return {
+        ...instance,
+        agent_type: (config?.agent_type === "secretary" ? "secretary" : "sales") as AgentType,
+        agent_enabled: config?.agent_enabled !== false,
+      };
+    }),
+  };
 }
 
 function ownerKey(name: string) {
   return `evolution_instance_owner__${name}`;
+}
+
+function agentConfigKey(name: string) {
+  return `agent_instance_config__${name}`;
 }
 
 function settingsClient() {
@@ -59,6 +82,28 @@ export async function saveInstanceOwner(name: string, profile: ApiProfile) {
     updated_at: new Date().toISOString(),
   });
 
+  return !error;
+}
+
+export async function saveInstanceAgentConfig(
+  name: string,
+  agentType: AgentType,
+  profile: ApiProfile
+) {
+  const client = settingsClient();
+  if (!client || !name) return false;
+  const now = new Date().toISOString();
+  const { error } = await client.from("system_settings").upsert({
+    key: agentConfigKey(name),
+    value: {
+      instance_name: name,
+      agent_type: agentType,
+      agent_enabled: true,
+      created_by: profile.id,
+      created_at: now,
+    },
+    updated_at: now,
+  });
   return !error;
 }
 

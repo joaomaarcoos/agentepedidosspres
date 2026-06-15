@@ -149,6 +149,12 @@ def _parse_pedidos(raw_pedidos: list | dict, data_limite: datetime) -> list[dict
         # Telefone principal do cliente (primeiro da lista)
         telefones = cliente.get('telefones') or []
         telefone_raw = telefones[0].get('valor', '') if telefones else ''
+        observation = str(
+            raw.get('observacao')
+            or raw.get('observacoes')
+            or raw.get('observacaoPedido')
+            or ''
+        ).strip()
 
         # Monta pedido normalizado
         pedido = {
@@ -162,6 +168,9 @@ def _parse_pedidos(raw_pedidos: list | dict, data_limite: datetime) -> list[dict
             'itens': _parse_itens(raw),
             # Campos extras do Clic Vendas
             '_id': raw.get('_id'),
+            'externalId': str(raw.get('_id') or raw.get('id') or ''),
+            'observacao': observation,
+            'rawJson': raw,
             'nomeCliente': cliente.get('razaoSocial') or cliente.get('fantasia'),
             'nomeRep': representante.get('razaoSocial') or representante.get('fantasia'),
             # Telefone do cliente
