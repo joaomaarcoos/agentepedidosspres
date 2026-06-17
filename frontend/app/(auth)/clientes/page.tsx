@@ -7,6 +7,35 @@ import { clientesApi, representantesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Cliente, ClientesListResponse, RepresentanteOption } from "@/lib/types";
 
+const DEFAULT_REPRESENTANTES: RepresentanteOption[] = [
+  {
+    cod_rep: 52,
+    name: "ELIEZER GONZAGA DOS REIS",
+    document: "34501704810",
+    active: true,
+    whatsapp_number: null,
+    orders_count: 0,
+    customers_count: 0,
+  },
+  {
+    cod_rep: 205,
+    name: "ALEXANDRE RAMOS MOREIRA",
+    document: "18325136880",
+    active: true,
+    whatsapp_number: null,
+    orders_count: 0,
+    customers_count: 0,
+  },
+];
+
+function mergeRepresentantes(representantes: RepresentanteOption[]) {
+  const byCode = new Map<number, RepresentanteOption>();
+  for (const rep of [...DEFAULT_REPRESENTANTES, ...representantes]) {
+    byCode.set(rep.cod_rep, rep);
+  }
+  return Array.from(byCode.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function Drawer({ cliente, onClose }: { cliente: Cliente; onClose: () => void }) {
   const topProdutos = cliente.top_produtos_json || [];
   const initials = (cliente.nome || cliente.razao_social || "C")
@@ -168,7 +197,7 @@ export default function ClientesPage() {
   const [data, setData] = useState<ClientesListResponse | null>(null);
   const [query, setQuery] = useState("");
   const [codRep, setCodRep] = useState("");
-  const [representantes, setRepresentantes] = useState<RepresentanteOption[]>([]);
+  const [representantes, setRepresentantes] = useState<RepresentanteOption[]>(DEFAULT_REPRESENTANTES);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -200,8 +229,8 @@ export default function ClientesPage() {
   useEffect(() => {
     if (!canFilterRep) return;
     representantesApi.list()
-      .then((result) => setRepresentantes(result.representantes))
-      .catch(() => setRepresentantes([]));
+      .then((result) => setRepresentantes(mergeRepresentantes(result.representantes)))
+      .catch(() => setRepresentantes(DEFAULT_REPRESENTANTES));
   }, [canFilterRep]);
 
   const handleSync = async () => {
