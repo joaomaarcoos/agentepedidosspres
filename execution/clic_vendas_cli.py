@@ -192,31 +192,35 @@ def _mark_secretary_orders_synced(
             )
 
 
-def run_sync(dias: int, triggered_by: str) -> dict:
+def run_sync(dias: int, triggered_by: str, rep_document: str | None = None) -> dict:
     db = SupabaseClient()
     start = time.time()
     date_from = (datetime.utcnow() - timedelta(days=dias)).strftime("%Y-%m-%dT00:00:00.000Z")
+    rep_document = re.sub(r"\D", "", str(rep_document or "")) or None
 
     log_id = db.insert_clic_sync_log(
         {
             "triggered_by": triggered_by,
             "status": "running",
-            "rep_document": None,
+            "rep_document": rep_document,
             "date_from": date_from,
         }
     )
 
     try:
         client = ClicVendasClient()
+        params = {
+            "dataAlteracao": date_from,
+            "sortBy": "dataCriacao",
+            "sortDescAsc": "DESC",
+            "fetch": 0,
+            "skip": 0,
+        }
+        if rep_document:
+            params["numeroDocumentoRepresentante"] = rep_document
         raw = client.get(
             "/extpedidos",
-            params={
-                "dataAlteracao": date_from,
-                "sortBy": "dataCriacao",
-                "sortDescAsc": "DESC",
-                "fetch": 0,
-                "skip": 0,
-            },
+            params=params,
         )
 
         pedidos = _parse_pedidos(raw, datetime.utcnow() - timedelta(days=dias))
@@ -242,6 +246,7 @@ def run_sync(dias: int, triggered_by: str) -> dict:
                     "id": str(uuid.uuid4()),
                     "cod_rep": pedido.get("codRep"),
                     "cod_cli": pedido.get("codCli"),
+                    "customer_document": pedido.get("cpfCnpj"),
                     "num_ped": pedido.get("numPed"),
                     "dat_emi": pedido.get("datEmi"),
                     "sit_ped": pedido.get("sitPed"),
@@ -250,6 +255,7 @@ def run_sync(dias: int, triggered_by: str) -> dict:
                     "has_items": bool(pedido.get("itens")),
                     "source": "clic_vendas",
                     "customer_name": pedido.get("nomeCliente"),
+                    "rep_name": pedido.get("nomeRep"),
                     "external_id": pedido.get("externalId"),
                     "observation": pedido.get("observacao"),
                     "origin_agent": "marcela_secretaria" if origin else None,
@@ -292,6 +298,7 @@ def run_sync(dias: int, triggered_by: str) -> dict:
                     "status_breakdown": status_breakdown,
                     "date_from": date_from,
                     "dias": dias,
+                    "rep_document": rep_document,
                     "secretary_orders_reconciled": len(secretary_matches),
                 },
             },
@@ -351,17 +358,27 @@ def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int, cod_
     """Lista pedidos sincronizados da tabela rep_order_base."""
     db = _db_direct()
 
-    q = (
-        db.table("rep_order_base")
-        .select("id, num_ped, cod_cli, cod_rep, dat_emi, sit_ped, order_total_value, items_json, has_items, source")
-        .order("dat_emi", desc=True)
-        .limit(5000)
-    )
-    if dias > 0:
-        from_date = (datetime.utcnow() - timedelta(days=dias)).strftime("%Y-%m-%d")
-        q = q.gte("dat_emi", from_date)
+    select_fields = "id, num_ped, cod_cli, cod_rep, customer_name, rep_name, dat_emi, sit_ped, order_total_value, items_json, has_items, source"
+    fallback_select_fields = "id, num_ped, cod_cli, cod_rep, dat_emi, sit_ped, order_total_value, items_json, has_items, source"
 
-    rows = q.execute().data or []
+    def execute(fields: str):
+        q = (
+            db.table("rep_order_base")
+            .select(fields)
+            .order("dat_emi", desc=True)
+            .limit(5000)
+        )
+        if dias > 0:
+            from_date = (datetime.utcnow() - timedelta(days=dias)).strftime("%Y-%m-%d")
+            q = q.gte("dat_emi", from_date)
+        return q.execute().data or []
+
+    try:
+        rows = execute(select_fields)
+    except Exception as exc:
+        if "customer_name" not in str(exc) and "rep_name" not in str(exc):
+            raise
+        rows = execute(fallback_select_fields)
 
     pedidos = []
     for r in rows:
@@ -369,6 +386,8 @@ def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int, cod_
             "num_ped": r.get("num_ped"),
             "cod_cli": r.get("cod_cli"),
             "cod_rep": r.get("cod_rep"),
+            "customer_name": r.get("customer_name"),
+            "rep_name": r.get("rep_name"),
             "dat_emi": r.get("dat_emi") or "",
             "sit_ped": r.get("sit_ped") or "",
             "order_total_value": float(r.get("order_total_value") or 0),
@@ -672,6 +691,7 @@ def main() -> int:
     sync_parser = subparsers.add_parser("sync")
     sync_parser.add_argument("--dias", type=int, default=30)
     sync_parser.add_argument("--triggered-by", default="manual")
+    sync_parser.add_argument("--rep-document", default=None)
 
     sync_logs_parser = subparsers.add_parser("sync-logs")
     sync_logs_parser.add_argument("--date", default=None)
@@ -706,7 +726,7 @@ def main() -> int:
                 }
             )
         if args.command == "sync":
-            return success(run_sync(args.dias, args.triggered_by))
+            return success(run_sync(args.dias, args.triggered_by, args.rep_document))
         if args.command == "sync-logs":
             return success(list_sync_logs(args.date, args.limit))
         if args.command == "sync-log":

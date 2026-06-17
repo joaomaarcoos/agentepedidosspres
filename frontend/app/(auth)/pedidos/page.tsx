@@ -316,7 +316,7 @@ export default function PedidosPage() {
             <button
               onClick={handleCronToggle}
               disabled={cronLoading}
-            title={cronEnabled ? "Cron automático ativo (a cada 1h) — clique para desativar" : "Cron automático inativo — clique para ativar"}
+            title={cronEnabled ? "Cron automático ativo (a cada 24h) — clique para desativar" : "Cron automático inativo — clique para ativar"}
             style={{ display: "flex", alignItems: "center", gap: 7, background: cronEnabled ? "rgba(34,197,94,0.12)" : "var(--surface2)", color: cronEnabled ? "var(--success)" : "var(--muted)", border: `1px solid ${cronEnabled ? "rgba(34,197,94,0.4)" : "var(--border)"}`, borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: cronLoading ? "not-allowed" : "pointer", opacity: cronLoading ? 0.7 : 1 }}
             >
               <Clock size={14} />

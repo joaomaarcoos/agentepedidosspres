@@ -1,7 +1,7 @@
--- Migration para módulo ClicVendas
+-- Migration para modulo ClicVendas
 -- Executa no Supabase SQL Editor
 
--- 1. Criar tabela de logs de sincronização (se não existir)
+-- 1. Criar tabela de logs de sincronizacao (se nao existir)
 CREATE TABLE IF NOT EXISTS clic_sync_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     triggered_at TIMESTAMPTZ DEFAULT NOW(),
@@ -19,55 +19,12 @@ CREATE TABLE IF NOT EXISTS clic_sync_logs (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Adicionar colunas faltantes em rep_order_base (se existir a tabela)
-DO $$
-BEGIN
-    -- Adiciona customer_name se não existir
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name = 'rep_order_base' AND column_name = 'customer_name') THEN
-        ALTER TABLE rep_order_base ADD COLUMN customer_name TEXT;
-    END IF;
-
-    -- Adiciona rep_name se não existir
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name = 'rep_order_base' AND column_name = 'rep_name') THEN
-        ALTER TABLE rep_order_base ADD COLUMN rep_name TEXT;
-    END IF;
-
-    -- Adiciona source se não existir
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name = 'rep_order_base' AND column_name = 'source') THEN
-        ALTER TABLE rep_order_base ADD COLUMN source TEXT DEFAULT 'clic_vendas';
-    END IF;
-
-    -- Adiciona erp_synced_at se não existir
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name = 'rep_order_base' AND column_name = 'erp_synced_at') THEN
-        ALTER TABLE rep_order_base ADD COLUMN erp_synced_at TIMESTAMPTZ;
-    END IF;
-
-    -- Adiciona items_json se não existir
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name = 'rep_order_base' AND column_name = 'items_json') THEN
-        ALTER TABLE rep_order_base ADD COLUMN items_json JSONB DEFAULT '[]'::jsonb;
-    END IF;
-
-    -- Adiciona has_items se não existir
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name = 'rep_order_base' AND column_name = 'has_items') THEN
-        ALTER TABLE rep_order_base ADD COLUMN has_items BOOLEAN DEFAULT FALSE;
-    END IF;
-END $$;
-
--- 3. Criar índices para performance
-CREATE INDEX IF NOT EXISTS idx_clic_sync_logs_created_at ON clic_sync_logs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_clic_sync_logs_status ON clic_sync_logs(status);
-
--- 4. Se a tabela rep_order_base não existir, criar ela completa
+-- 2. Criar base de pedidos antes de adicionar colunas faltantes
 CREATE TABLE IF NOT EXISTS rep_order_base (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     cod_rep INTEGER,
     cod_cli INTEGER,
+    customer_document TEXT,
     customer_name TEXT,
     rep_name TEXT,
     num_ped TEXT,
@@ -83,7 +40,21 @@ CREATE TABLE IF NOT EXISTS rep_order_base (
     UNIQUE(cod_rep, num_ped)
 );
 
--- 5. Índices para rep_order_base
+-- 3. Adicionar colunas faltantes em instalacoes existentes
+ALTER TABLE rep_order_base
+    ADD COLUMN IF NOT EXISTS customer_document TEXT,
+    ADD COLUMN IF NOT EXISTS customer_name TEXT,
+    ADD COLUMN IF NOT EXISTS rep_name TEXT,
+    ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'clic_vendas',
+    ADD COLUMN IF NOT EXISTS erp_synced_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS items_json JSONB DEFAULT '[]'::jsonb,
+    ADD COLUMN IF NOT EXISTS has_items BOOLEAN DEFAULT FALSE;
+
+-- 4. Indices para performance
+CREATE INDEX IF NOT EXISTS idx_clic_sync_logs_created_at ON clic_sync_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clic_sync_logs_status ON clic_sync_logs(status);
 CREATE INDEX IF NOT EXISTS idx_rep_order_base_dat_emi ON rep_order_base(dat_emi DESC);
 CREATE INDEX IF NOT EXISTS idx_rep_order_base_cod_cli ON rep_order_base(cod_cli);
+CREATE INDEX IF NOT EXISTS idx_rep_order_base_cod_rep ON rep_order_base(cod_rep);
+CREATE INDEX IF NOT EXISTS idx_rep_order_base_customer_document ON rep_order_base(customer_document);
 CREATE INDEX IF NOT EXISTS idx_rep_order_base_source ON rep_order_base(source);

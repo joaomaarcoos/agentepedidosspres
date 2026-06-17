@@ -24,7 +24,7 @@ export const api = {
 };
 
 export const pedidosApi = {
-  sync: (dias = 30) =>
+  sync: (dias = 30, repDocument?: string) =>
     api.post<{
       id: string;
       status: "success" | "error";
@@ -32,7 +32,7 @@ export const pedidosApi = {
       total_fetched?: number;
       total_upserted?: number;
       duration_ms?: number;
-    }>("/api/pedidos/sync", { dias, triggered_by: "manual" }),
+    }>("/api/pedidos/sync", { dias, triggered_by: "manual", rep_document: repDocument }),
   getSyncLogs: (date?: string) =>
     api.get<{ date: string; logs: import("./types").SyncLog[]; total: number }>(
       `/api/pedidos/sync-logs${date ? `?date=${date}` : ""}`

@@ -10,7 +10,9 @@ async function callPedidos<T>(args: string[]) {
   return result.data;
 }
 
-export function syncPedidos(dias: number, triggeredBy: string) {
+export function syncPedidos(dias: number, triggeredBy: string, repDocument?: string) {
+  const args = ["sync", "--dias", String(dias), "--triggered-by", triggeredBy];
+  if (repDocument) args.push("--rep-document", repDocument);
   return callPedidos<{
     id: string;
     status: "success" | "error";
@@ -18,7 +20,7 @@ export function syncPedidos(dias: number, triggeredBy: string) {
     total_fetched?: number;
     total_upserted?: number;
     duration_ms?: number;
-  }>(["sync", "--dias", String(dias), "--triggered-by", triggeredBy]);
+  }>(args);
 }
 
 export function listPedidosSyncLogs(date?: string, limit = 50) {

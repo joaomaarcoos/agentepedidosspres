@@ -16,7 +16,11 @@ export async function POST(req: Request) {
   const body = await req.json() as { enabled?: boolean; interval_hours?: number };
   const settings = readCronSettings();
   if (typeof body.enabled === "boolean") settings.enabled = body.enabled;
-  if (typeof body.interval_hours === "number") settings.interval_hours = body.interval_hours;
+  if (typeof body.interval_hours === "number") {
+    settings.interval_hours = body.interval_hours;
+  } else if (body.enabled === true && settings.interval_hours < 24) {
+    settings.interval_hours = 24;
+  }
   writeCronSettings(settings);
   return NextResponse.json(settings);
 }

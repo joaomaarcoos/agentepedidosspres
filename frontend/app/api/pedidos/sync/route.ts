@@ -13,12 +13,17 @@ export async function POST(request: Request) {
     const body = await request.json();
     const dias = Number(body?.dias ?? 30);
     const triggeredBy = String(body?.triggered_by ?? "manual");
+    const repDocument = typeof body?.rep_document === "string" ? body.rep_document.replace(/\D/g, "") : undefined;
 
     if (!Number.isFinite(dias) || dias < 1 || dias > 365) {
       return NextResponse.json({ error: "Parâmetro dias inválido" }, { status: 400 });
     }
 
-    const result = await syncPedidos(dias, triggeredBy);
+    if (repDocument && repDocument.length < 5) {
+      return NextResponse.json({ error: "Documento do representante invalido" }, { status: 400 });
+    }
+
+    const result = await syncPedidos(dias, triggeredBy, repDocument);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(

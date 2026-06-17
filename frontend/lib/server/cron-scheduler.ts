@@ -23,7 +23,7 @@ export function readCronSettings(): CronSettings {
       return JSON.parse(fs.readFileSync(p, "utf-8")) as CronSettings;
     }
   } catch {}
-  return { enabled: false, interval_hours: 1, last_run: null, last_run_status: null };
+  return { enabled: false, interval_hours: 24, last_run: null, last_run_status: null };
 }
 
 export function writeCronSettings(s: CronSettings): void {
@@ -55,17 +55,10 @@ export function startCronScheduler(): void {
       if (hoursSince < settings.interval_hours) return;
     }
 
-    console.log("[cron] Triggering scheduled sync (dias=1)...");
+    console.log("[cron] Triggering scheduled sync (dias=2)...");
     try {
-      const { runPythonJson } = await import("@/lib/server/python");
-      type SyncResult = { status: string; message: string };
-      const result = await runPythonJson<SyncResult>("execution/clic_vendas_cli.py", [
-        "sync",
-        "--dias",
-        "1",
-        "--triggered-by",
-        "schedule",
-      ]);
+      const { syncPedidos } = await import("@/lib/server/pedidos");
+      const result = await syncPedidos(2, "schedule");
       const current = readCronSettings();
       writeCronSettings({
         ...current,

@@ -1,7 +1,7 @@
 """
 clientes_cli.py
 ===============
-Lista e detalha clientes a partir de clic_pedidos_integrados + clic_clientes.
+Lista e detalha clientes a partir de rep_order_base + clic_clientes.
 Saída em JSON no stdout; logs no stderr.
 
 Subcomandos:
@@ -106,6 +106,42 @@ def _build_row(cpf: str, pedido: dict, metricas: dict) -> dict:
     }
 
 
+def _build_row_from_order(order: dict, metricas: dict) -> dict:
+    cod_cli = order.get("cod_cli")
+    document = re.sub(r"\D", "", str(order.get("customer_document") or "")) or None
+    external_id = document or str(cod_cli or "")
+    name = order.get("customer_name") or f"Cliente {cod_cli or external_id}"
+    return {
+        "external_id": external_id,
+        "cod_cli": cod_cli,
+        "documento": document or str(cod_cli or ""),
+        "source": order.get("source") or "clic_vendas",
+        "synced_at": order.get("updated_at") or order.get("erp_synced_at"),
+        "nome": name,
+        "razao_social": name,
+        "fantasia": name,
+        "email": "",
+        "telefone": metricas.get("telefone") or "",
+        "cidade": "",
+        "uf": "",
+        "ativo": True,
+        "tabela_preco_codigo": metricas.get("tabela_preco_codigo"),
+        "tabela_preco_nome": metricas.get("tabela_preco_nome"),
+        "tabelas_especiais_json": metricas.get("tabelas_especiais_json"),
+        "total_pedidos": metricas.get("total_pedidos") or order.get("total_pedidos"),
+        "valor_total_acumulado": float(metricas.get("valor_total_acumulado") or order.get("valor_total_acumulado") or 0),
+        "ultimo_pedido_em": str(metricas.get("ultimo_pedido_em") or order.get("dat_emi") or ""),
+        "ultimo_pedido_valor": float(order.get("order_total_value") or 0),
+        "ultimo_pedido_numero": order.get("num_ped"),
+        "ultimo_pedido_status": order.get("sit_ped"),
+        "primeiro_pedido_em": str(metricas.get("primeiro_pedido_em") or ""),
+        "dias_entre_pedidos_media": float(metricas.get("dias_entre_pedidos_media") or 0) if metricas.get("dias_entre_pedidos_media") is not None else None,
+        "proximo_pedido_estimado_em": str(metricas.get("proximo_pedido_estimado_em") or ""),
+        "top_produtos_json": metricas.get("top_produtos_json"),
+        "historico_situacoes_json": metricas.get("historico_situacoes_json"),
+    }
+
+
 def _extract_rep_code(raw_json: dict) -> int | None:
     representante = (raw_json or {}).get("representante") or (raw_json or {}).get("autor") or {}
     candidates = (
@@ -140,13 +176,53 @@ def _latest_by_cpf(db, cod_rep: int | None = None) -> dict[str, dict]:
     return latest
 
 
+def _latest_orders_by_customer(db, cod_rep: int | None = None) -> dict[str, dict]:
+    """Retorna o pedido mais recente por cliente a partir da base oficial por representante."""
+    select_fields = "cod_cli,cod_rep,customer_document,customer_name,num_ped,dat_emi,sit_ped,order_total_value,source,erp_synced_at,updated_at"
+    fallback_select_fields = "cod_cli,cod_rep,num_ped,dat_emi,sit_ped,order_total_value,source,erp_synced_at,updated_at"
+
+    def execute(fields: str):
+        q = (
+            db.table("rep_order_base")
+            .select(fields)
+            .order("dat_emi", desc=True)
+            .limit(10000)
+        )
+        if cod_rep is not None:
+            q = q.eq("cod_rep", cod_rep)
+        return q.execute().data or []
+
+    try:
+        rows = execute(select_fields)
+    except Exception as exc:
+        if "customer_document" not in str(exc) and "customer_name" not in str(exc):
+            raise
+        rows = execute(fallback_select_fields)
+
+    latest: dict[str, dict] = {}
+    totals: dict[str, dict] = {}
+    for order in rows:
+        key = str(order.get("cod_cli") or order.get("customer_document") or "")
+        if not key:
+            continue
+        total = totals.setdefault(key, {"total_pedidos": 0, "valor_total_acumulado": 0.0})
+        total["total_pedidos"] += 1
+        total["valor_total_acumulado"] += float(order.get("order_total_value") or 0)
+        if key not in latest:
+            latest[key] = order
+
+    for key, order in latest.items():
+        order.update(totals.get(key, {}))
+    return latest
+
+
 def _metricas_map(db, cpfs: list[str]) -> dict[str, dict]:
     result: dict[str, dict] = {}
     for i in range(0, len(cpfs), 200):
         batch = cpfs[i: i + 200]
         res = (
             db.table("clic_clientes")
-            .select("cpf_cnpj, total_pedidos, valor_total_acumulado, primeiro_pedido_em, ultimo_pedido_em, dias_entre_pedidos_media, proximo_pedido_estimado_em, top_produtos_json, historico_situacoes_json")
+            .select("cpf_cnpj, telefone, tabela_preco_codigo, tabela_preco_nome, tabelas_especiais_json, total_pedidos, valor_total_acumulado, primeiro_pedido_em, ultimo_pedido_em, dias_entre_pedidos_media, proximo_pedido_estimado_em, top_produtos_json, historico_situacoes_json")
             .in_("cpf_cnpj", batch)
             .execute()
         )
@@ -157,21 +233,19 @@ def _metricas_map(db, cpfs: list[str]) -> dict[str, dict]:
 
 def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | None = None) -> dict:
     db = _db()
-    latest = _latest_by_cpf(db, cod_rep)
+    latest = _latest_orders_by_customer(db, cod_rep)
 
     rows = list(latest.items())
 
     if query:
         q = query.strip().lower()
         def matches(item: tuple) -> bool:
-            cpf, p = item
-            info = _extract_info(p.get("raw_json") or {})
+            key, p = item
             return (
-                q in (info.get("razao_social") or "").lower()
-                or q in (info.get("fantasia") or "").lower()
-                or q in cpf.lower()
-                or q in (info.get("email") or "").lower()
-                or q in (info.get("telefone") or "").lower()
+                q in (p.get("customer_name") or "").lower()
+                or q in str(p.get("cod_cli") or "").lower()
+                or q in str(p.get("customer_document") or "").lower()
+                or q in key.lower()
             )
         rows = [item for item in rows if matches(item)]
 
@@ -179,11 +253,21 @@ def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | 
     pages = max(1, (total + page_size - 1) // page_size)
     page_rows = rows[(page - 1) * page_size: page * page_size]
 
-    cpfs = [cpf for cpf, _ in page_rows]
+    cpfs = [
+        re.sub(r"\D", "", str(order.get("customer_document") or ""))
+        for _, order in page_rows
+        if order.get("customer_document")
+    ]
     metricas = _metricas_map(db, cpfs)
 
-    clientes = [_build_row(cpf, p, metricas.get(cpf, {})) for cpf, p in page_rows]
-    active = sum(1 for c in clientes if c.get("ativo", True))
+    clientes = [
+        _build_row_from_order(
+            order,
+            metricas.get(re.sub(r"\D", "", str(order.get("customer_document") or "")), {}),
+        )
+        for _, order in page_rows
+    ]
+    active = total
 
     return {
         "total": total,
@@ -191,7 +275,7 @@ def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | 
         "page_size": page_size,
         "pages": pages,
         "active": active,
-        "inactive": total - active,
+        "inactive": 0,
         "clientes": clientes,
     }
 
@@ -199,13 +283,10 @@ def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | 
 def sync_customers(query: str | None) -> dict:
     t0 = time.perf_counter()
     db = _db()
-    latest = _latest_by_cpf(db)
-    cpfs = list(latest.keys())
-    metricas = _metricas_map(db, cpfs)
+    latest = _latest_orders_by_customer(db)
 
     count = 0
-    for cpf, p in latest.items():
-        _build_row(cpf, p, metricas.get(cpf, {}))
+    for _key, _order in latest.items():
         count += 1
 
     duration_ms = int((time.perf_counter() - t0) * 1000)
@@ -219,6 +300,37 @@ def sync_customers(query: str | None) -> dict:
 
 
 def get_customer(cod_cli: int, cod_rep: int | None = None) -> dict:
+    db = _db()
+    select_fields = "cod_cli,cod_rep,customer_document,customer_name,num_ped,dat_emi,sit_ped,order_total_value,source,erp_synced_at,updated_at"
+    fallback_select_fields = "cod_cli,cod_rep,num_ped,dat_emi,sit_ped,order_total_value,source,erp_synced_at,updated_at"
+
+    def execute(fields: str):
+        query = (
+            db.table("rep_order_base")
+            .select(fields)
+            .eq("cod_cli", cod_cli)
+            .order("dat_emi", desc=True)
+            .limit(1)
+        )
+        if cod_rep is not None:
+            query = query.eq("cod_rep", cod_rep)
+        return query.execute()
+
+    try:
+        res = execute(select_fields)
+    except Exception as exc:
+        if "customer_document" not in str(exc) and "customer_name" not in str(exc):
+            raise
+        res = execute(fallback_select_fields)
+    row = (res.data or [None])[0]
+    if not row:
+        raise ValueError(f"Cliente {cod_cli} nÃ£o encontrado")
+    document = re.sub(r"\D", "", str(row.get("customer_document") or ""))
+    metricas = _metricas_map(db, [document]) if document else {}
+    return _build_row_from_order(row, metricas.get(document, {}))
+
+
+def get_customer_from_integrated_history(cod_cli: int, cod_rep: int | None = None) -> dict:
     db = _db()
     cpf_str = str(cod_cli)
     res = (

@@ -92,6 +92,28 @@ class SupabaseClient:
             )
             return len(result.data) if result.data else len(rows)
         except Exception as exc:
+            if "customer_document" in str(exc) or "customer_name" in str(exc) or "rep_name" in str(exc):
+                compatible_rows = [
+                    {
+                        key: value
+                        for key, value in row.items()
+                        if key not in {"customer_document", "customer_name", "rep_name"}
+                    }
+                    for row in rows
+                ]
+                try:
+                    result = (
+                        self.client.table(ORDERS_TABLE)
+                        .upsert(compatible_rows, on_conflict="cod_rep,num_ped")
+                        .execute()
+                    )
+                    logger.warning(
+                        "rep_order_base sem colunas de cliente/rep; sync executado em modo compatibilidade"
+                    )
+                    return len(result.data) if result.data else len(compatible_rows)
+                except Exception as retry_exc:
+                    logger.error("Erro no retry compatível de pedidos ClicVendas: %s", retry_exc)
+                    return 0
             logger.error("Erro no upsert de pedidos ClicVendas: %s", exc)
             return 0
 
