@@ -107,6 +107,11 @@ export const clientesApi = {
   },
 };
 
+export const representantesApi = {
+  list: () =>
+    api.get<{ representantes: import("./types").RepresentanteOption[] }>("/api/representantes"),
+};
+
 export const recorrenciaApi = {
   list: (params?: { status?: string; page?: number; pageSize?: number }) => {
     const q = new URLSearchParams();

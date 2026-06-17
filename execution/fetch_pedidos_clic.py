@@ -172,7 +172,15 @@ def _parse_pedidos(raw_pedidos: list | dict, data_limite: datetime) -> list[dict
             'observacao': observation,
             'rawJson': raw,
             'nomeCliente': cliente.get('razaoSocial') or cliente.get('fantasia'),
+            'razaoSocialCliente': cliente.get('razaoSocial'),
+            'fantasiaCliente': cliente.get('fantasia'),
+            'emailCliente': cliente.get('email'),
+            'cidadeCliente': cliente.get('cidade'),
+            'ufCliente': cliente.get('uf'),
             'nomeRep': representante.get('razaoSocial') or representante.get('fantasia'),
+            'documentoRep': re.sub(r'\D', '', str(representante.get('numeroDocumento') or '')) or None,
+            'razaoSocialRep': representante.get('razaoSocial'),
+            'fantasiaRep': representante.get('fantasia'),
             # Telefone do cliente
             'telefone': telefone_raw,
             # Tabela de preço praticada pelo cliente

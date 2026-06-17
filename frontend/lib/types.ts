@@ -396,6 +396,16 @@ export interface ClientesSyncResponse {
   duration_ms: number;
 }
 
+export interface RepresentanteOption {
+  cod_rep: number;
+  name: string;
+  document: string | null;
+  active: boolean;
+  whatsapp_number: string | null;
+  orders_count: number;
+  customers_count: number;
+}
+
 export interface RecorrenciaItem {
   codPro: string;
   desPro: string;

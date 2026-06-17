@@ -28,6 +28,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stderr)],
 )
 logger = logging.getLogger(__name__)
+CUSTOMER_PROFILES_KEY = "clic_customer_profiles"
 
 
 def emit(payload: dict) -> None:
@@ -106,11 +107,22 @@ def _build_row(cpf: str, pedido: dict, metricas: dict) -> dict:
     }
 
 
-def _build_row_from_order(order: dict, metricas: dict) -> dict:
+def _build_row_from_order(order: dict, metricas: dict, profile: dict | None = None) -> dict:
+    profile = profile or {}
     cod_cli = order.get("cod_cli")
-    document = re.sub(r"\D", "", str(order.get("customer_document") or "")) or None
+    document = re.sub(
+        r"\D",
+        "",
+        str(profile.get("documento") or order.get("customer_document") or ""),
+    ) or None
     external_id = document or str(cod_cli or "")
-    name = order.get("customer_name") or f"Cliente {cod_cli or external_id}"
+    name = (
+        profile.get("nome")
+        or profile.get("razao_social")
+        or profile.get("fantasia")
+        or order.get("customer_name")
+        or f"Cliente {cod_cli or external_id}"
+    )
     return {
         "external_id": external_id,
         "cod_cli": cod_cli,
@@ -118,15 +130,15 @@ def _build_row_from_order(order: dict, metricas: dict) -> dict:
         "source": order.get("source") or "clic_vendas",
         "synced_at": order.get("updated_at") or order.get("erp_synced_at"),
         "nome": name,
-        "razao_social": name,
-        "fantasia": name,
-        "email": "",
-        "telefone": metricas.get("telefone") or "",
-        "cidade": "",
-        "uf": "",
+        "razao_social": profile.get("razao_social") or name,
+        "fantasia": profile.get("fantasia") or name,
+        "email": profile.get("email") or "",
+        "telefone": profile.get("telefone") or metricas.get("telefone") or "",
+        "cidade": profile.get("cidade") or "",
+        "uf": profile.get("uf") or "",
         "ativo": True,
-        "tabela_preco_codigo": metricas.get("tabela_preco_codigo"),
-        "tabela_preco_nome": metricas.get("tabela_preco_nome"),
+        "tabela_preco_codigo": profile.get("tabela_preco_codigo") or metricas.get("tabela_preco_codigo"),
+        "tabela_preco_nome": profile.get("tabela_preco_nome") or metricas.get("tabela_preco_nome"),
         "tabelas_especiais_json": metricas.get("tabelas_especiais_json"),
         "total_pedidos": metricas.get("total_pedidos") or order.get("total_pedidos"),
         "valor_total_acumulado": float(metricas.get("valor_total_acumulado") or order.get("valor_total_acumulado") or 0),
@@ -231,9 +243,29 @@ def _metricas_map(db, cpfs: list[str]) -> dict[str, dict]:
     return result
 
 
+def _profiles_map(db) -> dict[str, dict]:
+    try:
+        rows = (
+            db.table("system_settings")
+            .select("value")
+            .eq("key", CUSTOMER_PROFILES_KEY)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        logger.warning("Falha ao buscar perfis de clientes: %s", exc)
+        return {}
+
+    value = rows[0].get("value") if rows else {}
+    return value if isinstance(value, dict) else {}
+
+
 def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | None = None) -> dict:
     db = _db()
     latest = _latest_orders_by_customer(db, cod_rep)
+    profiles = _profiles_map(db)
 
     rows = list(latest.items())
 
@@ -241,8 +273,13 @@ def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | 
         q = query.strip().lower()
         def matches(item: tuple) -> bool:
             key, p = item
+            profile = profiles.get(str(p.get("cod_cli") or "")) or {}
             return (
-                q in (p.get("customer_name") or "").lower()
+                q in (profile.get("nome") or "").lower()
+                or q in (profile.get("razao_social") or "").lower()
+                or q in (profile.get("fantasia") or "").lower()
+                or q in str(profile.get("documento") or "").lower()
+                or q in (p.get("customer_name") or "").lower()
                 or q in str(p.get("cod_cli") or "").lower()
                 or q in str(p.get("customer_document") or "").lower()
                 or q in key.lower()
@@ -253,17 +290,34 @@ def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | 
     pages = max(1, (total + page_size - 1) // page_size)
     page_rows = rows[(page - 1) * page_size: page * page_size]
 
-    cpfs = [
-        re.sub(r"\D", "", str(order.get("customer_document") or ""))
-        for _, order in page_rows
-        if order.get("customer_document")
-    ]
+    cpfs = []
+    for _, order in page_rows:
+        profile = profiles.get(str(order.get("cod_cli") or "")) or {}
+        document = re.sub(
+            r"\D",
+            "",
+            str(profile.get("documento") or order.get("customer_document") or ""),
+        )
+        if document:
+            cpfs.append(document)
     metricas = _metricas_map(db, cpfs)
 
     clientes = [
         _build_row_from_order(
             order,
-            metricas.get(re.sub(r"\D", "", str(order.get("customer_document") or "")), {}),
+            metricas.get(
+                re.sub(
+                    r"\D",
+                    "",
+                    str(
+                        (profiles.get(str(order.get("cod_cli") or "")) or {}).get("documento")
+                        or order.get("customer_document")
+                        or ""
+                    ),
+                ),
+                {},
+            ),
+            profiles.get(str(order.get("cod_cli") or "")),
         )
         for _, order in page_rows
     ]
@@ -325,9 +379,10 @@ def get_customer(cod_cli: int, cod_rep: int | None = None) -> dict:
     row = (res.data or [None])[0]
     if not row:
         raise ValueError(f"Cliente {cod_cli} nÃ£o encontrado")
-    document = re.sub(r"\D", "", str(row.get("customer_document") or ""))
+    profile = _profiles_map(db).get(str(cod_cli)) or {}
+    document = re.sub(r"\D", "", str(profile.get("documento") or row.get("customer_document") or ""))
     metricas = _metricas_map(db, [document]) if document else {}
-    return _build_row_from_order(row, metricas.get(document, {}))
+    return _build_row_from_order(row, metricas.get(document, {}), profile)
 
 
 def get_customer_from_integrated_history(cod_cli: int, cod_rep: int | None = None) -> dict:

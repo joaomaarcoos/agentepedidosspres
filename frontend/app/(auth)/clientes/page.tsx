@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Mail, Phone, RefreshCw, Search, ShoppingCart, Users, Wallet, X } from "lucide-react";
 import Header from "@/components/layout/Header";
-import { clientesApi } from "@/lib/api";
+import { clientesApi, representantesApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import type { Cliente, ClientesListResponse } from "@/lib/types";
+import type { Cliente, ClientesListResponse, RepresentanteOption } from "@/lib/types";
 
 function Drawer({ cliente, onClose }: { cliente: Cliente; onClose: () => void }) {
   const topProdutos = cliente.top_produtos_json || [];
@@ -168,6 +168,7 @@ export default function ClientesPage() {
   const [data, setData] = useState<ClientesListResponse | null>(null);
   const [query, setQuery] = useState("");
   const [codRep, setCodRep] = useState("");
+  const [representantes, setRepresentantes] = useState<RepresentanteOption[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -196,6 +197,13 @@ export default function ClientesPage() {
     load(1, "");
   }, [load]);
 
+  useEffect(() => {
+    if (!canFilterRep) return;
+    representantesApi.list()
+      .then((result) => setRepresentantes(result.representantes))
+      .catch(() => setRepresentantes([]));
+  }, [canFilterRep]);
+
   const handleSync = async () => {
     setSyncing(true);
     setMessage(null);
@@ -217,6 +225,9 @@ export default function ClientesPage() {
     .at(-1);
 
   const totalValue = (data?.clientes || []).reduce((sum, cliente) => sum + Number(cliente.valor_total_acumulado || 0), 0);
+  const quickReps = representantes.filter((rep) =>
+    ["ELIEZER", "ALEXANDRE"].some((name) => rep.name.toUpperCase().includes(name))
+  );
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -271,16 +282,11 @@ export default function ClientesPage() {
           </button>
 
           {canFilterRep && (
-            <input
-              type="number"
+            <select
               value={codRep}
               onChange={(e) => setCodRep(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") load(1, query);
-              }}
-              placeholder="Cód. rep"
               style={{
-                width: 110,
+                width: 360,
                 background: "var(--surface2)",
                 color: "var(--text)",
                 border: "1px solid var(--border)",
@@ -289,9 +295,17 @@ export default function ClientesPage() {
                 fontSize: 13,
                 outline: "none",
               }}
-            />
+            >
+              <option value="">Todos os representantes</option>
+              {representantes
+                .filter((rep) => rep.active || rep.orders_count > 0)
+                .map((rep) => (
+                  <option key={rep.cod_rep} value={rep.cod_rep}>
+                    {rep.name} - Doc. {rep.document || "nao informado"} - Cod. {rep.cod_rep}
+                  </option>
+                ))}
+            </select>
           )}
-
           {canFilterRep && (
             <button
               onClick={handleSync}
@@ -322,6 +336,45 @@ export default function ClientesPage() {
             </span>
           )}
         </div>
+
+        {canFilterRep && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: -12, marginBottom: 20 }}>
+            <span style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.8 }}>
+              Filtros rapidos
+            </span>
+            <button
+              onClick={() => {
+                setCodRep("");
+                setQuery("");
+                load(1, "");
+              }}
+              style={{ background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}
+            >
+              Todos
+            </button>
+            {quickReps.map((rep) => (
+              <button
+                key={rep.cod_rep}
+                onClick={() => {
+                  setCodRep(String(rep.cod_rep));
+                  setQuery("");
+                }}
+                style={{ background: String(rep.cod_rep) === codRep ? "var(--accent)" : "var(--surface2)", color: String(rep.cod_rep) === codRep ? "#fff" : "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}
+              >
+                {rep.name.split(" ")[0]} - {rep.document || `Cod. ${rep.cod_rep}`}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                setQuery("");
+                load(1, "");
+              }}
+              style={{ background: "transparent", color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}
+            >
+              Limpar busca
+            </button>
+          </div>
+        )}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 16, marginBottom: 24 }}>
           {[

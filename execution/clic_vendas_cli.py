@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 REP_DOCUMENT = os.getenv("CLIC_VENDAS_REP_DOCUMENT", "18325136880")
 SECRETARY_REFERENCE_RE = re.compile(r"\b(MSE-\d{6}-[A-Z0-9]{6})\b", re.I)
+CUSTOMER_PROFILES_KEY = "clic_customer_profiles"
+REPRESENTATIVE_PROFILES_KEY = "clic_representative_profiles"
 
 
 def emit(payload: dict) -> None:
@@ -122,6 +124,127 @@ def _upsert_tabela_preco_clientes(pedidos: list[dict]) -> None:
         logger.warning("Erro ao upsert tabela de preço em clic_clientes: %s", exc)
 
 
+def _upsert_customer_profiles(pedidos: list[dict]) -> None:
+    """Persiste cadastro de clientes em system_settings sem depender de novas colunas."""
+    from dotenv import load_dotenv as _ldenv
+    _ldenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+    if not url or not key:
+        return
+
+    from supabase import create_client
+    client = create_client(url, key)
+
+    profiles: dict[str, dict] = {}
+    for pedido in pedidos:
+        cod_cli = pedido.get("codCli")
+        if not cod_cli:
+            continue
+        document = re.sub(r"\D", "", str(pedido.get("cpfCnpj") or "")) or None
+        telefone = re.sub(r"\D", "", str(pedido.get("telefone") or "")) or None
+        razao_social = str(pedido.get("razaoSocialCliente") or "").strip() or None
+        fantasia = str(pedido.get("fantasiaCliente") or "").strip() or None
+        nome = razao_social or fantasia or str(pedido.get("nomeCliente") or "").strip() or None
+        profiles[str(cod_cli)] = {
+            "cod_cli": cod_cli,
+            "documento": document,
+            "nome": nome,
+            "razao_social": razao_social,
+            "fantasia": fantasia,
+            "email": str(pedido.get("emailCliente") or "").strip() or None,
+            "telefone": telefone,
+            "cidade": str(pedido.get("cidadeCliente") or "").strip() or None,
+            "uf": str(pedido.get("ufCliente") or "").strip() or None,
+            "tabela_preco_codigo": pedido.get("tabelaPreco"),
+            "tabela_preco_nome": pedido.get("tabelaPrecoNome"),
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        }
+
+    if not profiles:
+        return
+
+    try:
+        rows = (
+            client.table("system_settings")
+            .select("value")
+            .eq("key", CUSTOMER_PROFILES_KEY)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        current = rows[0].get("value") if rows else {}
+        if not isinstance(current, dict):
+            current = {}
+        current.update(profiles)
+        client.table("system_settings").upsert(
+            {"key": CUSTOMER_PROFILES_KEY, "value": current},
+            on_conflict="key",
+        ).execute()
+        logger.info("Perfis de clientes: %d clientes atualizados em system_settings", len(profiles))
+    except Exception as exc:
+        logger.warning("Erro ao persistir perfis de clientes em system_settings: %s", exc)
+
+
+def _upsert_representative_profiles(pedidos: list[dict]) -> None:
+    """Persiste documento e nome de representantes em system_settings."""
+    from dotenv import load_dotenv as _ldenv
+    _ldenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+    url = os.getenv("SUPABASE_URL", "").rstrip("/")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+    if not url or not key:
+        return
+
+    from supabase import create_client
+    client = create_client(url, key)
+
+    profiles: dict[str, dict] = {}
+    for pedido in pedidos:
+        cod_rep = pedido.get("codRep")
+        if not cod_rep:
+            continue
+        document = re.sub(r"\D", "", str(pedido.get("documentoRep") or "")) or None
+        razao_social = str(pedido.get("razaoSocialRep") or "").strip() or None
+        fantasia = str(pedido.get("fantasiaRep") or "").strip() or None
+        nome = razao_social or fantasia or str(pedido.get("nomeRep") or "").strip() or f"Rep {cod_rep}"
+        profiles[str(cod_rep)] = {
+            "cod_rep": cod_rep,
+            "documento": document,
+            "nome": nome,
+            "razao_social": razao_social,
+            "fantasia": fantasia,
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        }
+
+    if not profiles:
+        return
+
+    try:
+        rows = (
+            client.table("system_settings")
+            .select("value")
+            .eq("key", REPRESENTATIVE_PROFILES_KEY)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        current = rows[0].get("value") if rows else {}
+        if not isinstance(current, dict):
+            current = {}
+        current.update(profiles)
+        client.table("system_settings").upsert(
+            {"key": REPRESENTATIVE_PROFILES_KEY, "value": current},
+            on_conflict="key",
+        ).execute()
+        logger.info("Perfis de representantes: %d representantes atualizados", len(profiles))
+    except Exception as exc:
+        logger.warning("Erro ao persistir perfis de representantes em system_settings: %s", exc)
+
+
 def _secretary_order_maps(db: SupabaseClient) -> tuple[dict[str, dict], dict[str, dict]]:
     if db.use_local or not db.client:
         return {}, {}
@@ -192,6 +315,66 @@ def _mark_secretary_orders_synced(
             )
 
 
+def _fetch_pedidos_paginated(
+    client: ClicVendasClient,
+    date_from: str,
+    data_limite: datetime,
+    rep_document: str | None = None,
+    page_size: int = 100,
+) -> tuple[list[dict], dict]:
+    pedidos: list[dict] = []
+    seen: set[tuple[int | None, int | None]] = set()
+    skip = 0
+    total_geral = None
+    pages = 0
+
+    while True:
+        params = {
+            "dataAlteracao": date_from,
+            "sortBy": "dataCriacao",
+            "sortDescAsc": "DESC",
+            "fetch": 0,
+            "skip": skip,
+        }
+        if rep_document:
+            params["numeroDocumentoRepresentante"] = rep_document
+
+        raw = client.get("/extpedidos", params=params)
+        raw_rows = raw.get("dados") if isinstance(raw, dict) else raw
+        raw_count = len(raw_rows or [])
+        if isinstance(raw, dict) and raw.get("totalGeral") is not None:
+            total_geral = raw.get("totalGeral")
+
+        page_pedidos = _parse_pedidos(raw, data_limite)
+        for pedido in page_pedidos:
+            key = (pedido.get("codRep"), pedido.get("numPed"))
+            if key in seen:
+                continue
+            seen.add(key)
+            pedidos.append(pedido)
+
+        pages += 1
+        logger.info(
+            "ClicVendas pagina %s: skip=%s raw=%s parsed=%s total=%s",
+            pages,
+            skip,
+            raw_count,
+            len(page_pedidos),
+            total_geral,
+        )
+
+        if raw_count <= 0 or raw_count < page_size:
+            break
+        skip += page_size
+        if total_geral is not None and skip >= int(total_geral):
+            break
+        if pages >= 100:
+            logger.warning("Interrompendo paginacao do ClicVendas apos %d paginas", pages)
+            break
+
+    return pedidos, {"pages": pages, "total_geral": total_geral}
+
+
 def run_sync(dias: int, triggered_by: str, rep_document: str | None = None) -> dict:
     db = SupabaseClient()
     start = time.time()
@@ -209,21 +392,12 @@ def run_sync(dias: int, triggered_by: str, rep_document: str | None = None) -> d
 
     try:
         client = ClicVendasClient()
-        params = {
-            "dataAlteracao": date_from,
-            "sortBy": "dataCriacao",
-            "sortDescAsc": "DESC",
-            "fetch": 0,
-            "skip": 0,
-        }
-        if rep_document:
-            params["numeroDocumentoRepresentante"] = rep_document
-        raw = client.get(
-            "/extpedidos",
-            params=params,
+        pedidos, fetch_meta = _fetch_pedidos_paginated(
+            client,
+            date_from,
+            datetime.utcnow() - timedelta(days=dias),
+            rep_document,
         )
-
-        pedidos = _parse_pedidos(raw, datetime.utcnow() - timedelta(days=dias))
         total_fetched = len(pedidos)
         synced_at = datetime.utcnow().isoformat() + "Z"
 
@@ -274,6 +448,8 @@ def run_sync(dias: int, triggered_by: str, rep_document: str | None = None) -> d
 
         # Persiste tabela de preço por cliente em clic_clientes (mais recente vence)
         _upsert_tabela_preco_clientes(pedidos)
+        _upsert_customer_profiles(pedidos)
+        _upsert_representative_profiles(pedidos)
 
         status_breakdown: dict[str, int] = {}
         clients_set = set()
@@ -299,6 +475,8 @@ def run_sync(dias: int, triggered_by: str, rep_document: str | None = None) -> d
                     "date_from": date_from,
                     "dias": dias,
                     "rep_document": rep_document,
+                    "pages": fetch_meta.get("pages"),
+                    "total_geral": fetch_meta.get("total_geral"),
                     "secretary_orders_reconciled": len(secretary_matches),
                 },
             },
