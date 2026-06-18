@@ -7,7 +7,10 @@ export interface Produto {
   preco_base: number | null;
   preco_inst_299: number | null;
   preco_tabela_201?: number | null;
+  preco_tabela_201p?: number | null;
   preco_tabela_202?: number | null;
+  preco_tabela_205?: number | null;
+  preco_tabela_206?: number | null;
   ativo: boolean;
   created_at: string;
   updated_at: string;

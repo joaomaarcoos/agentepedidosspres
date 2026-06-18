@@ -61,7 +61,7 @@ BACKEND_ORDER_SPECIFICS_GUARD_ENABLED = os.getenv("AI_BACKEND_ORDER_SPECIFICS_GU
 }
 AVAILABLE_PRICE_TABLES = {
     code.strip()
-    for code in os.getenv("AVAILABLE_PRICE_TABLES", "201,202").split(",")
+    for code in os.getenv("AVAILABLE_PRICE_TABLES", "201,201P,202,205,206").split(",")
     if code.strip()
 }
 FALLBACK_PRICE_TABLE = os.getenv("FALLBACK_PRICE_TABLE", "201").strip()

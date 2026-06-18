@@ -22,7 +22,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY") or "").strip()
-PRICE_TABLE_CODES = ("201", "202")
+PRICE_TABLE_CODES = ("201", "201P", "202", "205", "206")
 
 
 def _text(value) -> str:
@@ -69,8 +69,9 @@ def fetch_produtos(filial: str | None = None, busca: str | None = None) -> list[
 
     for row in rows:
         key = (_text(row.get("cod_produto")).upper(), _text(row.get("derivacao")).upper())
-        row["preco_tabela_201"] = prices.get(key, {}).get("201")
-        row["preco_tabela_202"] = prices.get(key, {}).get("202")
+        row_prices = prices.get(key, {})
+        for table_code in PRICE_TABLE_CODES:
+            row[f"preco_tabela_{table_code.lower()}"] = row_prices.get(table_code)
 
     if busca:
         termo = busca.lower()

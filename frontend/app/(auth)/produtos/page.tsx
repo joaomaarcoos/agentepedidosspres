@@ -57,7 +57,15 @@ function fmtDerivacoes(items: Produto[]) {
   return items.map((item) => item.derivacao || "-").join(", ");
 }
 
-function fmtPrecosTabela(items: Produto[], field: "preco_tabela_201" | "preco_tabela_202") {
+const PRICE_TABLES = [
+  { code: "201", field: "preco_tabela_201" },
+  { code: "201P", field: "preco_tabela_201p" },
+  { code: "202", field: "preco_tabela_202" },
+  { code: "205", field: "preco_tabela_205" },
+  { code: "206", field: "preco_tabela_206" },
+] as const;
+
+function fmtPrecosTabela(items: Produto[], field: (typeof PRICE_TABLES)[number]["field"]) {
   const values = items
     .map((item) => {
       const preco = item[field] ?? null;
@@ -287,7 +295,7 @@ export default function ProdutosPage() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["Código", "Produto", "Deriv.", "Tabela 201", "Tabela 202"].map((h) => (
+                      {["Código", "Produto", "Deriv.", ...PRICE_TABLES.map((table) => `Tabela ${table.code}`)].map((h) => (
                         <th
                           key={h}
                           style={{
@@ -326,12 +334,19 @@ export default function ProdutosPage() {
                         <td style={{ padding: "10px 16px", color: "var(--muted)" }}>
                           {fmtDerivacoes(p.derivacoes)}
                         </td>
-                        <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--text)" }}>
-                          {fmtPrecosTabela(p.derivacoes, "preco_tabela_201")}
-                        </td>
-                        <td style={{ padding: "10px 16px", textAlign: "right", color: "var(--accent)", fontWeight: 600 }}>
-                          {fmtPrecosTabela(p.derivacoes, "preco_tabela_202")}
-                        </td>
+                        {PRICE_TABLES.map((table) => (
+                          <td
+                            key={table.code}
+                            style={{
+                              padding: "10px 12px",
+                              textAlign: "right",
+                              color: ["201P", "205", "206"].includes(table.code) ? "var(--accent)" : "var(--text)",
+                              fontWeight: ["201P", "205", "206"].includes(table.code) ? 600 : 400,
+                            }}
+                          >
+                            {fmtPrecosTabela(p.derivacoes, table.field)}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
