@@ -20,6 +20,12 @@ class _FakeQuery:
     def eq(self, *_args, **_kwargs):
         return self
 
+    def in_(self, *_args, **_kwargs):
+        return self
+
+    def order(self, *_args, **_kwargs):
+        return self
+
     def limit(self, *_args, **_kwargs):
         return self
 
@@ -210,6 +216,49 @@ class SecretaryAgentTests(unittest.TestCase):
         )
         self.assertIn("SGRSSLAR", reply)
         self.assertIn("SUCO GARRAFA LARANJA", reply)
+
+    def test_portfolio_uses_rep_order_base_and_customer_profiles(self):
+        db = _FakeDb(
+            {
+                "rep_order_base": [
+                    {
+                        "cod_rep": 52,
+                        "cod_cli": 16069,
+                        "dat_emi": "2026-06-09",
+                        "customer_document": None,
+                        "customer_name": None,
+                    }
+                ],
+                "system_settings": [
+                    {
+                        "value": {
+                            "16069": {
+                                "cod_cli": 16069,
+                                "documento": "42423525818",
+                                "nome": "IGOR MIRANDA BORGES",
+                                "fantasia": "IGOR REPRESENTANTE DELIVERY SPRES",
+                                "telefone": "16988369829",
+                                "tabela_preco_codigo": "205",
+                            }
+                        }
+                    }
+                ],
+                "clic_clientes": [
+                    {
+                        "cpf_cnpj": "42423525818",
+                        "telefone": "16988369829",
+                        "tabela_preco_codigo": "205",
+                    }
+                ],
+            }
+        )
+        customers = secretary_agent._portfolio_customers(db, 52)
+        self.assertEqual(customers[0]["code"], "16069")
+        self.assertEqual(customers[0]["document"], "42423525818")
+        self.assertEqual(customers[0]["name"], "IGOR MIRANDA BORGES")
+        self.assertEqual(customers[0]["price_table_code"], "205")
+        matches = secretary_agent._search_customers(customers, "Código 16069")
+        self.assertEqual(matches[0]["code"], "16069")
 
     def test_reconciliation_prefers_order_number(self):
         number_origin = {"id": "by-number", "protocol": "MSE-260615-AAAAAA"}

@@ -36,6 +36,7 @@ DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335"
 ELIEZER_REP_DOCUMENT = "34501704810"
 ELIEZER_FALLBACK_COD_REP = 52
 REPRESENTATIVE_PROFILES_KEY = "clic_representative_profiles"
+CUSTOMER_PROFILES_KEY = "clic_customer_profiles"
 DEFAULT_SALE_TYPE_CODE = "9010O"
 
 
@@ -251,48 +252,138 @@ def _customer_from_raw(raw: dict) -> dict:
     }
 
 
-def _portfolio_customers(db, cod_rep: int) -> list[dict]:
-    rows = (
-        db.table("clic_pedidos_integrados")
-        .select("raw_json,criado_em")
-        .order("criado_em", desc=True)
-        .limit(5000)
-        .execute()
-        .data
-        or []
-    )
+def _customer_profiles(db) -> dict[str, dict]:
+    try:
+        rows = (
+            db.table("system_settings")
+            .select("value")
+            .eq("key", CUSTOMER_PROFILES_KEY)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        return {}
+    value = rows[0].get("value") if rows else {}
+    return value if isinstance(value, dict) else {}
+
+
+def _customer_metrics(db, documents: list[str]) -> dict[str, dict]:
     result: dict[str, dict] = {}
-    for row in rows:
-        raw = row.get("raw_json") or {}
-        representative = raw.get("representante") or raw.get("autor") or {}
-        backoffice = representative.get("backoffice") if isinstance(representative, dict) else {}
+    clean_documents = [doc for doc in {_digits(item) for item in documents} if doc]
+    for index in range(0, len(clean_documents), 200):
+        batch = clean_documents[index : index + 200]
         try:
-            row_rep = int(
-                (backoffice or {}).get("codigo")
-                or representative.get("codigo")
-                or (representative.get("acesso") or {}).get("login")
+            rows = (
+                db.table("clic_clientes")
+                .select("cpf_cnpj,telefone,tabela_preco_codigo,tabela_preco_nome,tabelas_especiais_json")
+                .in_("cpf_cnpj", batch)
+                .execute()
+                .data
+                or []
             )
-        except (TypeError, ValueError):
+        except Exception:
             continue
-        if row_rep != cod_rep:
+        for row in rows:
+            document = _digits(row.get("cpf_cnpj"))
+            if document:
+                result[document] = row
+    return result
+
+
+def _portfolio_customers(db, cod_rep: int) -> list[dict]:
+    """Carteira da secretária baseada na mesma fonte do módulo Clientes.
+
+    O vínculo representante-cliente vem de rep_order_base(cod_rep, cod_cli).
+    Dados cadastrais complementares vêm de system_settings.clic_customer_profiles
+    e clic_clientes, quando disponíveis.
+    """
+    select_fields = (
+        "cod_cli,cod_rep,customer_document,customer_name,num_ped,dat_emi,"
+        "sit_ped,order_total_value,source,erp_synced_at,updated_at"
+    )
+    fallback_fields = "cod_cli,cod_rep,num_ped,dat_emi,sit_ped,order_total_value,source,erp_synced_at,updated_at"
+
+    def execute(fields: str) -> list[dict]:
+        return (
+            db.table("rep_order_base")
+            .select(fields)
+            .eq("cod_rep", cod_rep)
+            .order("dat_emi", desc=True)
+            .limit(10000)
+            .execute()
+            .data
+            or []
+        )
+
+    try:
+        rows = execute(select_fields)
+    except Exception as exc:
+        if "customer_document" not in str(exc) and "customer_name" not in str(exc):
+            raise
+        rows = execute(fallback_fields)
+
+    profiles = _customer_profiles(db)
+    documents: list[str] = []
+    latest: dict[str, dict] = {}
+    for row in rows:
+        cod_cli = str(row.get("cod_cli") or "")
+        if not cod_cli or cod_cli in latest:
             continue
-        customer = _customer_from_raw(raw)
-        key = customer["code"] or customer["document"]
-        if key and key not in result:
-            result[key] = customer
-    return list(result.values())
+        profile = profiles.get(cod_cli) or {}
+        document = _digits(profile.get("documento") or row.get("customer_document"))
+        if document:
+            documents.append(document)
+        latest[cod_cli] = {**row, "_profile": profile, "_document": document}
+
+    metrics = _customer_metrics(db, documents)
+    customers: list[dict] = []
+    for cod_cli, row in latest.items():
+        profile = row.get("_profile") or {}
+        document = row.get("_document") or _digits(row.get("customer_document"))
+        metric = metrics.get(document, {})
+        name = (
+            profile.get("nome")
+            or profile.get("razao_social")
+            or profile.get("fantasia")
+            or row.get("customer_name")
+            or f"Cliente {cod_cli}"
+        )
+        customers.append(
+            {
+                "code": cod_cli,
+                "document": document,
+                "name": str(name or "").strip(),
+                "city": str(profile.get("cidade") or "").strip(),
+                "uf": str(profile.get("uf") or "").strip(),
+                "phone": _digits(profile.get("telefone") or metric.get("telefone")),
+                "price_table_code": str(
+                    profile.get("tabela_preco_codigo")
+                    or metric.get("tabela_preco_codigo")
+                    or ""
+                ),
+            }
+        )
+    return customers
 
 
 def _customer_score(customer: dict, query: str) -> float:
     wanted = _norm(query)
     if not wanted:
         return 0
+    wanted_digits = _digits(wanted)
     haystacks = [
         _norm(customer.get("name")),
         _norm(customer.get("city")),
         _digits(customer.get("code")),
         _digits(customer.get("document")),
     ]
+    digit_haystacks = [value for value in haystacks[-2:] if value]
+    if wanted_digits and any(wanted_digits == value for value in digit_haystacks):
+        return 1.0
+    if wanted_digits and any(wanted_digits in value for value in digit_haystacks):
+        return 0.95
     if any(wanted == value for value in haystacks if value):
         return 1.0
     if any(wanted in value for value in haystacks if value):
@@ -302,7 +393,7 @@ def _customer_score(customer: dict, query: str) -> float:
 
 def _search_customers(customers: list[dict], query: str) -> list[dict]:
     query = re.sub(
-        r"^\s*(?:cliente|para\s+o\s+cliente|pedido\s+para)\s+",
+        r"^\s*(?:cliente|c[oó]digo|cod\.?|para\s+o\s+cliente|pedido\s+para|pedido)\s+",
         "",
         str(query or ""),
         flags=re.I,
