@@ -192,6 +192,19 @@ export const secretariaApi = {
       `/api/secretaria${q.size ? `?${q}` : ""}`
     );
   },
+  listConversations: (params?: { search?: string; page?: number; pageSize?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.search) q.set("search", params.search);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.pageSize) q.set("page_size", String(params.pageSize));
+    return api.get<import("./types").SecretaryConversationsOverview>(
+      `/api/secretaria/conversas${q.size ? `?${q}` : ""}`
+    );
+  },
+  getConversation: (id: string) =>
+    api.get<import("./types").SecretaryConversationDetail>(
+      `/api/secretaria/conversas/${encodeURIComponent(id)}`
+    ),
 };
 
 export const saidaProdutosApi = {

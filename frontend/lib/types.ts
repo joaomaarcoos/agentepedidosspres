@@ -607,6 +607,46 @@ export interface ClicRequestLogsOverview {
   stats: Record<string, number>;
 }
 
+export type SecretaryMessageRole = "user" | "assistant" | "event";
+
+export interface SecretaryMessage {
+  id: string;
+  conversation_id: string;
+  external_message_id?: string | null;
+  role: SecretaryMessageRole;
+  content: string;
+  payload_json?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface SecretaryConversation {
+  id: string;
+  conversation_key: string;
+  instance_name: string;
+  representative_phone: string;
+  cod_rep: number;
+  state_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  latest_message?: SecretaryMessage | null;
+  error_hint?: string | null;
+}
+
+export interface SecretaryConversationDetail {
+  conversation: SecretaryConversation;
+  messages: SecretaryMessage[];
+  orders: SecretaryOrder[];
+  error_hint?: string | null;
+}
+
+export interface SecretaryConversationsOverview {
+  conversations: SecretaryConversation[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
 // ---------------------------------------------------------------------------
 // Auth / RBAC
 // ---------------------------------------------------------------------------

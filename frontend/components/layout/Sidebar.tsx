@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Download,
   FileText,
+  MessageSquareText,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -40,6 +41,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "/saida-produtos": TrendingUp,
   "/resultados": BarChart2,
   "/logs": FileText,
+  "/conversas-secretaria": MessageSquareText,
   "/log-secretaria": FileText,
   "/produtos": Package,
   "/tabela-preco": Tag,
@@ -78,7 +80,7 @@ const MENU_SECTIONS = [
   {
     type: "group",
     label: "Configurações",
-    items: ["/admin/usuarios", "/perfil", "/baixar-app", "/conexao", "/logs", "/log-secretaria"],
+    items: ["/admin/usuarios", "/perfil", "/baixar-app", "/conexao", "/logs", "/conversas-secretaria", "/log-secretaria"],
   },
 ] as const;
 

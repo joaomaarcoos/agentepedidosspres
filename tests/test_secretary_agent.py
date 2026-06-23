@@ -217,6 +217,57 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertIn("SGRSSLAR", reply)
         self.assertIn("SUCO GARRAFA LARANJA", reply)
 
+    def test_later_found_product_replaces_pending_equivalent(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "laranja natural",
+                    "formato": "galao",
+                    "texto_original": "01 galao laranja natural",
+                },
+                {
+                    "status": "encontrado",
+                    "produto": "Galao Laranja Pet",
+                    "nome_catalogo": "SUCO GALAO LARANJA PET",
+                    "formato": "galao",
+                    "tamanho": "5L",
+                    "quantidade": 1,
+                    "cod_produto": "SGPSSLAR",
+                    "preco_unitario": 28.88,
+                },
+            ]
+        }
+        cleaned = secretary_agent._drop_resolved_pending_items(resolution)
+        self.assertEqual(len(cleaned["itens"]), 1)
+        self.assertEqual(cleaned["itens"][0]["cod_produto"], "SGPSSLAR")
+
+    def test_short_size_reply_replaces_generic_pending_equivalent(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "encontrado",
+                    "produto": "Galao Laranja Pet",
+                    "nome_catalogo": "SUCO GALAO LARANJA PET",
+                    "formato": "galao",
+                    "tamanho": "5L",
+                    "quantidade": 1,
+                    "cod_produto": "SGPSSLAR",
+                    "preco_unitario": 28.88,
+                },
+                {
+                    "status": "nao_encontrado",
+                    "produto": "",
+                    "formato": "galao",
+                    "tamanho": "5L",
+                    "texto_original": "Galao 5l",
+                },
+            ]
+        }
+        cleaned = secretary_agent._drop_resolved_pending_items(resolution)
+        self.assertEqual(len(cleaned["itens"]), 1)
+        self.assertEqual(cleaned["itens"][0]["cod_produto"], "SGPSSLAR")
+
     def test_portfolio_uses_rep_order_base_and_customer_profiles(self):
         db = _FakeDb(
             {

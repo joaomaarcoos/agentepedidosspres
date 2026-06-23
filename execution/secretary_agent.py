@@ -469,6 +469,59 @@ def _resolve_products_with_sales_subagent(
     return reconciled
 
 
+def _product_words(value: Any) -> set[str]:
+    stopwords = {"suco", "natural", "pasteurizado", "pet", "de", "do", "da", "com", "e"}
+    return {
+        word
+        for word in re.findall(r"[a-z0-9]+", _norm(value))
+        if len(word) > 2 and word not in stopwords
+    }
+
+
+def _same_pending_product(pending: dict, found: dict) -> bool:
+    pending_format = _norm(pending.get("formato"))
+    found_format = _norm(found.get("formato"))
+    if pending_format and found_format and pending_format != found_format:
+        return False
+    pending_size = _norm_size(pending.get("tamanho") or pending.get("derivacao"))
+    found_size = _norm_size(found.get("tamanho") or found.get("derivacao"))
+    if pending_size and found_size and pending_size != found_size:
+        return False
+    pending_words = _product_words(pending.get("produto") or pending.get("texto_original"))
+    found_words = _product_words(
+        " ".join(
+            str(part or "")
+            for part in (
+                found.get("produto"),
+                found.get("nome_catalogo"),
+                found.get("texto_original"),
+            )
+        )
+    )
+    if not pending_words and pending_format and pending_size and found_format and found_size:
+        return True
+    return bool(pending_words and found_words and pending_words & found_words)
+
+
+def _drop_resolved_pending_items(resolution: dict | None) -> dict | None:
+    if not isinstance(resolution, dict):
+        return resolution
+    items = [item for item in resolution.get("itens") or [] if isinstance(item, dict)]
+    found_items = [item for item in items if item.get("status") == "encontrado"]
+    if not found_items:
+        return resolution
+    filtered = []
+    changed = False
+    for item in items:
+        if item.get("status") != "encontrado" and any(_same_pending_product(item, found) for found in found_items):
+            changed = True
+            continue
+        filtered.append(item)
+    if not changed:
+        return resolution
+    return {**resolution, "itens": filtered}
+
+
 def _resolution_items(resolution: dict | None) -> list[dict]:
     items = []
     for item in (resolution or {}).get("itens") or []:
@@ -887,6 +940,8 @@ def process_secretary_message(
                 if not resolution:
                     reply = "Nao consegui identificar os produtos. Informe produto, formato, tamanho e quantidade."
                 else:
+                    resolution = _drop_resolved_pending_items(resolution) or resolution
+                    state["catalog_resolution"] = resolution
                     current = _resolution_items(resolution)
                     issues = [
                         item
