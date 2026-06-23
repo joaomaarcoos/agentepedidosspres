@@ -573,6 +573,40 @@ export interface DisparoLogsOverview {
   pages: number;
 }
 
+export type ClicRequestLogStatus = "pending" | "success" | "error";
+
+export interface ClicRequestLog {
+  id: string;
+  source: string;
+  operation: string;
+  endpoint: string;
+  method: string;
+  status: ClicRequestLogStatus;
+  http_status?: number | null;
+  order_id?: string | null;
+  protocol?: string | null;
+  cod_rep?: number | null;
+  representative_document?: string | null;
+  customer_code?: string | null;
+  customer_document?: string | null;
+  request_payload?: Record<string, unknown> | unknown[];
+  response_payload?: Record<string, unknown> | unknown[] | null;
+  error_message?: string | null;
+  created_at: string;
+  sent_at?: string | null;
+  responded_at?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface ClicRequestLogsOverview {
+  logs: ClicRequestLog[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+  stats: Record<string, number>;
+}
+
 // ---------------------------------------------------------------------------
 // Auth / RBAC
 // ---------------------------------------------------------------------------

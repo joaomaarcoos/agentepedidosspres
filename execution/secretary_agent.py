@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -456,6 +457,70 @@ def _created_order_number(response: dict) -> str:
     return _created_order_number(nested) if nested else ""
 
 
+def _clic_log_create(db, order: dict, payload: dict) -> tuple[str | None, float]:
+    started = time.perf_counter()
+    try:
+        rows = db.table("clic_request_logs").insert(
+            {
+                "source": "secretary",
+                "operation": "create_order",
+                "endpoint": "/extpedidos",
+                "method": "POST",
+                "status": "pending",
+                "order_id": order.get("id"),
+                "protocol": order.get("protocol"),
+                "cod_rep": order.get("cod_rep"),
+                "representative_document": "34501704810",
+                "customer_code": order.get("customer_code"),
+                "customer_document": order.get("customer_document"),
+                "request_payload": payload,
+                "created_at": _now(),
+                "sent_at": _now(),
+            }
+        ).execute().data or []
+        return (rows[0].get("id") if rows else None), started
+    except Exception:
+        return None, started
+
+
+def _clic_error_payload(exc: Exception) -> tuple[int | None, dict | None, str]:
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if response is None:
+        return status, None, str(exc)
+    try:
+        body = response.json()
+    except Exception:
+        body = {"text": getattr(response, "text", "")}
+    return status, body, str(exc)
+
+
+def _clic_log_finish(
+    db,
+    log_id: str | None,
+    started: float,
+    status: str,
+    response_payload: dict | None = None,
+    http_status: int | None = None,
+    error_message: str | None = None,
+) -> None:
+    if not log_id:
+        return
+    try:
+        db.table("clic_request_logs").update(
+            {
+                "status": status,
+                "http_status": http_status,
+                "response_payload": response_payload,
+                "error_message": error_message,
+                "responded_at": _now(),
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+            }
+        ).eq("id", log_id).execute()
+    except Exception:
+        return
+
+
 def _submit(db, order: dict) -> tuple[bool, str]:
     if order.get("status") in {"submitted", "synced"}:
         number = order.get("clic_order_number")
@@ -487,8 +552,17 @@ def _submit(db, order: dict) -> tuple[bool, str]:
         "observacao": observations,
         "totais": {"valorTotalLiquido": _safe_float(order.get("total"))},
     }
+    log_id, log_started = _clic_log_create(db, order, payload)
     try:
         response = ClicVendasClient().post("/extpedidos", payload)
+        _clic_log_finish(
+            db,
+            log_id,
+            log_started,
+            "success",
+            response_payload=response,
+            http_status=200,
+        )
         number = _created_order_number(response)
         db.table("secretary_orders").update(
             {
@@ -504,11 +578,22 @@ def _submit(db, order: dict) -> tuple[bool, str]:
         detail = f" Pedido numero *{number}*." if number else f" Referencia *{order['protocol']}*."
         return True, f"Pedido enviado ao ClicVendas com sucesso.{detail}"
     except Exception as exc:
+        http_status, response_payload, error_message = _clic_error_payload(exc)
+        _clic_log_finish(
+            db,
+            log_id,
+            log_started,
+            "error",
+            response_payload=response_payload,
+            http_status=http_status,
+            error_message=error_message,
+        )
         db.table("secretary_orders").update(
             {
                 "status": "failed",
                 "submit_payload": payload,
-                "error_message": str(exc),
+                "submit_response": response_payload,
+                "error_message": error_message,
                 "updated_at": _now(),
             }
         ).eq("id", order["id"]).execute()

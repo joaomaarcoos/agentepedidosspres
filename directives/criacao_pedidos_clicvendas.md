@@ -63,6 +63,36 @@ O fluxo possui tres etapas obrigatorias e uma etapa condicional:
 
 Depois dessas etapas, a secretaria deve montar um resumo completo e pedir confirmacao final antes de enviar a requisicao.
 
+## Arquitetura da tool
+
+A tool de criacao de pedido deve ser tratada como um fluxo de subagente da secretaria.
+
+Responsabilidades do subagente/secretaria:
+
+- conduzir a conversa com o representante;
+- coletar codigo do cliente, tipo de pedido, condicao de pagamento e itens;
+- buscar os dados reais do cliente, produtos, variacoes, tabela de preco e precos;
+- montar o pedido em estrutura interna;
+- calcular subtotal por item e total geral;
+- pedir confirmacao final ao representante;
+- somente depois da confirmacao, chamar o backend para tentar criar o pedido.
+
+Responsabilidades da trava do backend:
+
+- validar que o telefone autorizado esta correto;
+- validar que o cliente pertence ao representante correto;
+- validar que o representante do payload e o documento esperado;
+- validar que todos os produtos e variacoes existem;
+- validar que os precos batem com a tabela correta do cliente;
+- validar tabela especial por produto, quando existir;
+- validar que a condicao de pagamento existe e esta ativa;
+- validar que o tipo de venda existe e esta ativo;
+- remover/recusar campos que nao devem ser enviados, como frete, situacao, numero externo, observacao, previsao de entrega, ordem de compra e endereco de entrega;
+- montar o payload final permitido;
+- enviar ao Clic Vendas somente se todas as validacoes passarem.
+
+O subagente nao deve ter permissao de enviar livremente qualquer JSON para o Clic. Ele monta uma intencao de pedido; o backend confere e transforma isso no payload final.
+
 ## 1. Dados do cliente
 
 ### Pergunta

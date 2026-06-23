@@ -220,6 +220,27 @@ export const logsApi = {
   },
   getDisparo: (id: string) =>
     api.get<import("./types").DisparoLog>(`/api/logs/disparo/${id}`),
+  listClicVendas: (params?: {
+    status?: import("./types").ClicRequestLogStatus | "all";
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.status && params.status !== "all") q.set("status", params.status);
+    if (params?.dateFrom) q.set("date_from", params.dateFrom);
+    if (params?.dateTo) q.set("date_to", params.dateTo);
+    if (params?.search) q.set("search", params.search);
+    if (params?.page) q.set("page", String(params.page));
+    if (params?.pageSize) q.set("page_size", String(params.pageSize));
+    return api.get<import("./types").ClicRequestLogsOverview>(
+      `/api/logs/clic-vendas${q.size ? `?${q}` : ""}`
+    );
+  },
+  getClicVendas: (id: string) =>
+    api.get<import("./types").ClicRequestLog>(`/api/logs/clic-vendas/${id}`),
 };
 
 export const settingsApi = {

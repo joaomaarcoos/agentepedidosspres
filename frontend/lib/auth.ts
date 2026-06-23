@@ -83,6 +83,7 @@ export const NAV_ITEMS = [
   { href: "/previsao",       label: "Previsão",         roles: ALL },
   { href: "/resultados",     label: "Resultados",       roles: GESTOR_UP },
   { href: "/logs",           label: "Logs de Disparo",  roles: GESTOR_UP },
+  { href: "/logs/clic-vendas", label: "Logs Clic",       roles: GESTOR_UP },
   { href: "/produtos",       label: "Produtos",         roles: ALL },
   { href: "/tabela-preco",   label: "Tabela de Preço",  roles: ALL },
   { href: "/revisaopedido",  label: "Revisão de Pedidos", roles: ALL },
