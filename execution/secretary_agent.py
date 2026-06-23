@@ -31,6 +31,9 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 CONFIRM_RE = re.compile(r"\b(confirmo|confirmado|pode enviar|pode mandar|pode fechar|esta tudo certo|est[aá] certo)\b", re.I)
 CANCEL_RE = re.compile(r"\b(cancelar|cancela|desistir|apagar pedido)\b", re.I)
 STATUS_RE = re.compile(r"\b(status|situa[cç][aã]o|acompanhar|pedidos?|hist[oó]rico|atualiza[cç][aã]o)\b", re.I)
+NEW_ORDER_RE = re.compile(r"\b(novo pedido|outro pedido|recomecar|recomeçar|comecar de novo|começar de novo|refazer pedido)\b", re.I)
+CHANGE_CUSTOMER_RE = re.compile(r"\b(trocar cliente|mudar cliente|alterar cliente|cliente errado|corrigir cliente)\b", re.I)
+KEEP_CURRENT_RE = re.compile(r"\b(continuar|continua|manter|fica nesse|seguir nesse|nao trocar|não trocar)\b", re.I)
 REFERENCE_RE = re.compile(r"\bMSE-\d{6}-[A-Z0-9]{6}\b", re.I)
 DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335"
 ELIEZER_REP_DOCUMENT = "34501704810"
@@ -409,6 +412,70 @@ def _masked_customer(customer: dict, index: int) -> str:
     location = " / ".join(part for part in (customer.get("city"), customer.get("uf")) if part)
     details = " | ".join(part for part in (location, f"final {suffix}" if suffix else "") if part)
     return f"{index}. {customer.get('name') or customer.get('code')}{f' | {details}' if details else ''}"
+
+
+def _has_order_context(state: dict) -> bool:
+    return bool(
+        state.get("customer")
+        or state.get("items")
+        or state.get("catalog_resolution")
+        or state.get("order_id")
+    )
+
+
+def _cancel_current_draft(db, state: dict) -> None:
+    if not state.get("order_id"):
+        return
+    db.table("secretary_orders").update(
+        {"status": "cancelled", "updated_at": _now()}
+    ).eq("id", state["order_id"]).in_(
+        "status", ["draft", "awaiting_confirmation", "failed"]
+    ).execute()
+
+
+def _clear_order_state(db, state: dict, keep_sale_type: bool = True) -> dict:
+    sale_type_code = state.get("sale_type_code") if keep_sale_type else None
+    _cancel_current_draft(db, state)
+    new_state: dict = {}
+    if sale_type_code:
+        new_state["sale_type_code"] = sale_type_code
+    return new_state
+
+
+def _start_customer_state(customer: dict, previous_state: dict | None = None) -> dict:
+    state: dict = {"customer": customer}
+    sale_type_code = (previous_state or {}).get("sale_type_code")
+    if sale_type_code:
+        state["sale_type_code"] = sale_type_code
+    return state
+
+
+def _customer_change_candidate(customers: list[dict], text: str, current_customer: dict | None) -> dict | None:
+    value = str(text or "").strip()
+    normalized = _norm(value)
+    digits = _digits(value)
+    explicit_customer_text = bool(CHANGE_CUSTOMER_RE.search(value)) or normalized.startswith(("cliente ", "codigo ", "cod "))
+    if not explicit_customer_text and (not digits or len(digits) < 3):
+        return None
+    if digits and not explicit_customer_text and re.fullmatch(r"\D*\d+\D*", value):
+        exact_matches = [
+            customer
+            for customer in customers
+            if digits in {_digits(customer.get("code")), _digits(customer.get("document"))}
+        ]
+        if len(exact_matches) != 1:
+            return None
+        candidate = exact_matches[0]
+        if current_customer and str(candidate.get("code")) == str(current_customer.get("code")):
+            return None
+        return candidate
+    matches = _search_customers(customers, value)
+    if len(matches) != 1:
+        return None
+    candidate = matches[0]
+    if current_customer and str(candidate.get("code")) == str(current_customer.get("code")):
+        return None
+    return candidate
 
 
 def _catalog(db, customer: dict) -> list[dict]:
@@ -875,15 +942,67 @@ def process_secretary_message(
         reply = _latest_orders(db, int(representative["cod_rep"]))
         action = "secretary_status"
     elif CANCEL_RE.search(text):
-        if state.get("order_id"):
-            db.table("secretary_orders").update(
-                {"status": "cancelled", "updated_at": _now()}
-            ).eq("id", state["order_id"]).in_(
-                "status", ["draft", "awaiting_confirmation", "failed"]
-            ).execute()
+        _cancel_current_draft(db, state)
         state = {}
         reply = "Pedido cancelado. Quando quiser, informe o cliente para iniciar outro."
         action = "secretary_cancelled"
+    elif state.get("pending_action"):
+        pending = state.get("pending_action") or {}
+        if pending.get("type") == "change_customer_pending_code" and not KEEP_CURRENT_RE.search(text):
+            customers = _portfolio_customers(db, int(representative["cod_rep"]))
+            options = state.get("customer_options") or []
+            selection = re.fullmatch(r"\s*([1-5])\s*", text)
+            matches = []
+            if selection and options:
+                index = int(selection.group(1)) - 1
+                if index < len(options):
+                    matches = [options[index]]
+                    state.pop("customer_options", None)
+            if not matches:
+                matches = _search_customers(customers, text)
+            if len(matches) == 1:
+                candidate = matches[0]
+                state["pending_action"] = {
+                    "type": "change_customer",
+                    "customer": candidate,
+                    "prompt": (
+                        f"Encontrei *{candidate.get('name')}*. "
+                        "Confirmo a troca de cliente e limpo os itens do pedido atual?"
+                    ),
+                }
+                reply = state["pending_action"]["prompt"]
+                action = "secretary_confirm_customer_change"
+            elif matches:
+                state["customer_options"] = matches
+                reply = "Encontrei mais de um cliente. Responda com o numero correto:\n\n" + "\n".join(
+                    _masked_customer(customer, index)
+                    for index, customer in enumerate(matches, 1)
+                )
+            else:
+                reply = "Nao encontrei esse cliente na sua carteira. Informe codigo, nome, documento ou cidade."
+        elif KEEP_CURRENT_RE.search(text):
+            state.pop("pending_action", None)
+            reply = "Certo, mantive o pedido atual. Pode continuar com os itens ou ajustes desse pedido."
+            action = "secretary_kept_current_order"
+        elif CONFIRM_RE.search(text) or re.search(r"\b(sim|pode|trocar|recomecar|recomeçar)\b", _norm(text)):
+            previous_state = dict(state)
+            if pending.get("type") == "reset_order":
+                state = _clear_order_state(db, state, keep_sale_type=False)
+                reply = "Certo, apaguei o rascunho atual. Informe o cliente do novo pedido."
+                action = "secretary_order_reset"
+            elif pending.get("type") == "change_customer" and pending.get("customer"):
+                state = _clear_order_state(db, state, keep_sale_type=True)
+                state.update(_start_customer_state(pending["customer"], previous_state))
+                reply = (
+                    f"Troquei para o cliente *{state['customer']['name']}* e limpei os itens do pedido anterior. "
+                    "Agora envie os produtos e quantidades desse pedido."
+                )
+                action = "secretary_customer_changed"
+            else:
+                state.pop("pending_action", None)
+                reply = "Certo. Informe o codigo, nome ou documento do cliente correto."
+        else:
+            reply = pending.get("prompt") or "Confirme se quer continuar com essa mudanca ou manter o pedido atual."
     elif CONFIRM_RE.search(text):
         order_id = state.get("order_id")
         if not order_id or not state.get("ready_to_submit"):
@@ -901,13 +1020,40 @@ def process_secretary_message(
         if sale_type_code:
             state["sale_type_code"] = sale_type_code
         customers = _portfolio_customers(db, int(representative["cod_rep"]))
-        if not state.get("customer"):
+        if NEW_ORDER_RE.search(text) and _has_order_context(state):
+            state["pending_action"] = {
+                "type": "reset_order",
+                "prompt": "Voce quer apagar o pedido atual e comecar um novo? Responda *confirmo* para apagar ou *continuar* para manter.",
+            }
+            reply = state["pending_action"]["prompt"]
+            action = "secretary_confirm_reset"
+        elif state.get("customer"):
+            candidate = _customer_change_candidate(customers, text, state.get("customer"))
+            if candidate:
+                state["pending_action"] = {
+                    "type": "change_customer",
+                    "customer": candidate,
+                    "prompt": (
+                        f"Entendi que talvez voce queira trocar o cliente para *{candidate.get('name')}*. "
+                        "Se trocar, eu limpo os itens do pedido atual. Responda *confirmo* para trocar ou *continuar* para manter o pedido atual."
+                    ),
+                }
+                reply = state["pending_action"]["prompt"]
+                action = "secretary_confirm_customer_change"
+            elif CHANGE_CUSTOMER_RE.search(text):
+                state["pending_action"] = {
+                    "type": "change_customer_pending_code",
+                    "prompt": "Qual e o codigo, nome ou documento do cliente correto?",
+                }
+                reply = state["pending_action"]["prompt"]
+                action = "secretary_ask_new_customer"
+        if not reply and not state.get("customer"):
             options = state.get("customer_options") or []
             selection = re.fullmatch(r"\s*([1-5])\s*", text)
             if selection and options:
                 index = int(selection.group(1)) - 1
                 if index < len(options):
-                    state["customer"] = options[index]
+                    state.update(_start_customer_state(options[index], state))
                     state.pop("customer_options", None)
                     reply = (
                         f"Cliente *{state['customer']['name']}* selecionado. "
@@ -917,7 +1063,7 @@ def process_secretary_message(
                 query = text.strip()
                 matches = _search_customers(customers, query)
                 if len(matches) == 1:
-                    state["customer"] = matches[0]
+                    state.update(_start_customer_state(matches[0], state))
                     reply = (
                         f"Cliente *{matches[0]['name']}* selecionado. "
                         "Agora envie os produtos e quantidades do pedido."
@@ -930,7 +1076,7 @@ def process_secretary_message(
                     )
                 else:
                     reply = "Nao encontrei esse cliente na sua carteira. Informe nome, codigo, documento ou cidade."
-        else:
+        elif not reply:
             customer = state["customer"]
             catalog = _catalog(db, customer)
             if not catalog:

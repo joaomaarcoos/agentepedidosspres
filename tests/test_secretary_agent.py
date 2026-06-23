@@ -268,6 +268,74 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(len(cleaned["itens"]), 1)
         self.assertEqual(cleaned["itens"][0]["cod_produto"], "SGPSSLAR")
 
+    def test_customer_code_during_items_asks_before_switching_order(self):
+        current_customer = {"code": "1233", "name": "Cliente Atual", "document": "1", "price_table_code": "205"}
+        new_customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        saved_states = []
+
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": current_customer,
+                    "items": [{"cod_produto": "A"}],
+                    "catalog_resolution": {"itens": []},
+                },
+            },
+        ), patch.object(secretary_agent, "_add_message", return_value=True), patch.object(
+            secretary_agent, "_portfolio_customers", return_value=[current_customer, new_customer]
+        ), patch.object(secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)), patch.object(
+            secretary_agent, "_resolve_products_with_sales_subagent"
+        ) as resolve_products:
+            result = secretary_agent.process_secretary_message("5516991377335", "16069", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_confirm_customer_change")
+        self.assertIn("IGOR MIRANDA BORGES", result["reply"])
+        self.assertEqual(saved_states[-1]["pending_action"]["type"], "change_customer")
+        resolve_products.assert_not_called()
+
+    def test_confirm_pending_customer_change_resets_items_and_keeps_new_customer(self):
+        current_customer = {"code": "1233", "name": "Cliente Atual", "document": "1", "price_table_code": "205"}
+        new_customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        saved_states = []
+
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": current_customer,
+                    "items": [{"cod_produto": "A"}],
+                    "sale_type_code": "9010P",
+                    "pending_action": {"type": "change_customer", "customer": new_customer},
+                },
+            },
+        ), patch.object(secretary_agent, "_add_message", return_value=True), patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5516991377335", "confirmo", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_customer_changed")
+        self.assertEqual(saved_states[-1]["customer"]["code"], "16069")
+        self.assertEqual(saved_states[-1]["sale_type_code"], "9010P")
+        self.assertNotIn("items", saved_states[-1])
+        self.assertNotIn("pending_action", saved_states[-1])
+
+    def test_quantity_like_number_does_not_trigger_customer_change_by_fuzzy_match(self):
+        customers = [
+            {"code": "1233", "name": "Cliente Atual", "document": "1"},
+            {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818"},
+        ]
+        candidate = secretary_agent._customer_change_candidate(customers, "120", customers[0])
+        self.assertIsNone(candidate)
+
     def test_portfolio_uses_rep_order_base_and_customer_profiles(self):
         db = _FakeDb(
             {
