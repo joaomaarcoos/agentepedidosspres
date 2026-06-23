@@ -208,6 +208,77 @@ class EvolutionWebhookTests(unittest.TestCase):
         secretary.assert_not_called()
         sales.assert_not_called()
 
+    def test_secretary_audio_from_non_allowed_phone_is_ignored_before_transcription(self):
+        payload = {
+            "instance": "secretaria-01",
+            "data": {
+                "key": {
+                    "remoteJid": "5511888888888@s.whatsapp.net",
+                    "fromMe": False,
+                    "id": "SEC-AUDIO1",
+                },
+                "message": {
+                    "base64": "YWJj",
+                    "audioMessage": {"mimetype": "audio/ogg"},
+                },
+            },
+        }
+        with patch.object(
+            evolution_webhook,
+            "_agent_config",
+            return_value={"agent_type": "secretary", "agent_enabled": True},
+        ), patch.object(
+            evolution_webhook,
+            "is_secretary_phone_allowed",
+            return_value=False,
+        ), patch.object(evolution_webhook, "_transcribe_audio") as transcribe, patch.object(
+            evolution_webhook, "process_secretary_message"
+        ) as secretary:
+            result = evolution_webhook.handle_payload(payload, send_reply=False)
+
+        self.assertEqual(result["action"], "ignored_secretary_phone_not_allowed")
+        self.assertFalse(result["should_reply"])
+        transcribe.assert_not_called()
+        secretary.assert_not_called()
+
+    def test_secretary_audio_from_allowed_phone_is_transcribed_and_processed(self):
+        payload = {
+            "instance": "secretaria-01",
+            "data": {
+                "key": {
+                    "remoteJid": "5516991377335@s.whatsapp.net",
+                    "fromMe": False,
+                    "id": "SEC-AUDIO2",
+                },
+                "message": {
+                    "base64": "YWJj",
+                    "audioMessage": {"mimetype": "audio/ogg"},
+                },
+            },
+        }
+        with patch.object(
+            evolution_webhook,
+            "_agent_config",
+            return_value={"agent_type": "secretary", "agent_enabled": True},
+        ), patch.object(
+            evolution_webhook,
+            "is_secretary_phone_allowed",
+            return_value=True,
+        ), patch.object(
+            evolution_webhook,
+            "_transcribe_audio",
+            return_value="pedido codigo 16069",
+        ), patch.object(
+            evolution_webhook,
+            "process_secretary_message",
+            return_value={"action": "secretary_reply", "should_reply": False},
+        ) as secretary:
+            result = evolution_webhook.handle_payload(payload, send_reply=False)
+
+        self.assertEqual(result["action"], "secretary_reply")
+        secretary.assert_called_once()
+        self.assertEqual(secretary.call_args.kwargs["text"], "pedido codigo 16069")
+
 
 if __name__ == "__main__":
     unittest.main()

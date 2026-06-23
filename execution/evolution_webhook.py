@@ -199,7 +199,7 @@ def _transcribe_audio(base64_str: str, mimetype: str = "audio/ogg") -> str | Non
         return None
 
 
-def extract_message(payload: dict, instance: str = "") -> dict:
+def extract_message(payload: dict, instance: str = "", transcribe_audio: bool = True) -> dict:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     key = data.get("key") if isinstance(data.get("key"), dict) else {}
     message = data.get("message") if isinstance(data.get("message"), dict) else {}
@@ -207,6 +207,10 @@ def extract_message(payload: dict, instance: str = "") -> dict:
     remote_jid = _message_remote_jid(payload, data, key)
     participant_jid = _message_participant_jid(payload, data, key)
     from_me = bool(key.get("fromMe") or data.get("fromMe"))
+    if "@g.us" in str(remote_jid) and participant_jid:
+        phone = _jid_phone(participant_jid)
+    else:
+        phone = _jid_phone(remote_jid)
     text = (
         message.get("conversation")
         or _dig(message, "extendedTextMessage", "text")
@@ -218,20 +222,13 @@ def extract_message(payload: dict, instance: str = "") -> dict:
     is_audio = False
     if not text and _audio_message_from_container(message):
         is_audio = True
-        if instance:
+        if instance and transcribe_audio:
             audio_data = _get_audio_base64(payload, instance)
             if audio_data:
                 transcribed = _transcribe_audio(*audio_data)
                 if transcribed:
                     text = transcribed
 
-    # Em conversas diretas, remoteJid é o cliente. Em grupos, remoteJid é o grupo
-    # e participant é o remetente real. Nunca use payload.sender aqui: na Evolution
-    # ele pode ser o número/identificador da instância (a Marcela).
-    if "@g.us" in str(remote_jid) and participant_jid:
-        phone = _jid_phone(participant_jid)
-    else:
-        phone = _jid_phone(remote_jid)
     message_id = key.get("id") or data.get("id") or data.get("messageId")
 
     return {
@@ -243,6 +240,17 @@ def extract_message(payload: dict, instance: str = "") -> dict:
         "participant_jid": participant_jid,
         "is_audio": is_audio,
     }
+
+
+def _transcribe_incoming_audio(payload: dict, instance: str, incoming: dict) -> dict:
+    if not incoming.get("is_audio") or incoming.get("text") or not instance:
+        return incoming
+    audio_data = _get_audio_base64(payload, instance)
+    if audio_data:
+        transcribed = _transcribe_audio(*audio_data)
+        if transcribed:
+            return {**incoming, "text": transcribed}
+    return incoming
 
 
 def _evolution_config() -> tuple[str, str]:
@@ -404,27 +412,13 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
         or ""
     )
 
-    incoming = extract_message(payload, instance=instance)
-
-    if incoming["phone"] and incoming["is_audio"] and not incoming["text"]:
-        reply = "Não consegui entender esse áudio. Pode enviar novamente ou escrever a mensagem?"
-        result = {
-            "action": "audio_transcription_failed",
-            "should_reply": True,
-            "reply": reply,
-            "message_id": incoming.get("message_id"),
-        }
-        if send_reply:
-            result["evolution_response"] = send_whatsapp(incoming["phone"], reply, instance)
-        return result
-
-    if not incoming["phone"] or not incoming["text"]:
-        return {"action": "ignored_empty", "should_reply": False}
-
-    if AI_OUTGOING_MARKER in incoming["text"]:
-        return {"action": "ignored_ai_outgoing", "should_reply": False}
-
     agent_config = _agent_config(instance)
+    incoming = extract_message(
+        payload,
+        instance=instance,
+        transcribe_audio=agent_config.get("agent_type") != "secretary",
+    )
+
     if not agent_config.get("agent_enabled", True):
         return {"action": "agent_disabled", "should_reply": False}
 
@@ -433,6 +427,22 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
             return {"action": "ignored_from_me", "should_reply": False}
         if not is_secretary_phone_allowed(incoming["phone"]):
             return {"action": "ignored_secretary_phone_not_allowed", "should_reply": False}
+        incoming = _transcribe_incoming_audio(payload, instance, incoming)
+        if incoming["phone"] and incoming["is_audio"] and not incoming["text"]:
+            reply = "Não consegui entender esse áudio. Pode enviar novamente ou escrever a mensagem?"
+            result = {
+                "action": "audio_transcription_failed",
+                "should_reply": True,
+                "reply": reply,
+                "message_id": incoming.get("message_id"),
+            }
+            if send_reply:
+                result["evolution_response"] = send_whatsapp(incoming["phone"], reply, instance)
+            return result
+        if not incoming["phone"] or not incoming["text"]:
+            return {"action": "ignored_empty", "should_reply": False}
+        if AI_OUTGOING_MARKER in incoming["text"]:
+            return {"action": "ignored_ai_outgoing", "should_reply": False}
         try:
             result = process_secretary_message(
                 phone=incoming["phone"],
@@ -459,6 +469,24 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
             result["reply_parts"] = reply_parts
             result["evolution_response"] = responses[0] if len(responses) == 1 else responses
         return result
+
+    if incoming["phone"] and incoming["is_audio"] and not incoming["text"]:
+        reply = "Não consegui entender esse áudio. Pode enviar novamente ou escrever a mensagem?"
+        result = {
+            "action": "audio_transcription_failed",
+            "should_reply": True,
+            "reply": reply,
+            "message_id": incoming.get("message_id"),
+        }
+        if send_reply:
+            result["evolution_response"] = send_whatsapp(incoming["phone"], reply, instance)
+        return result
+
+    if not incoming["phone"] or not incoming["text"]:
+        return {"action": "ignored_empty", "should_reply": False}
+
+    if AI_OUTGOING_MARKER in incoming["text"]:
+        return {"action": "ignored_ai_outgoing", "should_reply": False}
 
     representative_result = process_representative_order_command(
         phone=incoming["phone"],
