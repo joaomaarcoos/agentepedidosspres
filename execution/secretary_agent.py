@@ -84,6 +84,24 @@ def _phone_candidates(phone: str) -> list[str]:
     return [item for item in values if item]
 
 
+def _allowed_secretary_phones() -> set[str]:
+    raw = os.getenv("SECRETARY_ALLOWED_PHONES", "").strip()
+    if not raw:
+        return set()
+    allowed: set[str] = set()
+    for item in re.split(r"[,;\s]+", raw):
+        for candidate in _phone_candidates(item):
+            allowed.add(candidate)
+    return allowed
+
+
+def _is_secretary_phone_allowed(phone: str) -> bool:
+    allowed = _allowed_secretary_phones()
+    if not allowed:
+        return True
+    return bool(set(_phone_candidates(phone)) & allowed)
+
+
 def _representative(db, phone: str) -> dict | None:
     rows = (
         db.table("representatives")
@@ -528,6 +546,12 @@ def process_secretary_message(
     external_message_id: str | None = None,
     payload_json: dict | None = None,
 ) -> dict:
+    if not _is_secretary_phone_allowed(phone):
+        return {
+            "action": "secretary_phone_not_allowed",
+            "should_reply": False,
+        }
+
     db = _db()
     representative = _representative(db, phone)
     if not representative:

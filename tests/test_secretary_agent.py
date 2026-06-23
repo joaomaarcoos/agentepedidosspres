@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "execution"))
@@ -62,6 +63,23 @@ class SecretaryAgentTests(unittest.TestCase):
             catalog,
         )
         self.assertEqual(reconciled["itens"][0]["status"], "nao_encontrado")
+
+    def test_secretary_allowed_phone_accepts_country_code_variation(self):
+        with patch.dict("os.environ", {"SECRETARY_ALLOWED_PHONES": "16999999999"}):
+            self.assertTrue(secretary_agent._is_secretary_phone_allowed("5516999999999"))
+
+    def test_secretary_ignores_non_allowed_phone_before_db(self):
+        with patch.dict("os.environ", {"SECRETARY_ALLOWED_PHONES": "5516999999999"}), patch.object(
+            secretary_agent, "_db"
+        ) as db:
+            result = secretary_agent.process_secretary_message(
+                phone="5516888888888",
+                text="pedido para Mercado Central",
+                instance_name="secretaria-01",
+            )
+        self.assertEqual(result["action"], "secretary_phone_not_allowed")
+        self.assertFalse(result["should_reply"])
+        db.assert_not_called()
 
     def test_secretary_reply_exposes_official_code(self):
         reply = secretary_agent._secretary_resolution_reply(
