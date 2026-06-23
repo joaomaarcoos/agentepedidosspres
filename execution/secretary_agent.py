@@ -33,6 +33,9 @@ CANCEL_RE = re.compile(r"\b(cancelar|cancela|desistir|apagar pedido)\b", re.I)
 STATUS_RE = re.compile(r"\b(status|situa[cç][aã]o|acompanhar|pedidos?|hist[oó]rico|atualiza[cç][aã]o)\b", re.I)
 REFERENCE_RE = re.compile(r"\bMSE-\d{6}-[A-Z0-9]{6}\b", re.I)
 DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335"
+ELIEZER_REP_DOCUMENT = "34501704810"
+ELIEZER_FALLBACK_COD_REP = 52
+REPRESENTATIVE_PROFILES_KEY = "clic_representative_profiles"
 DEFAULT_SALE_TYPE_CODE = "9010O"
 
 
@@ -136,7 +139,42 @@ def _representative(db, phone: str) -> dict | None:
         and row.get("cod_rep") is not None
         and _digits(row.get("whatsapp_number")) in candidates
     ]
-    return active[0] if len(active) == 1 else None
+    if len(active) == 1:
+        return active[0]
+    if not _is_secretary_phone_allowed(phone):
+        return None
+
+    try:
+        profile_rows = (
+            db.table("system_settings")
+            .select("value")
+            .eq("key", REPRESENTATIVE_PROFILES_KEY)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        profiles = profile_rows[0].get("value") if profile_rows else {}
+        if isinstance(profiles, dict):
+            for profile in profiles.values():
+                if not isinstance(profile, dict):
+                    continue
+                if _digits(profile.get("documento")) == ELIEZER_REP_DOCUMENT:
+                    return {
+                        "cod_rep": int(profile.get("cod_rep") or ELIEZER_FALLBACK_COD_REP),
+                        "name": profile.get("nome") or "ELIEZER GONZAGA DOS REIS",
+                        "active": True,
+                        "whatsapp_number": DEFAULT_SECRETARY_ALLOWED_PHONE,
+                    }
+    except Exception:
+        pass
+
+    return {
+        "cod_rep": ELIEZER_FALLBACK_COD_REP,
+        "name": "ELIEZER GONZAGA DOS REIS",
+        "active": True,
+        "whatsapp_number": DEFAULT_SECRETARY_ALLOWED_PHONE,
+    }
 
 
 def _conversation(db, instance: str, phone: str, cod_rep: int) -> dict:

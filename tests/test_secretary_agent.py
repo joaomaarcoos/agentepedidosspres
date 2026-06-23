@@ -10,6 +10,31 @@ import clic_vendas_cli
 import secretary_agent
 
 
+class _FakeQuery:
+    def __init__(self, data):
+        self._data = data
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, *_args, **_kwargs):
+        return self
+
+    def limit(self, *_args, **_kwargs):
+        return self
+
+    def execute(self):
+        return type("Result", (), {"data": self._data})()
+
+
+class _FakeDb:
+    def __init__(self, tables):
+        self.tables = tables
+
+    def table(self, name):
+        return _FakeQuery(self.tables.get(name, []))
+
+
 class SecretaryAgentTests(unittest.TestCase):
     def test_protocol_has_secretary_prefix(self):
         self.assertRegex(secretary_agent._new_protocol(), r"^MSE-\d{6}-[A-F0-9]{6}$")
@@ -86,6 +111,30 @@ class SecretaryAgentTests(unittest.TestCase):
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("5516991377335"))
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("16991377335"))
             self.assertFalse(secretary_agent._is_secretary_phone_allowed("5516888888888"))
+
+    def test_allowed_eliezer_phone_uses_profile_fallback(self):
+        db = _FakeDb(
+            {
+                "representatives": [
+                    {"cod_rep": 52, "name": "ELIEZER", "active": True, "whatsapp_number": ""},
+                ],
+                "system_settings": [
+                    {
+                        "value": {
+                            "52": {
+                                "cod_rep": 52,
+                                "documento": "34501704810",
+                                "nome": "ELIEZER GONZAGA DOS REIS",
+                            }
+                        }
+                    }
+                ],
+            }
+        )
+        rep = secretary_agent._representative(db, "5516991377335")
+        self.assertIsNotNone(rep)
+        self.assertEqual(rep["cod_rep"], 52)
+        self.assertEqual(rep["name"], "ELIEZER GONZAGA DOS REIS")
 
     def test_build_clic_payload_omits_auto_fields(self):
         payload = secretary_agent._build_clic_order_payload(
