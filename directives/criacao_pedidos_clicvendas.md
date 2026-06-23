@@ -39,8 +39,8 @@ Tipos de venda ativos vistos no Clic:
 
 ## Regras gerais de preenchimento
 
-- Forma de pagamento: fixa como `Boleto Bancario`, codigo `1`.
-- Condicao de pagamento: variavel por cliente/pedido e deve ser confirmada.
+- Forma de pagamento: nao enviar; deixar o Clic/Senior preencher automaticamente.
+- Condicao de pagamento: nao enviar; deixar o Clic/Senior preencher automaticamente.
 - Frete: nao enviar `tipoFrete` e nao enviar `valorFrete`, nem como zero.
 - Situacao: nao enviar; deixar o Clic/Senior definir automaticamente.
 - Ordem de compra: nao enviar.
@@ -70,7 +70,7 @@ A tool de criacao de pedido deve ser tratada como um fluxo de subagente da secre
 Responsabilidades do subagente/secretaria:
 
 - conduzir a conversa com o representante;
-- coletar codigo do cliente, tipo de pedido, condicao de pagamento e itens;
+- coletar codigo do cliente, tipo de pedido e itens;
 - buscar os dados reais do cliente, produtos, variacoes, tabela de preco e precos;
 - montar o pedido em estrutura interna;
 - calcular subtotal por item e total geral;
@@ -85,9 +85,8 @@ Responsabilidades da trava do backend:
 - validar que todos os produtos e variacoes existem;
 - validar que os precos batem com a tabela correta do cliente;
 - validar tabela especial por produto, quando existir;
-- validar que a condicao de pagamento existe e esta ativa;
 - validar que o tipo de venda existe e esta ativo;
-- remover/recusar campos que nao devem ser enviados, como frete, situacao, numero externo, observacao, previsao de entrega, ordem de compra e endereco de entrega;
+- remover/recusar campos que nao devem ser enviados, como forma de pagamento, condicao de pagamento, frete, situacao, numero externo, observacao, previsao de entrega, ordem de compra e endereco de entrega;
 - montar o payload final permitido;
 - enviar ao Clic Vendas somente se todas as validacoes passarem.
 
@@ -139,40 +138,16 @@ Se o representante negar, a secretaria deve pedir outro codigo e nao seguir para
 
 ## 2. Dados gerais
 
-### Forma de pagamento
+### Forma e condicao de pagamento
 
-A forma de pagamento e fixa:
+Nao enviar forma de pagamento nem condicao de pagamento no payload.
 
-```text
-Boleto Bancario
-```
+Esses campos sao preenchidos automaticamente quando o representante cria pedido pela web no Clic. Para manter o mesmo comportamento, a tool deve omitir:
 
-O codigo confirmado para enviar em `codigoFormaPagamento` e:
+- `codigoFormaPagamento`
+- `codigoCondicaoPagamento`
 
-```text
-1
-```
-
-### Condicao de pagamento
-
-A condicao de pagamento muda. A secretaria deve confirmar qual condicao usar.
-
-Exemplos vistos:
-
-- `A VISTA`
-- `28 DIAS UTEIS`
-
-Regra temporaria: a secretaria deve perguntar/confirmar a condicao de pagamento antes de montar o pedido.
-
-Exemplo:
-
-```text
-A forma de pagamento sera Boleto Bancario. Qual condicao de pagamento devo usar?
-```
-
-Codigo confirmado: usar o valor da coluna `Codigo` em `codigoCondicaoPagamento`.
-
-Pendente: definir a origem automatica da condicao correta por cliente/pedido. Enquanto isso nao estiver fechado, a secretaria deve confirmar a condicao com o representante.
+Catalogo de condicoes de pagamento ativas visto no Clic, mantido apenas como referencia operacional:
 
 Condicoes de pagamento ativas vistas no Clic, considerando somente situacao `A`:
 
@@ -415,8 +390,6 @@ O resumo deve conter:
 - cliente;
 - documento;
 - endereco;
-- forma de pagamento;
-- condicao de pagamento;
 - tipo de pedido;
 - itens com quantidade, preco unitario e total;
 - total geral;
@@ -442,8 +415,6 @@ Campos que devem ser enviados quando confirmados:
     "numeroDocumentoCliente": "DOCUMENTO_CLIENTE",
     "numeroDocumentoRepresentante": "34501704810",
     "codigoTipoVenda": "9010O_OU_9010P_OU_BONIF4",
-    "codigoFormaPagamento": "1",
-    "codigoCondicaoPagamento": "CODIGO_CONDICAO",
     "itens": [
       {
         "codigoProduto": "CODIGO_PRODUTO",
@@ -464,6 +435,8 @@ Campos que nao devem ser enviados neste momento:
 - `tipoFrete`
 - `valorFrete`
 - `situacao`
+- `codigoFormaPagamento`
+- `codigoCondicaoPagamento`
 - `numeroPedidoClicVenda`, para pedido novo
 - `numeroExternoPedido`
 - ordem de compra
@@ -491,8 +464,6 @@ Item:
 Campos nao marcados como obrigatorios no schema, mas necessarios pela regra de negocio para o pedido sair correto:
 
 - `codigoTipoVenda`
-- `codigoFormaPagamento`
-- `codigoCondicaoPagamento`
 - `codigoVariacao`, quando o produto tiver variacao/derivacao
 - `codigoTabelaPreco`, para garantir preco da tabela correta do cliente
 - `percentualDesconto`, enviar `0`
@@ -504,8 +475,6 @@ Ja temos ou sabemos preencher:
 
 - documento do representante: `34501704810`;
 - codigo de tipo de venda para normal, PDV e bonificacao;
-- codigo da forma de pagamento `Boleto Bancario`: `1`;
-- catalogo de condicoes de pagamento ativas, usando a coluna `Codigo`;
 - codigo do cliente, documento, nome e endereco quando o cliente esta cadastrado;
 - tabela de preco do cliente;
 - produtos, variacoes e precos;
@@ -519,8 +488,7 @@ Ja temos ou sabemos preencher:
 
 Antes de implementar o envio real, confirmar:
 
-1. Origem automatica da condicao de pagamento correta para cada cliente/pedido, quando nao for informada pelo representante.
-2. Se o endpoint aceita omitir completamente `tipoFrete`, `valorFrete`, `situacao` e `numeroExternoPedido`.
+1. Se o endpoint aceita omitir completamente `codigoFormaPagamento`, `codigoCondicaoPagamento`, `tipoFrete`, `valorFrete`, `situacao` e `numeroExternoPedido`.
 
 ## Comportamento de seguranca
 
@@ -529,7 +497,6 @@ A secretaria nao deve enviar pedido quando faltar qualquer informacao obrigatori
 - codigo do cliente informado e cliente encontrado;
 - tabela de preco do cliente e preco do item;
 - produto/variacao informados e produto encontrado;
-- condicao de pagamento escolhida e codigo API disponivel;
 - tipo de pedido e codigo de tipo de venda.
 
 Nesses casos, deve parar o fluxo e pedir confirmacao/correcao ao representante.

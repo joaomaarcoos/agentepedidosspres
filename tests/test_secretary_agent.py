@@ -87,6 +87,60 @@ class SecretaryAgentTests(unittest.TestCase):
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("16991377335"))
             self.assertFalse(secretary_agent._is_secretary_phone_allowed("5516888888888"))
 
+    def test_build_clic_payload_omits_auto_fields(self):
+        payload = secretary_agent._build_clic_order_payload(
+            {
+                "customer_document": "05482507000142",
+                "sale_type_code": "9010P",
+                "price_table_code": "201P",
+                "items_json": [
+                    {
+                        "cod_produto": "SGRSSLAR",
+                        "derivacao": "1L7",
+                        "quantidade": 60,
+                        "preco_unitario": 10.78,
+                    }
+                ],
+            }
+        )
+        self.assertEqual(
+            payload,
+            [
+                {
+                    "numeroDocumentoCliente": "05482507000142",
+                    "numeroDocumentoRepresentante": "34501704810",
+                    "codigoTipoVenda": "9010P",
+                    "itens": [
+                        {
+                            "codigoProduto": "SGRSSLAR",
+                            "codigoVariacao": "1L7",
+                            "quantidade": 60.0,
+                            "precoVenda": 10.78,
+                            "codigoTabelaPreco": "201P",
+                            "percentualDesconto": 0,
+                            "percentualAcrescimo": 0,
+                        }
+                    ],
+                }
+            ],
+        )
+        order_payload = payload[0]
+        for forbidden in (
+            "codigoFormaPagamento",
+            "codigoCondicaoPagamento",
+            "tipoFrete",
+            "valorFrete",
+            "situacao",
+            "numeroExternoPedido",
+            "observacao",
+        ):
+            self.assertNotIn(forbidden, order_payload)
+
+    def test_sale_type_code_from_text(self):
+        self.assertEqual(secretary_agent._sale_type_code_from_text("pedido pdv"), "9010P")
+        self.assertEqual(secretary_agent._sale_type_code_from_text("bonificacao acordo"), "BONIF4")
+        self.assertEqual(secretary_agent._sale_type_code_from_text("normal com nota"), "9010O")
+
     def test_secretary_reply_exposes_official_code(self):
         reply = secretary_agent._secretary_resolution_reply(
             {

@@ -33,6 +33,7 @@ CANCEL_RE = re.compile(r"\b(cancelar|cancela|desistir|apagar pedido)\b", re.I)
 STATUS_RE = re.compile(r"\b(status|situa[cç][aã]o|acompanhar|pedidos?|hist[oó]rico|atualiza[cç][aã]o)\b", re.I)
 REFERENCE_RE = re.compile(r"\bMSE-\d{6}-[A-Z0-9]{6}\b", re.I)
 DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335"
+DEFAULT_SALE_TYPE_CODE = "9010O"
 
 
 def _now() -> str:
@@ -64,6 +65,17 @@ def _norm_size(value: Any) -> str:
     if raw in {"1l7", "1.7l", "17l"}:
         return "1.7l"
     return raw
+
+
+def _sale_type_code_from_text(text: Any) -> str | None:
+    value = _norm(text)
+    if re.search(r"\b(pdv|sem nota)\b", value):
+        return "9010P"
+    if re.search(r"\b(bonificacao|bonifica[cç][aã]o|bonif)\b", value):
+        return "BONIF4"
+    if re.search(r"\b(normal|nota fiscal|com nota)\b", value):
+        return "9010O"
+    return None
 
 
 def _db():
@@ -429,6 +441,7 @@ def _save_draft(db, conversation: dict, representative: dict, state: dict) -> di
         "customer_document": customer.get("document") or None,
         "customer_name": customer.get("name"),
         "price_table_code": customer.get("price_table_code") or None,
+        "sale_type_code": state.get("sale_type_code") or DEFAULT_SALE_TYPE_CODE,
         "items_json": items,
         "observations": state.get("observations") or "",
         "total": total,
@@ -452,7 +465,15 @@ def _save_draft(db, conversation: dict, representative: dict, state: dict) -> di
     return rows[0] if rows else payload
 
 
-def _created_order_number(response: dict) -> str:
+def _created_order_number(response: Any) -> str:
+    if isinstance(response, list):
+        for item in response:
+            number = _created_order_number(item)
+            if number:
+                return number
+        return ""
+    if not isinstance(response, dict):
+        return ""
     for key in ("numero", "numPed", "num_ped", "id"):
         if response.get(key) not in (None, ""):
             return str(response[key])
@@ -524,6 +545,30 @@ def _clic_log_finish(
         return
 
 
+def _build_clic_order_payload(order: dict) -> list[dict]:
+    items = []
+    for item in order.get("items_json") or []:
+        items.append(
+            {
+                "codigoProduto": str(item.get("cod_produto") or ""),
+                "codigoVariacao": str(item.get("derivacao") or ""),
+                "quantidade": _safe_float(item.get("quantidade")),
+                "precoVenda": _safe_float(item.get("preco_unitario")),
+                "codigoTabelaPreco": str(order.get("price_table_code") or ""),
+                "percentualDesconto": 0,
+                "percentualAcrescimo": 0,
+            }
+        )
+    return [
+        {
+            "numeroDocumentoCliente": str(order.get("customer_document") or ""),
+            "numeroDocumentoRepresentante": "34501704810",
+            "codigoTipoVenda": str(order.get("sale_type_code") or DEFAULT_SALE_TYPE_CODE),
+            "itens": items,
+        }
+    ]
+
+
 def _submit(db, order: dict) -> tuple[bool, str]:
     if order.get("status") in {"submitted", "synced"}:
         number = order.get("clic_order_number")
@@ -535,26 +580,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
     if not claimed:
         return False, "O pedido ja esta sendo processado. Aguarde a confirmacao."
     order = claimed[0]
-    marker = f"Origem: Marcela Secretaria | Ref: {order['protocol']}"
-    observations = " | ".join(part for part in (marker, order.get("observations")) if part)
-    items = []
-    for item in order.get("items_json") or []:
-        row = {
-            "produto": {"backoffice": {"codigo": item.get("cod_produto")}},
-            "quantidade": _safe_float(item.get("quantidade")),
-            "derivacao": item.get("derivacao"),
-            "precoUnitario": _safe_float(item.get("preco_unitario")),
-            "valorTotal": _safe_float(item.get("subtotal")),
-        }
-        items.append(row)
-    payload = {
-        "cliente": {"backoffice": {"codigo": order["customer_code"]}},
-        "representante": {"backoffice": {"codigo": order["cod_rep"]}},
-        "itens": items,
-        "situacao": {"id": "aprovado"},
-        "observacao": observations,
-        "totais": {"valorTotalLiquido": _safe_float(order.get("total"))},
-    }
+    payload = _build_clic_order_payload(order)
     log_id, log_started = _clic_log_create(db, order, payload)
     try:
         response = ClicVendasClient().post("/extpedidos", payload)
@@ -689,6 +715,9 @@ def process_secretary_message(
                 state = {}
                 action = "secretary_submitted"
     else:
+        sale_type_code = _sale_type_code_from_text(text)
+        if sale_type_code:
+            state["sale_type_code"] = sale_type_code
         customers = _portfolio_customers(db, int(representative["cod_rep"]))
         if not state.get("customer"):
             options = state.get("customer_options") or []
