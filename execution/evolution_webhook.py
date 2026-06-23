@@ -28,7 +28,7 @@ from review_order_whatsapp import (
     process_representative_message,
     process_representative_order_command,
 )
-from secretary_agent import process_secretary_message
+from secretary_agent import is_secretary_phone_allowed, process_secretary_message
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -431,6 +431,8 @@ def handle_payload(payload: dict, send_reply: bool = True) -> dict:
     if agent_config.get("agent_type") == "secretary":
         if incoming["from_me"]:
             return {"action": "ignored_from_me", "should_reply": False}
+        if not is_secretary_phone_allowed(incoming["phone"]):
+            return {"action": "ignored_secretary_phone_not_allowed", "should_reply": False}
         try:
             result = process_secretary_message(
                 phone=incoming["phone"],

@@ -158,6 +158,10 @@ class EvolutionWebhookTests(unittest.TestCase):
             return_value={"agent_type": "secretary", "agent_enabled": True},
         ), patch.object(
             evolution_webhook,
+            "is_secretary_phone_allowed",
+            return_value=True,
+        ), patch.object(
+            evolution_webhook,
             "process_secretary_message",
             return_value={"action": "secretary_reply", "should_reply": False},
         ) as secretary, patch.object(
@@ -168,6 +172,40 @@ class EvolutionWebhookTests(unittest.TestCase):
 
         self.assertEqual(result["action"], "secretary_reply")
         secretary.assert_called_once()
+        sales.assert_not_called()
+
+    def test_secretary_instance_ignores_non_allowed_phone_silently(self):
+        payload = {
+            "instance": "secretaria-01",
+            "data": {
+                "key": {
+                    "remoteJid": "5511888888888@s.whatsapp.net",
+                    "fromMe": False,
+                    "id": "SEC2",
+                },
+                "message": {"conversation": "oi"},
+            },
+        }
+        with patch.object(
+            evolution_webhook,
+            "_agent_config",
+            return_value={"agent_type": "secretary", "agent_enabled": True},
+        ), patch.object(
+            evolution_webhook,
+            "is_secretary_phone_allowed",
+            return_value=False,
+        ), patch.object(
+            evolution_webhook,
+            "process_secretary_message",
+        ) as secretary, patch.object(
+            evolution_webhook,
+            "process_inbound_message",
+        ) as sales:
+            result = evolution_webhook.handle_payload(payload, send_reply=False)
+
+        self.assertEqual(result["action"], "ignored_secretary_phone_not_allowed")
+        self.assertFalse(result["should_reply"])
+        secretary.assert_not_called()
         sales.assert_not_called()
 
 

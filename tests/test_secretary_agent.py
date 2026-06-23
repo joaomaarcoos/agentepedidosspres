@@ -81,6 +81,12 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertFalse(result["should_reply"])
         db.assert_not_called()
 
+    def test_secretary_default_allows_only_eliezer_phone(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertTrue(secretary_agent._is_secretary_phone_allowed("5516991377335"))
+            self.assertTrue(secretary_agent._is_secretary_phone_allowed("16991377335"))
+            self.assertFalse(secretary_agent._is_secretary_phone_allowed("5516888888888"))
+
     def test_secretary_reply_exposes_official_code(self):
         reply = secretary_agent._secretary_resolution_reply(
             {

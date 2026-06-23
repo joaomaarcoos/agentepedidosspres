@@ -32,6 +32,7 @@ CONFIRM_RE = re.compile(r"\b(confirmo|confirmado|pode enviar|pode mandar|pode fe
 CANCEL_RE = re.compile(r"\b(cancelar|cancela|desistir|apagar pedido)\b", re.I)
 STATUS_RE = re.compile(r"\b(status|situa[cç][aã]o|acompanhar|pedidos?|hist[oó]rico|atualiza[cç][aã]o)\b", re.I)
 REFERENCE_RE = re.compile(r"\bMSE-\d{6}-[A-Z0-9]{6}\b", re.I)
+DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335"
 
 
 def _now() -> str:
@@ -86,9 +87,9 @@ def _phone_candidates(phone: str) -> list[str]:
 
 
 def _allowed_secretary_phones() -> set[str]:
-    raw = os.getenv("SECRETARY_ALLOWED_PHONES", "").strip()
+    raw = os.getenv("SECRETARY_ALLOWED_PHONES", DEFAULT_SECRETARY_ALLOWED_PHONE).strip()
     if not raw:
-        return set()
+        raw = DEFAULT_SECRETARY_ALLOWED_PHONE
     allowed: set[str] = set()
     for item in re.split(r"[,;\s]+", raw):
         for candidate in _phone_candidates(item):
@@ -98,9 +99,11 @@ def _allowed_secretary_phones() -> set[str]:
 
 def _is_secretary_phone_allowed(phone: str) -> bool:
     allowed = _allowed_secretary_phones()
-    if not allowed:
-        return True
     return bool(set(_phone_candidates(phone)) & allowed)
+
+
+def is_secretary_phone_allowed(phone: str) -> bool:
+    return _is_secretary_phone_allowed(phone)
 
 
 def _representative(db, phone: str) -> dict | None:
