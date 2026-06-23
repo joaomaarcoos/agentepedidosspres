@@ -37,9 +37,10 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "/recorrencia": Repeat2,
   "/ativacao": Zap,
   "/baixar-app": Download,
-  "/previsao": TrendingUp,
+  "/saida-produtos": TrendingUp,
   "/resultados": BarChart2,
   "/logs": FileText,
+  "/log-secretaria": FileText,
   "/produtos": Package,
   "/tabela-preco": Tag,
   "/revisaopedido": ClipboardCheck,
@@ -62,7 +63,7 @@ const MENU_SECTIONS = [
   {
     type: "group",
     label: "Vendas",
-    items: ["/pedidos", "/recorrencia", "/revisaopedido", "/ativacao", "/previsao"],
+    items: ["/pedidos", "/recorrencia", "/revisaopedido", "/ativacao", "/saida-produtos"],
   },
   {
     type: "group",
@@ -77,7 +78,7 @@ const MENU_SECTIONS = [
   {
     type: "group",
     label: "Configurações",
-    items: ["/admin/usuarios", "/perfil", "/baixar-app", "/conexao", "/logs"],
+    items: ["/admin/usuarios", "/perfil", "/baixar-app", "/conexao", "/logs", "/log-secretaria"],
   },
 ] as const;
 

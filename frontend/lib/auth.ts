@@ -11,6 +11,7 @@ type RouteRule = {
 const ALL: Role[] = ["master_dev", "admin", "gestor", "representante"];
 const ELEVATED: Role[] = ["master_dev", "admin"];
 const GESTOR_UP: Role[] = ["master_dev", "admin", "gestor"];
+const DEV_ONLY: Role[] = ["master_dev"];
 
 // Primeiro match ganha. Rotas mais restritivas devem vir primeiro.
 export const ROUTE_RULES: RouteRule[] = [
@@ -24,8 +25,10 @@ export const ROUTE_RULES: RouteRule[] = [
   { pattern: /^\/pedidos\/monitor/, roles: GESTOR_UP },
   { pattern: /^\/produtos/,         roles: ALL },
   { pattern: /^\/tabela-preco/,     roles: ALL },
-  { pattern: /^\/previsao/,         roles: ALL },
+  { pattern: /^\/saida-produtos/,   roles: ALL },
   { pattern: /^\/resultados/,       roles: GESTOR_UP },
+  { pattern: /^\/log-secretaria/,   roles: DEV_ONLY },
+  { pattern: /^\/logs\/clic-vendas/, roles: DEV_ONLY },
   { pattern: /^\/logs/,             roles: GESTOR_UP },
   { pattern: /^\/pedidos/,          roles: ALL },
   { pattern: /^\/clientes/,         roles: ALL },
@@ -47,8 +50,9 @@ export const API_ROUTE_RULES: RouteRule[] = [
   { pattern: /^\/api\/pedidos\/sync/,  roles: GESTOR_UP },
   { pattern: /^\/api\/produtos/,       roles: ALL },
   { pattern: /^\/api\/tabela-preco/,   roles: ALL },
-  { pattern: /^\/api\/previsao/,       roles: ALL },
+  { pattern: /^\/api\/saida-produtos/, roles: ALL },
   { pattern: /^\/api\/resultados/,     roles: GESTOR_UP },
+  { pattern: /^\/api\/logs\/clic-vendas/, roles: DEV_ONLY },
   { pattern: /^\/api\/logs/,           roles: GESTOR_UP },
   { pattern: /^\/api\/pedidos/,        roles: ALL },
   { pattern: /^\/api\/clientes/,       roles: ALL },
@@ -80,10 +84,10 @@ export const NAV_ITEMS = [
   { href: "/recorrencia",    label: "Recorrência",      roles: ALL },
   { href: "/ativacao",       label: "Ativação",         roles: ALL },
   { href: "/baixar-app",     label: "Baixar APP",       roles: ALL },
-  { href: "/previsao",       label: "Previsão",         roles: ALL },
+  { href: "/saida-produtos", label: "Saída de Produtos", roles: ALL },
   { href: "/resultados",     label: "Resultados",       roles: GESTOR_UP },
   { href: "/logs",           label: "Logs de Disparo",  roles: GESTOR_UP },
-  { href: "/logs/clic-vendas", label: "Logs Clic",       roles: GESTOR_UP },
+  { href: "/log-secretaria", label: "Log Secretaria",   roles: DEV_ONLY },
   { href: "/produtos",       label: "Produtos",         roles: ALL },
   { href: "/tabela-preco",   label: "Tabela de Preço",  roles: ALL },
   { href: "/revisaopedido",  label: "Revisão de Pedidos", roles: ALL },

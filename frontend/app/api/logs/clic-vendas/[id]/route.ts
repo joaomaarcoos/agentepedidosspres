@@ -10,7 +10,7 @@ type Params = {
 };
 
 export async function GET(_request: Request, { params }: Params) {
-  const auth = await requireApiRole(API_ROLES.GESTOR_UP);
+  const auth = await requireApiRole(API_ROLES.MASTER);
   if (isApiAuthFailure(auth)) return auth.response;
 
   try {

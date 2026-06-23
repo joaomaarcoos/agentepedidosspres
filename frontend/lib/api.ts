@@ -194,7 +194,7 @@ export const secretariaApi = {
   },
 };
 
-export const previsaoApi = {
+export const saidaProdutosApi = {
   list: (params?: { year?: number; periodCount?: 2 | 3 | 4; limit?: number; cod_rep?: number }) => {
     const q = new URLSearchParams();
     if (params?.year) q.set("year", String(params.year));
@@ -202,7 +202,7 @@ export const previsaoApi = {
     if (params?.limit) q.set("limit", String(params.limit));
     if (params?.cod_rep) q.set("cod_rep", String(params.cod_rep));
     return api.get<import("./types").PrevisaoOverview>(
-      `/api/previsao${q.size ? `?${q}` : ""}`
+      `/api/saida-produtos${q.size ? `?${q}` : ""}`
     );
   },
 };

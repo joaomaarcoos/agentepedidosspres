@@ -225,9 +225,9 @@ export default function ClicVendasLogsPage() {
       <main style={{ flex: 1, overflow: "auto", padding: 24 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 18 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 24, color: "var(--text)" }}>Logs Clic Vendas</h1>
+            <h1 style={{ margin: 0, fontSize: 24, color: "var(--text)" }}>Log Secretaria</h1>
             <p style={{ margin: "6px 0 0", color: "var(--muted)", fontSize: 13 }}>
-              Auditoria das requisicoes montadas pelo sistema e enviadas para o Clic.
+              Auditoria das requisicoes montadas pela secretaria e enviadas para o Clic.
             </p>
           </div>
           <button

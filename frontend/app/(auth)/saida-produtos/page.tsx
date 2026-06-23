@@ -13,7 +13,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import Header from "@/components/layout/Header";
-import { previsaoApi } from "@/lib/api";
+import { saidaProdutosApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { PrevisaoOverview, PrevisaoPeriodo, PrevisaoProduto } from "@/lib/types";
 
@@ -176,7 +176,7 @@ function PeriodPanel({ period }: { period: PrevisaoPeriodo }) {
   );
 }
 
-export default function PrevisaoPage() {
+export default function SaidaProdutosPage() {
   const { profile } = useAuth();
   const canFilterRep = profile?.role !== "representante";
   const [data, setData] = useState<PrevisaoOverview | null>(null);
@@ -190,7 +190,7 @@ export default function PrevisaoPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await previsaoApi.list({
+      const result = await saidaProdutosApi.list({
         year,
         periodCount,
         limit: 12,
@@ -199,7 +199,7 @@ export default function PrevisaoPage() {
       setData(result);
       if (!year) setYear(result.year);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao carregar previsao");
+      setError(err instanceof Error ? err.message : "Falha ao carregar saida de produtos");
     } finally {
       setLoading(false);
     }
@@ -220,7 +220,7 @@ export default function PrevisaoPage() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <Header title="Previsao" />
+      <Header title="Saida de Produtos" />
 
       <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
@@ -387,7 +387,7 @@ export default function PrevisaoPage() {
           <section style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden", minWidth: 0 }}>
             <div style={{ padding: "15px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
               <div>
-                <div style={{ fontWeight: 800, color: "var(--text)", fontSize: 14 }}>Previsao de maior saida</div>
+                <div style={{ fontWeight: 800, color: "var(--text)", fontSize: 14 }}>Maior saida estimada</div>
                 <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
                   Produtos ordenados por volume total no ano selecionado.
                 </div>

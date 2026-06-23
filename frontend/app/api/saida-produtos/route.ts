@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPrevisao } from "@/lib/server/pedidos";
+import { getSaidaProdutos } from "@/lib/server/pedidos";
 import { API_ROLES, isApiAuthFailure, requireApiRole } from "@/lib/server/api-auth";
 
 export const runtime = "nodejs";
@@ -36,11 +36,11 @@ export async function GET(request: Request) {
     }
     const codRep = auth.profile.role === "representante" ? auth.profile.cod_rep ?? undefined : requestedCodRep;
 
-    const result = await getPrevisao({ year: parsedYear, periodCount, limit, codRep });
+    const result = await getSaidaProdutos({ year: parsedYear, periodCount, limit, codRep });
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Erro interno ao gerar previsao" },
+      { error: error instanceof Error ? error.message : "Erro interno ao gerar saida de produtos" },
       { status: 500 }
     );
   }

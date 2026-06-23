@@ -59,7 +59,7 @@ export function listPedidos(params: {
   }>(args);
 }
 
-export function getPrevisao(params: {
+export function getSaidaProdutos(params: {
   year?: number;
   periodCount?: number;
   limit?: number;
