@@ -13,13 +13,20 @@ export async function POST(req: Request) {
   const auth = await requireApiRole(API_ROLES.ELEVATED);
   if (isApiAuthFailure(auth)) return auth.response;
 
-  const body = await req.json() as { enabled?: boolean; interval_hours?: number };
+  const body = await req.json() as { enabled?: boolean; interval_hours?: number; dias?: number; rep_document?: string | null };
   const settings = readCronSettings();
   if (typeof body.enabled === "boolean") settings.enabled = body.enabled;
   if (typeof body.interval_hours === "number") {
     settings.interval_hours = body.interval_hours;
   } else if (body.enabled === true && settings.interval_hours < 24) {
     settings.interval_hours = 24;
+  }
+  if (typeof body.dias === "number") {
+    settings.dias = Math.max(1, Math.floor(body.dias));
+  }
+  if (body.rep_document !== undefined) {
+    const cleaned = String(body.rep_document || "").replace(/\D/g, "");
+    settings.rep_document = cleaned || null;
   }
   writeCronSettings(settings);
   return NextResponse.json(settings);

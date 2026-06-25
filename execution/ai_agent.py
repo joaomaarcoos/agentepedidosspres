@@ -1457,6 +1457,7 @@ def _reconcile_catalog_resolution(
                 {
                     "status": "encontrado",
                     "cod_produto": normalize_text(row.get("cod_produto")),
+                    "codigo_variacao": _catalog_variation(row),
                     "nome_catalogo": _catalog_name(row),
                     "produto": _public_product_label(row),
                     "formato": _catalog_product_type(row),

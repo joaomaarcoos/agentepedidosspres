@@ -191,10 +191,55 @@ class SecretaryAgentTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, order_payload)
 
+    def test_build_clic_payload_uses_technical_variation_code(self):
+        payload = secretary_agent._build_clic_order_payload(
+            {
+                "customer_document": "05482507000142",
+                "sale_type_code": "9010O",
+                "price_table_code": "205",
+                "items_json": [
+                    {"cod_produto": "SGRSSLAR", "derivacao": "900ml", "quantidade": 12, "preco_unitario": 5.92},
+                    {"cod_produto": "SCPSSLAR", "derivacao": "200ml", "quantidade": 20, "preco_unitario": 1.49},
+                    {"cod_produto": "SGPSSLAR", "derivacao": "5L", "quantidade": 1, "preco_unitario": 28.88},
+                ],
+            }
+        )
+        self.assertEqual(
+            [item["codigoVariacao"] for item in payload[0]["itens"]],
+            ["900", "200", "05L"],
+        )
+
+    def test_build_clic_payload_requires_sale_type(self):
+        with self.assertRaises(ValueError):
+            secretary_agent._build_clic_order_payload(
+                {
+                    "customer_document": "05482507000142",
+                    "price_table_code": "205",
+                    "items_json": [
+                        {"cod_produto": "SGRSSLAR", "derivacao": "900", "quantidade": 12, "preco_unitario": 5.92},
+                    ],
+                }
+            )
+
     def test_sale_type_code_from_text(self):
         self.assertEqual(secretary_agent._sale_type_code_from_text("pedido pdv"), "9010P")
         self.assertEqual(secretary_agent._sale_type_code_from_text("bonificacao acordo"), "BONIF4")
         self.assertEqual(secretary_agent._sale_type_code_from_text("normal com nota"), "9010O")
+        self.assertTrue(secretary_agent._sale_type_only_message("pedido normal"))
+
+    def test_created_order_number_reads_nested_clic_response(self):
+        response = {
+            "resultados": [
+                {
+                    "body": {
+                        "objeto": {
+                            "numero": "742269263",
+                        }
+                    }
+                }
+            ]
+        }
+        self.assertEqual(secretary_agent._created_order_number(response), "742269263")
 
     def test_secretary_reply_exposes_official_code(self):
         reply = secretary_agent._secretary_resolution_reply(

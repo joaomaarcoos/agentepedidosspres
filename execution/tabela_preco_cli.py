@@ -19,6 +19,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 import requests
 from dotenv import load_dotenv
@@ -48,6 +49,7 @@ SOAP_HEADERS = {
 }
 PAGE_SIZE = 300
 REQUEST_TIMEOUT = 60  # segundos
+BATCH_SIZE = 500
 
 
 # ── Helpers XML ─────────────────────────────────────────────────────────────
@@ -71,6 +73,27 @@ def _safe_float(val: str) -> float | None:
         return float(val.replace(",", "."))
     except ValueError:
         return None
+
+
+def _text(value) -> str:
+    return str(value or "").strip()
+
+
+def _norm(value) -> str:
+    return _text(value).upper()
+
+
+def _item_key(item: dict) -> tuple[str, str]:
+    return (_norm(item.get("cod_produto")), _norm(item.get("variacao")))
+
+
+def _same_number(left, right, places: int = 4) -> bool:
+    try:
+        left_dec = Decimal(str(left or 0)).quantize(Decimal(10) ** -places)
+        right_dec = Decimal(str(right or 0)).quantize(Decimal(10) ** -places)
+    except (InvalidOperation, ValueError):
+        return False
+    return left_dec == right_dec
 
 
 # ── SOAP request ─────────────────────────────────────────────────────────────
@@ -271,12 +294,154 @@ def _upsert_supabase(tabelas: list[dict], itens: list[dict]) -> dict:
         sem_nome = sum(1 for i in itens if not i.get("nome_produto"))
         if sem_nome:
             logger.warning("%d produto(s) sem nome — catálogo Senior ERP não sincronizado", sem_nome)
-        BATCH = 500
-        for i in range(0, len(itens), BATCH):
-            db.table("tabelas_preco_itens").insert(itens[i : i + BATCH]).execute()
+        for i in range(0, len(itens), BATCH_SIZE):
+            db.table("tabelas_preco_itens").insert(itens[i : i + BATCH_SIZE]).execute()
         logger.info("Itens inseridos: %d", len(itens))
 
     return {"tabelas_upserted": len(tabelas), "itens_upserted": len(itens)}
+
+
+def _get_registered_codigos(db) -> list[str]:
+    """Retorna todos os codigos de tabela conhecidos pelo sistema."""
+    codigos: set[str] = set()
+
+    rows = (
+        db.table("tabelas_preco")
+        .select("codigo_tabela")
+        .order("codigo_tabela")
+        .execute()
+        .data
+        or []
+    )
+    for row in rows:
+        codigo = _text(row.get("codigo_tabela"))
+        if codigo:
+            codigos.add(codigo)
+
+    # Clientes podem carregar codigos ainda nao cadastrados em tabelas_preco.
+    try:
+        customer_rows = (
+            db.table("clic_clientes")
+            .select("tabela_preco_codigo")
+            .not_.is_("tabela_preco_codigo", "null")
+            .execute()
+            .data
+            or []
+        )
+        for row in customer_rows:
+            codigo = _text(row.get("tabela_preco_codigo"))
+            if codigo:
+                codigos.add(codigo)
+    except Exception as exc:
+        logger.warning("Nao foi possivel ler codigos em clic_clientes: %s", exc)
+
+    return sorted(codigos)
+
+
+def _current_items_map(db, codigo_tabela: str) -> dict[tuple[str, str], dict]:
+    rows = (
+        db.table("tabelas_preco_itens")
+        .select("id,codigo_tabela,cod_produto,nome_produto,variacao,quantidade_minima,preco,desconto,synced_at")
+        .eq("codigo_tabela", codigo_tabela)
+        .execute()
+        .data
+        or []
+    )
+    return {_item_key(row): row for row in rows}
+
+
+def _plan_table_changes(db, codigo_tabela: str, senior_itens: list[dict], prune: bool = True) -> dict:
+    current = _current_items_map(db, codigo_tabela)
+    wanted = {_item_key(item): item for item in senior_itens}
+
+    inserts: list[dict] = []
+    updates: list[dict] = []
+
+    for key, item in wanted.items():
+        existing = current.get(key)
+        if not existing:
+            inserts.append(item)
+            continue
+
+        changed_fields = {}
+        for field in ("nome_produto", "quantidade_minima", "preco", "desconto"):
+            current_value = existing.get(field)
+            wanted_value = item.get(field)
+            if field in {"preco", "desconto"}:
+                if _same_number(current_value, wanted_value):
+                    continue
+            elif _norm(current_value) == _norm(wanted_value):
+                continue
+            changed_fields[field] = wanted_value
+
+        if changed_fields:
+            updates.append(
+                {
+                    "id": existing.get("id"),
+                    "cod_produto": key[0],
+                    "variacao": key[1],
+                    "antes": {
+                        "nome_produto": existing.get("nome_produto"),
+                        "preco": existing.get("preco"),
+                        "desconto": existing.get("desconto"),
+                    },
+                    "depois": {
+                        "nome_produto": item.get("nome_produto"),
+                        "preco": item.get("preco"),
+                        "desconto": item.get("desconto"),
+                    },
+                    "changes": {**changed_fields, "synced_at": item.get("synced_at")},
+                }
+            )
+
+    deletes: list[dict] = []
+    if prune:
+        for key, item in current.items():
+            if key not in wanted:
+                deletes.append(item)
+
+    return {
+        "codigo_tabela": codigo_tabela,
+        "senior_items": len(wanted),
+        "current_items": len(current),
+        "inserts": inserts,
+        "updates": updates,
+        "deletes": deletes,
+    }
+
+
+def _apply_audit_changes(db, tabela: dict | None, changes: dict, prune: bool) -> dict:
+    codigo_tabela = changes["codigo_tabela"]
+    synced_at = datetime.utcnow().isoformat() + "Z"
+    db.table("tabelas_preco").upsert(
+        {
+            "codigo_tabela": codigo_tabela,
+            "nome_tabela": (tabela or {}).get("nome_tabela") or f"Tabela {codigo_tabela}",
+            "synced_at": synced_at,
+        },
+        on_conflict="codigo_tabela",
+    ).execute()
+
+    inserted = 0
+    inserts = changes["inserts"]
+    if inserts:
+        for start in range(0, len(inserts), BATCH_SIZE):
+            batch = inserts[start : start + BATCH_SIZE]
+            db.table("tabelas_preco_itens").insert(batch).execute()
+            inserted += len(batch)
+
+    updated = 0
+    for row in changes["updates"]:
+        db.table("tabelas_preco_itens").update(row["changes"]).eq("id", row["id"]).execute()
+        updated += 1
+
+    deleted = 0
+    if prune:
+        for row in changes["deletes"]:
+            db.table("tabelas_preco_itens").delete().eq("id", row["id"]).execute()
+            deleted += 1
+
+    return {"inserted": inserted, "updated": updated, "deleted": deleted}
 
 
 # ── Sync principal ────────────────────────────────────────────────────────────
@@ -370,6 +535,98 @@ def sync_tabelas(codigos: list[str], dry_run: bool = False) -> dict:
     return resultado
 
 
+def audit_tabelas(
+    codigos: list[str] | None = None,
+    all_registered: bool = False,
+    apply: bool = False,
+    prune: bool = True,
+) -> dict:
+    """
+    Compara as tabelas registradas no sistema com o Senior ERP ao vivo.
+    Por padrao nao altera o banco; use apply=True para aplicar diferencas.
+    """
+    if not SENIOR_BASE_URL or not SENIOR_USER:
+        raise RuntimeError("Credenciais do Senior ERP nao configuradas (SENIOR_BASE_URL, SENIOR_USER, SENIOR_PASSWORD)")
+
+    db = _db()
+    if all_registered:
+        codigos = _get_registered_codigos(db)
+
+    codigos = [_text(cod) for cod in (codigos or []) if _text(cod)]
+    if not codigos:
+        raise ValueError("Nenhum codigo de tabela informado ou registrado no sistema")
+
+    t0 = time.perf_counter()
+    synced_at = datetime.utcnow().isoformat() + "Z"
+    summaries: list[dict] = []
+    erros: list[dict] = []
+    total_insert = 0
+    total_update = 0
+    total_delete = 0
+    total_senior_items = 0
+    total_current_items = 0
+
+    for codigo in codigos:
+        try:
+            tabelas, itens = _sync_one_tabela(codigo, synced_at)
+            itens = _enrich_nomes(db, itens)
+            tabela = tabelas[0] if tabelas else None
+            changes = _plan_table_changes(db, codigo, itens, prune=prune)
+            applied = None
+            if apply:
+                applied = _apply_audit_changes(db, tabela, changes, prune=prune)
+
+            to_insert = len(changes["inserts"])
+            to_update = len(changes["updates"])
+            to_delete = len(changes["deletes"])
+            total_insert += to_insert
+            total_update += to_update
+            total_delete += to_delete
+            total_senior_items += changes["senior_items"]
+            total_current_items += changes["current_items"]
+
+            summaries.append(
+                {
+                    "codigo_tabela": codigo,
+                    "nome_tabela": (tabela or {}).get("nome_tabela"),
+                    "senior_items": changes["senior_items"],
+                    "current_items": changes["current_items"],
+                    "to_insert": to_insert,
+                    "to_update": to_update,
+                    "to_delete": to_delete,
+                    "sample_inserts": changes["inserts"][:10],
+                    "sample_updates": changes["updates"][:10],
+                    "sample_deletes": changes["deletes"][:10],
+                    "applied": applied,
+                }
+            )
+        except Exception as exc:
+            logger.error("Erro ao auditar tabela %s: %s", codigo, exc)
+            erros.append({"cod_tpr": codigo, "erro": str(exc)})
+
+    duration_ms = int((time.perf_counter() - t0) * 1000)
+    return {
+        "dry_run": not apply,
+        "apply": apply,
+        "prune": prune,
+        "codigos_solicitados": codigos,
+        "tables_checked": len(summaries),
+        "tables_with_differences": sum(
+            1
+            for item in summaries
+            if item["to_insert"] or item["to_update"] or item["to_delete"]
+        ),
+        "senior_items": total_senior_items,
+        "current_items": total_current_items,
+        "to_insert": total_insert,
+        "to_update": total_update,
+        "to_delete": total_delete,
+        "erros": erros,
+        "duration_ms": duration_ms,
+        "tabelas": summaries,
+    }
+
+
 # ── Queries Supabase ──────────────────────────────────────────────────────────
 
 def list_tabelas() -> dict:
@@ -377,13 +634,21 @@ def list_tabelas() -> dict:
     db = _db()
     tabelas = db.table("tabelas_preco").select("id, codigo_tabela, nome_tabela, synced_at").order("codigo_tabela").execute().data or []
 
-    codigos = [t["codigo_tabela"] for t in tabelas]
     contagem_map: dict[str, int] = {}
-    if codigos:
-        itens_count = db.table("tabelas_preco_itens").select("codigo_tabela").in_("codigo_tabela", codigos).execute().data or []
-        for row in itens_count:
-            cod = row["codigo_tabela"]
-            contagem_map[cod] = contagem_map.get(cod, 0) + 1
+    for tabela in tabelas:
+        codigo = tabela["codigo_tabela"]
+        try:
+            count_res = (
+                db.table("tabelas_preco_itens")
+                .select("id", count="exact")
+                .eq("codigo_tabela", codigo)
+                .limit(1)
+                .execute()
+            )
+            contagem_map[codigo] = count_res.count or 0
+        except Exception as exc:
+            logger.warning("Falha ao contar itens da tabela %s: %s", codigo, exc)
+            contagem_map[codigo] = 0
 
     result = [
         {**t, "total_itens": contagem_map.get(t["codigo_tabela"], 0)}
@@ -437,6 +702,14 @@ def main() -> int:
     detail_p = subparsers.add_parser("detail", help="Itens de uma tabela de preço")
     detail_p.add_argument("--cod-tpr", dest="cod_tpr", required=True)
 
+    # audit
+    audit_p = subparsers.add_parser("audit", help="Compara tabelas registradas com Senior ERP")
+    audit_p.add_argument("--cod-tpr", dest="cod_tpr", nargs="+")
+    audit_p.add_argument("--all", dest="all_registered", action="store_true", help="Audita todos os codigos registrados")
+    audit_p.add_argument("--apply", action="store_true", help="Aplica inserts/updates no Supabase")
+    audit_p.add_argument("--no-prune", dest="prune", action="store_false", help="Nao aponta/remove itens ausentes no Senior")
+    audit_p.set_defaults(prune=True)
+
     # parse com fallback ao comportamento antigo (sem subcomando = sync)
     args, remaining = parser.parse_known_args()
 
@@ -456,6 +729,14 @@ def main() -> int:
             emit({"ok": True, "data": result})
         elif args.command == "detail":
             result = get_tabela_itens(args.cod_tpr)
+            emit({"ok": True, "data": result})
+        elif args.command == "audit":
+            result = audit_tabelas(
+                codigos=getattr(args, "cod_tpr", None),
+                all_registered=getattr(args, "all_registered", False),
+                apply=getattr(args, "apply", False),
+                prune=getattr(args, "prune", True),
+            )
             emit({"ok": True, "data": result})
         else:  # sync
             dry_run = getattr(args, "dry_run", False)

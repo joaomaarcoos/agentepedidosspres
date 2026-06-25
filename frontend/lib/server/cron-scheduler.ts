@@ -4,6 +4,8 @@ import path from "path";
 export interface CronSettings {
   enabled: boolean;
   interval_hours: number;
+  dias?: number;
+  rep_document?: string | null;
   last_run: string | null;
   last_run_status: "success" | "error" | null;
 }
@@ -23,7 +25,7 @@ export function readCronSettings(): CronSettings {
       return JSON.parse(fs.readFileSync(p, "utf-8")) as CronSettings;
     }
   } catch {}
-  return { enabled: false, interval_hours: 24, last_run: null, last_run_status: null };
+  return { enabled: false, interval_hours: 24, dias: 2, rep_document: null, last_run: null, last_run_status: null };
 }
 
 export function writeCronSettings(s: CronSettings): void {
@@ -55,10 +57,12 @@ export function startCronScheduler(): void {
       if (hoursSince < settings.interval_hours) return;
     }
 
-    console.log("[cron] Triggering scheduled sync (dias=2)...");
+    const dias = Math.max(1, Number(settings.dias || 2));
+    const repDocument = settings.rep_document || undefined;
+    console.log(`[cron] Triggering scheduled sync (dias=${dias}, rep=${repDocument || "all"})...`);
     try {
       const { syncPedidos } = await import("@/lib/server/pedidos");
-      const result = await syncPedidos(2, "schedule");
+      const result = await syncPedidos(dias, "schedule", repDocument);
       const current = readCronSettings();
       writeCronSettings({
         ...current,

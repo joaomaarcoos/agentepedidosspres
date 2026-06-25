@@ -40,8 +40,6 @@ ELIEZER_REP_DOCUMENT = "34501704810"
 ELIEZER_FALLBACK_COD_REP = 52
 REPRESENTATIVE_PROFILES_KEY = "clic_representative_profiles"
 CUSTOMER_PROFILES_KEY = "clic_customer_profiles"
-DEFAULT_SALE_TYPE_CODE = "9010O"
-
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -83,6 +81,35 @@ def _sale_type_code_from_text(text: Any) -> str | None:
     if re.search(r"\b(normal|nota fiscal|com nota)\b", value):
         return "9010O"
     return None
+
+
+SALE_TYPE_LABELS = {
+    "9010O": "pedido normal",
+    "9010P": "pedido PDV",
+    "BONIF4": "bonificacao - acordo comercial",
+}
+
+
+def _sale_type_prompt() -> str:
+    return "Qual e o tipo do pedido? Responda *normal*, *PDV* ou *bonificacao*."
+
+
+def _sale_type_label(code: Any) -> str:
+    return SALE_TYPE_LABELS.get(str(code or ""), str(code or ""))
+
+
+def _sale_type_only_message(text: Any) -> bool:
+    value = _norm(text)
+    return bool(
+        re.fullmatch(
+            r"(pedido\s+)?(normal|pdv|sem nota|com nota|nota fiscal|bonificacao|bonifica[cÃ§][aÃ£]o|bonif)(\s+acordo)?",
+            value,
+        )
+    )
+
+
+def _next_order_step_message(state: dict, product_wording: str = "Agora envie os produtos e quantidades do pedido.") -> str:
+    return product_wording if state.get("sale_type_code") else _sale_type_prompt()
 
 
 def _db():
@@ -600,7 +627,7 @@ def _resolution_items(resolution: dict | None) -> list[dict]:
             {
                 "cod_produto": str(item.get("cod_produto") or ""),
                 "nome": str(item.get("nome_catalogo") or item.get("produto") or ""),
-                "derivacao": str(item.get("tamanho") or ""),
+                "derivacao": str(item.get("codigo_variacao") or item.get("derivacao") or item.get("tamanho") or ""),
                 "formato": str(item.get("formato") or ""),
                 "quantidade": quantity,
                 "unidade": str(item.get("unidade") or "UN"),
@@ -653,7 +680,12 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
     return "\n".join(lines).replace(".", ",")
 
 
-def _order_summary(customer: dict, items: list[dict], observations: str = "") -> str:
+def _order_summary(
+    customer: dict,
+    items: list[dict],
+    observations: str = "",
+    ask_confirmation: bool = True,
+) -> str:
     lines = [f"Cliente: *{customer.get('name')}*", "", "Pedido:"]
     total = 0.0
     for index, item in enumerate(items, 1):
@@ -668,7 +700,8 @@ def _order_summary(customer: dict, items: list[dict], observations: str = "") ->
     lines += ["", f"Total: *R$ {total:.2f}*"]
     if observations:
         lines += ["", f"Observacoes: {observations}"]
-    lines += ["", "Se estiver correto, responda *confirmo* para enviar ao ClicVendas."]
+    if ask_confirmation:
+        lines += ["", "Se estiver correto, responda *confirmo* para enviar ao ClicVendas."]
     return "\n".join(lines).replace(".", ",")
 
 
@@ -681,6 +714,9 @@ def _save_draft(db, conversation: dict, representative: dict, state: dict) -> di
     items = state.get("items") or []
     total = round(sum(_safe_float(item.get("subtotal")) for item in items), 2)
     customer = state["customer"]
+    sale_type_code = str(state.get("sale_type_code") or "").strip()
+    if not sale_type_code:
+        raise ValueError("Tipo de venda nao definido para o pedido.")
     payload = {
         "conversation_id": conversation.get("id"),
         "instance_name": conversation.get("instance_name"),
@@ -690,7 +726,7 @@ def _save_draft(db, conversation: dict, representative: dict, state: dict) -> di
         "customer_document": customer.get("document") or None,
         "customer_name": customer.get("name"),
         "price_table_code": customer.get("price_table_code") or None,
-        "sale_type_code": state.get("sale_type_code") or DEFAULT_SALE_TYPE_CODE,
+        "sale_type_code": sale_type_code,
         "items_json": items,
         "observations": state.get("observations") or "",
         "total": total,
@@ -723,11 +759,15 @@ def _created_order_number(response: Any) -> str:
         return ""
     if not isinstance(response, dict):
         return ""
-    for key in ("numero", "numPed", "num_ped", "id"):
+    for key in ("numeroPedidoClicVenda", "numero", "numPed", "num_ped", "id"):
         if response.get(key) not in (None, ""):
             return str(response[key])
-    nested = response.get("pedido") if isinstance(response.get("pedido"), dict) else {}
-    return _created_order_number(nested) if nested else ""
+    for key in ("resultados", "body", "objeto", "pedido"):
+        nested = response.get(key)
+        number = _created_order_number(nested)
+        if number:
+            return number
+    return ""
 
 
 def _clic_log_create(db, order: dict, payload: dict) -> tuple[str | None, float]:
@@ -768,6 +808,20 @@ def _clic_error_payload(exc: Exception) -> tuple[int | None, dict | None, str]:
     return status, body, str(exc)
 
 
+def _clic_variation_code(value: Any) -> str:
+    raw = str(value or "").strip()
+    compact = raw.replace(" ", "").replace(",", ".")
+    lower = compact.lower()
+    if lower.endswith("ml") and lower[:-2].replace(".", "", 1).isdigit():
+        number = lower[:-2]
+        return str(int(float(number))) if "." in number else number
+    if lower in {"5l", "5.0l"}:
+        return "05L"
+    if lower in {"1.7l", "17l"}:
+        return "1L7"
+    return compact.upper() if compact.lower().endswith("l") else compact
+
+
 def _clic_log_finish(
     db,
     log_id: str | None,
@@ -795,12 +849,15 @@ def _clic_log_finish(
 
 
 def _build_clic_order_payload(order: dict) -> list[dict]:
+    sale_type_code = str(order.get("sale_type_code") or "").strip()
+    if not sale_type_code:
+        raise ValueError("Tipo de venda nao definido para envio ao ClicVendas.")
     items = []
     for item in order.get("items_json") or []:
         items.append(
             {
                 "codigoProduto": str(item.get("cod_produto") or ""),
-                "codigoVariacao": str(item.get("derivacao") or ""),
+                "codigoVariacao": _clic_variation_code(item.get("derivacao")),
                 "quantidade": _safe_float(item.get("quantidade")),
                 "precoVenda": _safe_float(item.get("preco_unitario")),
                 "codigoTabelaPreco": str(order.get("price_table_code") or ""),
@@ -812,7 +869,7 @@ def _build_clic_order_payload(order: dict) -> list[dict]:
         {
             "numeroDocumentoCliente": str(order.get("customer_document") or ""),
             "numeroDocumentoRepresentante": "34501704810",
-            "codigoTipoVenda": str(order.get("sale_type_code") or DEFAULT_SALE_TYPE_CODE),
+            "codigoTipoVenda": sale_type_code,
             "itens": items,
         }
     ]
@@ -829,7 +886,13 @@ def _submit(db, order: dict) -> tuple[bool, str]:
     if not claimed:
         return False, "O pedido ja esta sendo processado. Aguarde a confirmacao."
     order = claimed[0]
-    payload = _build_clic_order_payload(order)
+    try:
+        payload = _build_clic_order_payload(order)
+    except ValueError as exc:
+        db.table("secretary_orders").update(
+            {"status": "failed", "error_message": str(exc), "updated_at": _now()}
+        ).eq("id", order["id"]).execute()
+        return False, str(exc)
     log_id, log_started = _clic_log_create(db, order, payload)
     try:
         response = ClicVendasClient().post("/extpedidos", payload)
@@ -995,7 +1058,7 @@ def process_secretary_message(
                 state.update(_start_customer_state(pending["customer"], previous_state))
                 reply = (
                     f"Troquei para o cliente *{state['customer']['name']}* e limpei os itens do pedido anterior. "
-                    "Agora envie os produtos e quantidades desse pedido."
+                    f"{_next_order_step_message(state, 'Agora envie os produtos e quantidades desse pedido.')}"
                 )
                 action = "secretary_customer_changed"
             else:
@@ -1006,7 +1069,10 @@ def process_secretary_message(
     elif CONFIRM_RE.search(text):
         order_id = state.get("order_id")
         if not order_id or not state.get("ready_to_submit"):
-            reply = "Nao ha pedido pronto para confirmacao. Informe primeiro o cliente e os itens."
+            if state.get("customer") and state.get("items") and not state.get("sale_type_code"):
+                reply = f"Antes de enviar preciso confirmar o tipo do pedido. {_sale_type_prompt()}"
+            else:
+                reply = "Nao ha pedido pronto para confirmacao. Informe primeiro o cliente e os itens."
         else:
             rows = db.table("secretary_orders").select("*").eq("id", order_id).limit(1).execute().data or []
             if not rows:
@@ -1019,6 +1085,7 @@ def process_secretary_message(
         sale_type_code = _sale_type_code_from_text(text)
         if sale_type_code:
             state["sale_type_code"] = sale_type_code
+        sale_type_only = bool(sale_type_code and _sale_type_only_message(text))
         customers = _portfolio_customers(db, int(representative["cod_rep"]))
         if NEW_ORDER_RE.search(text) and _has_order_context(state):
             state["pending_action"] = {
@@ -1057,7 +1124,7 @@ def process_secretary_message(
                     state.pop("customer_options", None)
                     reply = (
                         f"Cliente *{state['customer']['name']}* selecionado. "
-                        "Agora envie os produtos e quantidades do pedido."
+                        f"{_next_order_step_message(state)}"
                     )
             if not reply:
                 query = text.strip()
@@ -1066,7 +1133,7 @@ def process_secretary_message(
                     state.update(_start_customer_state(matches[0], state))
                     reply = (
                         f"Cliente *{matches[0]['name']}* selecionado. "
-                        "Agora envie os produtos e quantidades do pedido."
+                        f"{_next_order_step_message(state)}"
                     )
                 elif matches:
                     state["customer_options"] = matches
@@ -1078,46 +1145,78 @@ def process_secretary_message(
                     reply = "Nao encontrei esse cliente na sua carteira. Informe nome, codigo, documento ou cidade."
         elif not reply:
             customer = state["customer"]
-            catalog = _catalog(db, customer)
-            if not catalog:
-                reply = "Nao encontrei a tabela de precos desse cliente. O pedido nao pode ser enviado sem essa validacao."
-            else:
-                resolution = _resolve_products_with_sales_subagent(text, catalog, state)
-                if not resolution:
-                    reply = "Nao consegui identificar os produtos. Informe produto, formato, tamanho e quantidade."
-                else:
-                    resolution = _drop_resolved_pending_items(resolution) or resolution
-                    state["catalog_resolution"] = resolution
-                    current = _resolution_items(resolution)
-                    issues = [
-                        item
-                        for item in resolution.get("itens") or []
-                        if isinstance(item, dict) and item.get("status") != "encontrado"
-                    ]
-                    missing_quantities = [
-                        item for item in current if _safe_float(item.get("quantidade")) <= 0
-                    ]
-                    if issues or missing_quantities:
-                        reply = _secretary_resolution_reply(resolution)
-                        state["items"] = current
-                        state["ready_to_submit"] = False
-                        state["product_history"].append(
-                            {"role": "assistant", "content": reply}
-                        )
-                    else:
-                        state["items"] = current
-                        order = _save_draft(db, conversation, representative, state)
-                        state["order_id"] = order.get("id")
-                        state["protocol"] = order.get("protocol")
-                        state["ready_to_submit"] = True
-                        reply = _order_summary(
+            if sale_type_only:
+                if state.get("items"):
+                    order = _save_draft(db, conversation, representative, state)
+                    state["order_id"] = order.get("id")
+                    state["protocol"] = order.get("protocol")
+                    state["ready_to_submit"] = True
+                    reply = (
+                        f"Tipo de pedido definido: *{_sale_type_label(state.get('sale_type_code'))}*.\n\n"
+                        + _order_summary(
                             customer,
-                            current,
+                            state.get("items") or [],
                             state.get("observations") or "",
                         )
-                        state["product_history"].append(
-                            {"role": "assistant", "content": reply}
-                        )
+                    )
+                else:
+                    reply = (
+                        f"Tipo de pedido definido: *{_sale_type_label(state.get('sale_type_code'))}*. "
+                        "Agora envie os produtos e quantidades do pedido."
+                    )
+            else:
+                catalog = _catalog(db, customer)
+                if not catalog:
+                    reply = "Nao encontrei a tabela de precos desse cliente. O pedido nao pode ser enviado sem essa validacao."
+                else:
+                    resolution = _resolve_products_with_sales_subagent(text, catalog, state)
+                    if not resolution:
+                        reply = "Nao consegui identificar os produtos. Informe produto, formato, tamanho e quantidade."
+                    else:
+                        resolution = _drop_resolved_pending_items(resolution) or resolution
+                        state["catalog_resolution"] = resolution
+                        current = _resolution_items(resolution)
+                        issues = [
+                            item
+                            for item in resolution.get("itens") or []
+                            if isinstance(item, dict) and item.get("status") != "encontrado"
+                        ]
+                        missing_quantities = [
+                            item for item in current if _safe_float(item.get("quantidade")) <= 0
+                        ]
+                        if issues or missing_quantities:
+                            reply = _secretary_resolution_reply(resolution)
+                            state["items"] = current
+                            state["ready_to_submit"] = False
+                            state["product_history"].append(
+                                {"role": "assistant", "content": reply}
+                            )
+                        else:
+                            state["items"] = current
+                            if not state.get("sale_type_code"):
+                                state["ready_to_submit"] = False
+                                reply = (
+                                    _order_summary(
+                                        customer,
+                                        current,
+                                        state.get("observations") or "",
+                                        ask_confirmation=False,
+                                    )
+                                    + f"\n\nAntes de enviar, {_sale_type_prompt()}"
+                                )
+                            else:
+                                order = _save_draft(db, conversation, representative, state)
+                                state["order_id"] = order.get("id")
+                                state["protocol"] = order.get("protocol")
+                                state["ready_to_submit"] = True
+                                reply = _order_summary(
+                                    customer,
+                                    current,
+                                    state.get("observations") or "",
+                                )
+                            state["product_history"].append(
+                                {"role": "assistant", "content": reply}
+                            )
 
     _save_state(db, str(conversation["id"]), state)
     _add_message(db, str(conversation["id"]), "assistant", reply, payload={"action": action})

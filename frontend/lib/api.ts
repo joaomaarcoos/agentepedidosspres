@@ -268,16 +268,20 @@ export const cronApi = {
     api.get<{
       enabled: boolean;
       interval_hours: number;
+      dias?: number;
+      rep_document?: string | null;
       last_run: string | null;
       last_run_status: "success" | "error" | null;
     }>("/api/pedidos/cron"),
-  setEnabled: (enabled: boolean) =>
+  setEnabled: (enabled: boolean, options?: { dias?: number; repDocument?: string | null }) =>
     api.post<{
       enabled: boolean;
       interval_hours: number;
+      dias?: number;
+      rep_document?: string | null;
       last_run: string | null;
       last_run_status: "success" | "error" | null;
-    }>("/api/pedidos/cron", { enabled }),
+    }>("/api/pedidos/cron", { enabled, dias: options?.dias, rep_document: options?.repDocument }),
 };
 
 export const ativacaoApi = {

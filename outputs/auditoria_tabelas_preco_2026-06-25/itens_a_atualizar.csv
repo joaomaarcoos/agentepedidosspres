@@ -1,0 +1,14 @@
+﻿codigo_tabela,cod_produto,variacao,campo,valor_atual_sistema,valor_senior,nome_atual_sistema,nome_senior,preco_atual_sistema,preco_senior,desconto_atual_sistema,desconto_senior,origem
+201P,CREPUNICA,CHOC,preco,1.95,10.8,CREPE UNIDADE CP00002,CREPE UNIDADE CP00002,1.95,10.8,0.0,0,Senior ERP - valor difere do sistema
+201P,CREPUNICA,CROC,preco,1.95,10.8,CREPE UNIDADE,CREPE UNIDADE,1.95,10.8,0.0,0,Senior ERP - valor difere do sistema
+201P,CREPUNICA,DDL,preco,1.95,10.8,CREPE UNIDADE,CREPE UNIDADE,1.95,10.8,0.0,0,Senior ERP - valor difere do sistema
+201P,CREPUNICA,MOR,preco,1.95,10.8,CREPE UNIDADE,CREPE UNIDADE,1.95,10.8,0.0,0,Senior ERP - valor difere do sistema
+201P,MADEACUCA,UNI,nome_produto,MADELEINE LONGA ACUCAR,,MADELEINE LONGA ACUCAR,,9.61,9.61,0.0,0,Senior ERP - valor difere do sistema
+202,MADEACUCA,UNI,preco,10.23,9.61,,,10.23,9.61,0.0,0,Senior ERP - valor difere do sistema
+202,SBSSSABH,05L,preco,34.4,35.78,SUCO BOLSA ABACAXI COM HORTELA,SUCO BOLSA ABACAXI COM HORTELA,34.4,35.78,0.0,0,Senior ERP - valor difere do sistema
+202,SGPSSUVA,05L,preco,37.8,39.31,NECTAR GALAO UVA PET,NECTAR GALAO UVA PET,37.8,39.31,0.0,0,Senior ERP - valor difere do sistema
+202,SGRSSCAJ,1L7,preco,11.95,12.43,SUCO GARRAFA CAJU,SUCO GARRAFA CAJU,11.95,12.43,0.0,0,Senior ERP - valor difere do sistema
+202,SGRSSMAR,1L7,preco,15.9,17.49,SUCO GARRAFA MARACUJA,SUCO GARRAFA MARACUJA,15.9,17.49,0.0,0,Senior ERP - valor difere do sistema
+202,SGRSSMAR,900,preco,8.25,9.08,SUCO GARRAFA MARACUJA 900 ML,SUCO GARRAFA MARACUJA 900 ML,8.25,9.08,0.0,0,Senior ERP - valor difere do sistema
+202,GRAN02KG,GOCABE,nome_produto,,"GRANEL  2,0KG 154937",,"GRANEL  2,0KG 154937",79.59,79.59,0.0,0,Senior ERP - valor difere do sistema
+205,MADEACUCA,UNI,nome_produto,MADELEINE LONGA ACUCAR,,MADELEINE LONGA ACUCAR,,9.61,9.61,0.0,0,Senior ERP - valor difere do sistema
