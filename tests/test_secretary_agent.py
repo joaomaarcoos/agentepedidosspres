@@ -262,6 +262,37 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertIn("SGRSSLAR", reply)
         self.assertIn("SUCO GARRAFA LARANJA", reply)
 
+    def test_secretary_reply_is_compact_and_hides_alternatives(self):
+        reply = secretary_agent._secretary_resolution_reply(
+            {
+                "itens": [
+                    {
+                        "status": "encontrado",
+                        "cod_produto": "SGPSSLAR",
+                        "nome_catalogo": "SUCO GALAO LARANJA PET",
+                        "formato": "galao",
+                        "tamanho": "5L",
+                        "quantidade": 20,
+                        "unidade": "UN",
+                        "preco_unitario": 28.88,
+                    },
+                    {
+                        "status": "nao_encontrado",
+                        "produto": "uva",
+                        "formato": "bag",
+                        "tamanho": "5L",
+                        "alternativas": ["Uva bolsa 5L", "Uva copo 200ml"],
+                    },
+                ]
+            }
+        )
+        self.assertIn("Encontrados:", reply)
+        self.assertIn("SGPSSLAR - SUCO GALAO LARANJA PET | 5L | 20 un", reply)
+        self.assertIn("Nao encontrados:", reply)
+        self.assertIn("- uva | bag 5L", reply)
+        self.assertNotIn("Opcoes reais", reply)
+        self.assertNotIn("Uva bolsa 5L", reply)
+
     def test_later_found_product_replaces_pending_equivalent(self):
         resolution = {
             "itens": [

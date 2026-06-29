@@ -644,38 +644,39 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
     ]
     if not items:
         return "Nao consegui identificar os produtos. Informe produto, formato, tamanho e quantidade."
-    lines = ["Conferi os produtos na tabela oficial do cliente:"]
-    for item in items:
-        lines.append("")
+
+    found = [item for item in items if item.get("status") == "encontrado"]
+    pending = [item for item in items if item.get("status") != "encontrado"]
+    lines = ["Pedido conferido:"]
+
+    if found:
+        lines += ["", "Encontrados:"]
+    for index, item in enumerate(found, 1):
+        product = str(item.get("nome_catalogo") or item.get("produto") or "Produto")
+        code = item.get("cod_produto") or "-"
+        size = item.get("tamanho") or item.get("formato") or "-"
+        quantity = item.get("quantidade")
+        unit = str(item.get("unidade") or "UN").lower()
+        quantity_text = f"{quantity} {unit}" if quantity is not None else "falta quantidade"
+        lines.append(
+            f"{index}. {code} - {product} | {size} | {quantity_text} | "
+            f"R$ {_safe_float(item.get('preco_unitario')):.2f}"
+        )
+
+    if pending:
+        lines += ["", "Nao encontrados:"]
+    for item in pending:
         product = str(item.get("produto") or item.get("nome_catalogo") or "Produto")
-        if item.get("status") == "encontrado":
-            quantity = item.get("quantidade")
-            unit = item.get("unidade") or "UN"
-            lines.extend(
-                [
-                    f"- *{item.get('nome_catalogo') or product}*",
-                    f"  Codigo: *{item.get('cod_produto') or '-'}*",
-                    f"  Formato/tamanho: {item.get('formato') or '-'} {item.get('tamanho') or '-'}",
-                    f"  Quantidade: {quantity if quantity is not None else 'falta informar'} {unit}",
-                    f"  Preco unitario: R$ {_safe_float(item.get('preco_unitario')):.2f}",
-                ]
-            )
-            continue
         requested = " ".join(
             str(item.get(key) or "") for key in ("formato", "tamanho")
         ).strip()
         if item.get("status") == "nao_encontrado":
-            lines.append(f"- Nao encontrei *{product}*{f' em {requested}' if requested else ''}.")
+            lines.append(f"- {product}{f' | {requested}' if requested else ''}")
         else:
             missing = ", ".join(item.get("faltando") or [])
-            lines.append(f"- Preciso confirmar {missing or 'a opcao exata'} de *{product}*.")
-        alternatives = item.get("alternativas") or []
-        if alternatives:
-            lines.append("  Opcoes reais:")
-            lines.extend(f"  - {option}" for option in alternatives[:8])
-    if any(item.get("status") != "encontrado" for item in items):
-        lines += ["", "Responda somente com a opcao correta dos itens pendentes."]
-    elif any(not item.get("quantidade") for item in items):
+            lines.append(f"- {product}: falta confirmar {missing or 'a opcao exata'}")
+
+    if any(not item.get("quantidade") for item in found):
         lines += ["", "Informe a quantidade dos itens que ainda estao sem quantidade."]
     return "\n".join(lines).replace(".", ",")
 
