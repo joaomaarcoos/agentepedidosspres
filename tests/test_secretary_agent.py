@@ -99,18 +99,36 @@ class SecretaryAgentTests(unittest.TestCase):
         with patch.dict("os.environ", {"SECRETARY_ALLOWED_PHONES": "16999999999"}):
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("5516999999999"))
 
-    def test_secretary_ignores_non_allowed_phone_before_db(self):
+    def test_secretary_rejects_phone_without_active_representative(self):
+        db = _FakeDb({"representatives": []})
         with patch.dict("os.environ", {"SECRETARY_ALLOWED_PHONES": "5516999999999"}), patch.object(
-            secretary_agent, "_db"
-        ) as db:
+            secretary_agent, "_db", return_value=db
+        ):
             result = secretary_agent.process_secretary_message(
                 phone="5516888888888",
                 text="pedido para Mercado Central",
                 instance_name="secretaria-01",
             )
-        self.assertEqual(result["action"], "secretary_phone_not_allowed")
-        self.assertFalse(result["should_reply"])
-        db.assert_not_called()
+        self.assertEqual(result["action"], "secretary_unauthorized")
+        self.assertTrue(result["should_reply"])
+
+    def test_active_representative_phone_is_allowed_without_allowlist(self):
+        db = _FakeDb(
+            {
+                "representatives": [
+                    {
+                        "cod_rep": 77,
+                        "name": "REP TESTE",
+                        "active": True,
+                        "whatsapp_number": "16988887777",
+                    }
+                ]
+            }
+        )
+        with patch.dict("os.environ", {"SECRETARY_ALLOWED_PHONES": "5516999999999"}), patch.object(
+            secretary_agent, "_db", return_value=db
+        ):
+            self.assertTrue(secretary_agent.is_secretary_phone_allowed("5516988887777"))
 
     def test_secretary_default_allows_only_eliezer_phone(self):
         with patch.dict("os.environ", {}, clear=True):

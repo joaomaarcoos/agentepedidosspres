@@ -149,10 +149,15 @@ def _is_secretary_phone_allowed(phone: str) -> bool:
 
 
 def is_secretary_phone_allowed(phone: str) -> bool:
-    return _is_secretary_phone_allowed(phone)
+    if _is_secretary_phone_allowed(phone):
+        return True
+    try:
+        return _representative_from_registry(_db(), phone) is not None
+    except Exception:
+        return False
 
 
-def _representative(db, phone: str) -> dict | None:
+def _representative_from_registry(db, phone: str) -> dict | None:
     rows = (
         db.table("representatives")
         .select("cod_rep,name,active,whatsapp_number")
@@ -172,6 +177,13 @@ def _representative(db, phone: str) -> dict | None:
     ]
     if len(active) == 1:
         return active[0]
+    return None
+
+
+def _representative(db, phone: str) -> dict | None:
+    representative = _representative_from_registry(db, phone)
+    if representative:
+        return representative
     if not _is_secretary_phone_allowed(phone):
         return None
 
@@ -973,12 +985,6 @@ def process_secretary_message(
     external_message_id: str | None = None,
     payload_json: dict | None = None,
 ) -> dict:
-    if not _is_secretary_phone_allowed(phone):
-        return {
-            "action": "secretary_phone_not_allowed",
-            "should_reply": False,
-        }
-
     db = _db()
     representative = _representative(db, phone)
     if not representative:
