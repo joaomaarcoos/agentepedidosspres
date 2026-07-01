@@ -280,7 +280,7 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertIn("SGRSSLAR", reply)
         self.assertIn("SUCO GARRAFA LARANJA", reply)
 
-    def test_secretary_reply_is_compact_and_hides_alternatives(self):
+    def test_secretary_reply_shows_partial_draft_and_missing_items(self):
         reply = secretary_agent._secretary_resolution_reply(
             {
                 "itens": [
@@ -304,12 +304,14 @@ class SecretaryAgentTests(unittest.TestCase):
                 ]
             }
         )
-        self.assertIn("Encontrados:", reply)
+        self.assertIn("Montei o rascunho com os itens encontrados", reply)
+        self.assertIn("Itens encontrados no rascunho:", reply)
         self.assertIn("SGPSSLAR - SUCO GALAO LARANJA PET | 5L | 20 un", reply)
-        self.assertIn("Nao encontrados:", reply)
+        self.assertIn("Total parcial encontrado: R$ 577,60", reply)
+        self.assertIn("Itens que nao encontrei", reply)
         self.assertIn("- uva | bag 5L", reply)
-        self.assertNotIn("Opcoes reais", reply)
-        self.assertNotIn("Uva bolsa 5L", reply)
+        self.assertIn("Opcoes reais encontradas: Uva bolsa 5L, Uva copo 200ml", reply)
+        self.assertIn("corrigindo o item faltante", reply)
 
     def test_later_found_product_replaces_pending_equivalent(self):
         resolution = {
@@ -335,6 +337,37 @@ class SecretaryAgentTests(unittest.TestCase):
         cleaned = secretary_agent._drop_resolved_pending_items(resolution)
         self.assertEqual(len(cleaned["itens"]), 1)
         self.assertEqual(cleaned["itens"][0]["cod_produto"], "SGPSSLAR")
+
+    def test_pending_compound_product_is_not_dropped_as_plain_orange(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "encontrado",
+                    "produto": "Galao Laranja Pet",
+                    "nome_catalogo": "SUCO GALAO LARANJA PET",
+                    "formato": "galao",
+                    "tamanho": "5L",
+                    "quantidade": 10,
+                    "cod_produto": "SGPSSLAR",
+                    "preco_unitario": 28.88,
+                },
+                {
+                    "status": "nao_encontrado",
+                    "produto": "laranja composto",
+                    "formato": "galao",
+                    "tamanho": "5L",
+                    "quantidade": 20,
+                    "texto_original": "20 galoes laranja composto 5l",
+                    "alternativas": ["Composto De Laranja: bolsa 5L"],
+                },
+            ]
+        }
+        cleaned = secretary_agent._drop_resolved_pending_items(resolution)
+        self.assertEqual(len(cleaned["itens"]), 2)
+        reply = secretary_agent._secretary_resolution_reply(cleaned)
+        self.assertIn("Itens que nao encontrei", reply)
+        self.assertIn("laranja composto", reply)
+        self.assertIn("Composto De Laranja: bolsa 5L", reply)
 
     def test_short_size_reply_replaces_generic_pending_equivalent(self):
         resolution = {

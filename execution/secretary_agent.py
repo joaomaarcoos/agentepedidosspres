@@ -606,7 +606,7 @@ def _same_pending_product(pending: dict, found: dict) -> bool:
     )
     if not pending_words and pending_format and pending_size and found_format and found_size:
         return True
-    return bool(pending_words and found_words and pending_words & found_words)
+    return bool(pending_words and found_words and pending_words <= found_words)
 
 
 def _drop_resolved_pending_items(resolution: dict | None) -> dict | None:
@@ -650,6 +650,10 @@ def _resolution_items(resolution: dict | None) -> list[dict]:
     return items
 
 
+def _money_br(value: Any) -> str:
+    return f"R$ {_safe_float(value):.2f}".replace(".", ",")
+
+
 def _secretary_resolution_reply(resolution: dict | None) -> str:
     items = [
         item for item in (resolution or {}).get("itens") or [] if isinstance(item, dict)
@@ -659,24 +663,32 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
 
     found = [item for item in items if item.get("status") == "encontrado"]
     pending = [item for item in items if item.get("status") != "encontrado"]
-    lines = ["Pedido conferido:"]
+    lines = ["Montei o rascunho com os itens encontrados, mas ainda nao posso enviar ao ClicVendas."]
 
     if found:
-        lines += ["", "Encontrados:"]
+        lines += ["", "Itens encontrados no rascunho:"]
+    total_found = 0.0
     for index, item in enumerate(found, 1):
         product = str(item.get("nome_catalogo") or item.get("produto") or "Produto")
         code = item.get("cod_produto") or "-"
         size = item.get("tamanho") or item.get("formato") or "-"
         quantity = item.get("quantidade")
         unit = str(item.get("unidade") or "UN").lower()
+        price = _safe_float(item.get("preco_unitario"))
+        subtotal = _safe_float(item.get("subtotal"))
+        if not subtotal and quantity is not None:
+            subtotal = _safe_float(quantity) * price
+        total_found += subtotal
         quantity_text = f"{quantity} {unit}" if quantity is not None else "falta quantidade"
         lines.append(
             f"{index}. {code} - {product} | {size} | {quantity_text} | "
-            f"R$ {_safe_float(item.get('preco_unitario')):.2f}"
+            f"{_money_br(price)} | subtotal {_money_br(subtotal)}"
         )
+    if found:
+        lines.append(f"Total parcial encontrado: {_money_br(total_found)}")
 
     if pending:
-        lines += ["", "Nao encontrados:"]
+        lines += ["", "Itens que nao encontrei ou que precisam de correcao:"]
     for item in pending:
         product = str(item.get("produto") or item.get("nome_catalogo") or "Produto")
         requested = " ".join(
@@ -684,13 +696,25 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
         ).strip()
         if item.get("status") == "nao_encontrado":
             lines.append(f"- {product}{f' | {requested}' if requested else ''}")
+            alternatives = [
+                str(option)
+                for option in (item.get("alternativas") or [])[:3]
+                if option
+            ]
+            if alternatives:
+                lines.append(f"  Opcoes reais encontradas: {', '.join(alternatives)}")
         else:
             missing = ", ".join(item.get("faltando") or [])
             lines.append(f"- {product}: falta confirmar {missing or 'a opcao exata'}")
 
     if any(not item.get("quantidade") for item in found):
         lines += ["", "Informe a quantidade dos itens que ainda estao sem quantidade."]
-    return "\n".join(lines).replace(".", ",")
+    if pending:
+        lines += [
+            "",
+            "Responda corrigindo o item faltante ou diga para remover esse item do pedido.",
+        ]
+    return "\n".join(lines)
 
 
 def _order_summary(
