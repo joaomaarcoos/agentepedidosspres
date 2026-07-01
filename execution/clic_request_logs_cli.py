@@ -61,11 +61,13 @@ def _row_summary(row: dict[str, Any]) -> dict[str, Any]:
 
 def _secretary_order_to_log(row: dict[str, Any], detail: bool = False) -> dict[str, Any]:
     status = "success" if row.get("status") in {"submitted", "synced"} else "error"
+    payload = row.get("submit_payload") if isinstance(row.get("submit_payload"), dict) else {}
+    is_senior = payload.get("provider") == "senior"
     log = {
         "id": f"secretary_order:{row.get('id')}",
-        "source": "secretary_orders",
-        "operation": "create_order",
-        "endpoint": "/extpedidos",
+        "source": "secretary_orders_senior" if is_senior else "secretary_orders",
+        "operation": "GravarPedidos" if is_senior else "create_order",
+        "endpoint": payload.get("endpoint") if is_senior else "/extpedidos",
         "method": "POST",
         "status": status,
         "http_status": 200 if status == "success" else None,

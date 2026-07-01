@@ -330,7 +330,9 @@ export default function ConversasSecretariaPage() {
                   {detail?.orders?.map((order) => (
                     <div key={order.id} style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 10, marginBottom: 8 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                        <strong style={{ color: "var(--text)", fontSize: 12 }}>{order.protocol}</strong>
+                        <strong style={{ color: "var(--text)", fontSize: 12 }}>
+                          {order.clic_order_number ? `Senior #${order.clic_order_number}` : order.protocol}
+                        </strong>
                         <span style={{ color: order.status === "failed" ? "var(--error)" : "var(--muted)", fontSize: 11 }}>{order.status}</span>
                       </div>
                       <div style={{ color: "var(--muted)", fontSize: 11, marginTop: 5 }}>

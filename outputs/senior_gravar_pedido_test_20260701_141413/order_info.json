@@ -1,0 +1,23 @@
+{
+  "source_file": "outputs/payload_extpedidos_eliezer_2026-06-17_a_2026-06-25.json",
+  "source_clic_order": "934578582",
+  "representative_name": "ELIEZER FUNCIONARIO",
+  "representative_senior_code": "52",
+  "customer_name": "JAMES RAFAEL RIBEIRO",
+  "customer_document": "43629510000135",
+  "customer_senior_code": "21548",
+  "items": [
+    {
+      "name": "SUCO COPO LARANJA",
+      "codPro": "SCPSSLAR",
+      "codDer": "200",
+      "qtdPed": "3,00"
+    },
+    {
+      "name": "NECTAR COPO UVA",
+      "codPro": "SCPSSUVA",
+      "codDer": "200",
+      "qtdPed": "3,00"
+    }
+  ]
+}

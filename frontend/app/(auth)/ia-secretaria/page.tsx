@@ -98,7 +98,7 @@ function OrderDetails({ order }: { order: SecretaryOrder }) {
       <div className="order-timeline">
         <span className="detail-label">Rastreabilidade</span>
         <p>Protocolo interno: <strong>{order.protocol}</strong></p>
-        <p>Pedido ClicVendas: <strong>{order.clic_order_number || "Ainda não atribuído"}</strong></p>
+        <p>Pedido Senior ERP: <strong>{order.clic_order_number || "Ainda não atribuído"}</strong></p>
         <p>Confirmado: <strong>{formatDate(order.confirmed_at)}</strong></p>
         <p>Sincronizado: <strong>{formatDate(order.synced_at)}</strong></p>
         {order.error_message && <div className="error-detail"><AlertCircle size={15} />{order.error_message}</div>}
@@ -157,7 +157,7 @@ export default function IaSecretariaPage() {
           <div>
             <span className="eyebrow"><Bot size={14} /> MARCELA SECRETÁRIA</span>
             <h1>Operação de pedidos dos representantes</h1>
-            <p>Acompanhe o atendimento no WhatsApp, o envio ao ClicVendas e a sincronização dos pedidos.</p>
+            <p>Acompanhe o atendimento no WhatsApp, o envio ao Senior ERP e a sincronização dos pedidos.</p>
           </div>
           <div className="instance-summary">
             <div className="instance-icon">{connectedInstances ? <Wifi size={20} /> : <WifiOff size={20} />}</div>
@@ -198,8 +198,8 @@ export default function IaSecretariaPage() {
             </div>
             <section className="metrics-grid">
               <MetricCard icon={Clock3} label="Pedidos iniciados" value={metrics?.orders_started || 0} note={`${metrics?.orders_confirmed || 0} confirmados`} />
-              <MetricCard icon={Send} label="Enviados ao Clic" value={metrics?.orders_sent || 0} note={`${metrics?.orders_failed || 0} com erro`} accent />
-              <MetricCard icon={CheckCircle2} label="Sincronizados" value={metrics?.orders_synced || 0} note="status atualizado no ClicVendas" />
+              <MetricCard icon={Send} label="Enviados ao Senior" value={metrics?.orders_sent || 0} note={`${metrics?.orders_failed || 0} com erro`} accent />
+              <MetricCard icon={CheckCircle2} label="Sincronizados" value={metrics?.orders_synced || 0} note="status atualizado no Senior ERP" />
               <MetricCard icon={CircleDollarSign} label="Receita enviada" value={money(metrics?.total_value)} note={`Ticket médio ${money(metrics?.average_ticket)}`} accent />
               <MetricCard icon={Users} label="Representantes" value={metrics?.representatives || 0} note={`${metrics?.customers || 0} clientes atendidos`} />
             </section>
@@ -239,7 +239,10 @@ export default function IaSecretariaPage() {
               {(data?.orders || []).map((order) => (
                 <div className="order-entry" key={order.id}>
                   <button className="order-row" onClick={() => setExpanded(expanded === order.id ? null : order.id)}>
-                    <span className="order-id"><strong>{order.protocol}</strong><small>{formatDate(order.created_at)}</small></span>
+                    <span className="order-id">
+                      <strong>{order.clic_order_number ? `Senior #${order.clic_order_number}` : order.protocol}</strong>
+                      <small>{formatDate(order.created_at)}</small>
+                    </span>
                     <span><strong>{order.customer_name || "Cliente não informado"}</strong><small>Cód. {order.customer_code || "—"}</small></span>
                     <span><strong>Rep. {order.cod_rep}</strong><small>{order.instance_name}</small></span>
                     <span className="order-total">{money(order.total)}</span>

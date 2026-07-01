@@ -1,0 +1,58 @@
+{
+  "http_status": 200,
+  "duration_ms": 2850,
+  "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+  "request_file": "C:\\Users\\joaom\\OneDrive\\Área de Trabalho\\AGENTEPEDIDOSPRES\\outputs\\senior_gravar_pedido_test_rogerio_20260701_142027\\request_masked.xml",
+  "response_file": "C:\\Users\\joaom\\OneDrive\\Área de Trabalho\\AGENTEPEDIDOSPRES\\outputs\\senior_gravar_pedido_test_rogerio_20260701_142027\\response.xml",
+  "order_info_file": "C:\\Users\\joaom\\OneDrive\\Área de Trabalho\\AGENTEPEDIDOSPRES\\outputs\\senior_gravar_pedido_test_rogerio_20260701_142027\\order_info.json",
+  "senior": {
+    "mensagemRetorno": [
+      "Processado com Sucesso."
+    ],
+    "numPed": [
+      "352739",
+      "352739",
+      "352739"
+    ],
+    "retorno": [
+      "OK",
+      "OK",
+      "OK"
+    ],
+    "ideExt": [
+      "0"
+    ],
+    "msgRet": [
+      "OK"
+    ],
+    "sitPed": [
+      "1"
+    ],
+    "tipRet": [
+      "1"
+    ],
+    "tipoRetorno": [
+      "1"
+    ],
+    "gridPro": [
+      {
+        "cnpjFilial": "0",
+        "codEmp": "1",
+        "codFil": "1",
+        "numPed": "352739",
+        "retorno": "OK",
+        "seqIpd": "1",
+        "sitIpd": "1"
+      },
+      {
+        "cnpjFilial": "0",
+        "codEmp": "1",
+        "codFil": "1",
+        "numPed": "352739",
+        "retorno": "OK",
+        "seqIpd": "2",
+        "sitIpd": "1"
+      }
+    ]
+  }
+}

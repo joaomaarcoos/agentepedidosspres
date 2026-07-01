@@ -20,7 +20,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from clic_vendas_client import ClicVendasClient
+from senior_order_client import SeniorOrderClient
 from ai_agent import (
     _reconcile_catalog_resolution,
     resolve_order_with_subagent,
@@ -218,6 +218,30 @@ def _representative(db, phone: str) -> dict | None:
         "active": True,
         "whatsapp_number": DEFAULT_SECRETARY_ALLOWED_PHONE,
     }
+
+
+def _representative_document(db, cod_rep: Any) -> str:
+    code = str(cod_rep or "").strip()
+    if not code:
+        return ""
+    try:
+        rows = (
+            db.table("system_settings")
+            .select("value")
+            .eq("key", REPRESENTATIVE_PROFILES_KEY)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        profiles = rows[0].get("value") if rows else {}
+        if isinstance(profiles, dict):
+            profile = profiles.get(code) or profiles.get(str(int(float(code))))
+            if isinstance(profile, dict):
+                return _digits(profile.get("documento"))
+    except Exception:
+        return ""
+    return ""
 
 
 def _conversation(db, instance: str, phone: str, cod_rep: int) -> dict:
@@ -663,7 +687,7 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
 
     found = [item for item in items if item.get("status") == "encontrado"]
     pending = [item for item in items if item.get("status") != "encontrado"]
-    lines = ["Montei o rascunho com os itens encontrados, mas ainda nao posso enviar ao ClicVendas."]
+    lines = ["Montei o rascunho com os itens encontrados, mas ainda nao posso enviar ao Senior ERP."]
 
     if found:
         lines += ["", "Itens encontrados no rascunho:"]
@@ -738,7 +762,7 @@ def _order_summary(
     if observations:
         lines += ["", f"Observacoes: {observations}"]
     if ask_confirmation:
-        lines += ["", "Se estiver correto, responda *confirmo* para enviar ao ClicVendas."]
+        lines += ["", "Se estiver correto, responda *confirmo* para enviar ao Senior ERP."]
     return "\n".join(lines).replace(".", ",")
 
 
@@ -751,9 +775,9 @@ def _save_draft(db, conversation: dict, representative: dict, state: dict) -> di
     items = state.get("items") or []
     total = round(sum(_safe_float(item.get("subtotal")) for item in items), 2)
     customer = state["customer"]
-    sale_type_code = str(state.get("sale_type_code") or "").strip()
-    if not sale_type_code:
-        raise ValueError("Tipo de venda nao definido para o pedido.")
+    # O envio ativo ao Senior usa o payload minimo validado e nao envia tipo de venda.
+    # Mantemos a coluna preenchida apenas por compatibilidade com o schema legado.
+    sale_type_code = str(state.get("sale_type_code") or "SENIOR_MINIMAL").strip()
     payload = {
         "conversation_id": conversation.get("id"),
         "instance_name": conversation.get("instance_name"),
@@ -809,18 +833,19 @@ def _created_order_number(response: Any) -> str:
 
 def _clic_log_create(db, order: dict, payload: dict) -> tuple[str | None, float]:
     started = time.perf_counter()
+    is_senior = isinstance(payload, dict) and payload.get("provider") == "senior"
     try:
         rows = db.table("clic_request_logs").insert(
             {
-                "source": "secretary",
-                "operation": "create_order",
-                "endpoint": "/extpedidos",
+                "source": "secretary_senior" if is_senior else "secretary",
+                "operation": "GravarPedidos" if is_senior else "create_order",
+                "endpoint": payload.get("endpoint") if is_senior else "/extpedidos",
                 "method": "POST",
                 "status": "pending",
                 "order_id": order.get("id"),
                 "protocol": order.get("protocol"),
                 "cod_rep": order.get("cod_rep"),
-                "representative_document": "34501704810",
+                "representative_document": order.get("representative_document"),
                 "customer_code": order.get("customer_code"),
                 "customer_document": order.get("customer_document"),
                 "request_payload": payload,
@@ -885,10 +910,14 @@ def _clic_log_finish(
         return
 
 
-def _build_clic_order_payload(order: dict) -> list[dict]:
+def _build_clic_order_payload(order: dict, representative_document: str | None = None) -> list[dict]:
+    """Payload legado do ClicVendas, mantido para consulta/fallback manual."""
     sale_type_code = str(order.get("sale_type_code") or "").strip()
     if not sale_type_code:
         raise ValueError("Tipo de venda nao definido para envio ao ClicVendas.")
+    rep_document = _digits(representative_document or order.get("representative_document"))
+    if not rep_document:
+        raise ValueError("Documento do representante nao definido para envio ao ClicVendas.")
     items = []
     for item in order.get("items_json") or []:
         items.append(
@@ -905,7 +934,7 @@ def _build_clic_order_payload(order: dict) -> list[dict]:
     return [
         {
             "numeroDocumentoCliente": str(order.get("customer_document") or ""),
-            "numeroDocumentoRepresentante": "34501704810",
+            "numeroDocumentoRepresentante": rep_document,
             "codigoTipoVenda": sale_type_code,
             "itens": items,
         }
@@ -924,7 +953,8 @@ def _submit(db, order: dict) -> tuple[bool, str]:
         return False, "O pedido ja esta sendo processado. Aguarde a confirmacao."
     order = claimed[0]
     try:
-        payload = _build_clic_order_payload(order)
+        senior_client = SeniorOrderClient()
+        payload = senior_client.build_masked_payload(order)
     except ValueError as exc:
         db.table("secretary_orders").update(
             {"status": "failed", "error_message": str(exc), "updated_at": _now()}
@@ -932,29 +962,43 @@ def _submit(db, order: dict) -> tuple[bool, str]:
         return False, str(exc)
     log_id, log_started = _clic_log_create(db, order, payload)
     try:
-        response = ClicVendasClient().post("/extpedidos", payload)
+        result = senior_client.submit_order(order)
+        response = result.to_response_payload()
         _clic_log_finish(
             db,
             log_id,
             log_started,
-            "success",
+            "success" if result.ok else "error",
             response_payload=response,
-            http_status=200,
+            http_status=result.http_status,
+            error_message=None if result.ok else (result.parsed.get("msgRet") or result.parsed.get("retorno")),
         )
-        number = _created_order_number(response)
+        number = result.order_number
         db.table("secretary_orders").update(
             {
-                "status": "submitted",
+                "status": "submitted" if result.ok else "failed",
                 "submit_payload": payload,
                 "submit_response": response,
                 "clic_order_number": number or None,
-                "clic_external_id": str(response.get("_id") or response.get("id") or "") or None,
-                "submitted_at": now,
+                "clic_external_id": number or None,
+                "clic_status": str(result.parsed.get("sitPed") or "") or None,
+                "error_message": None if result.ok else (result.parsed.get("msgRet") or result.parsed.get("retorno")),
+                "submitted_at": now if result.ok else None,
                 "updated_at": now,
             }
         ).eq("id", order["id"]).execute()
-        detail = f" Pedido numero *{number}*." if number else f" Referencia *{order['protocol']}*."
-        return True, f"Pedido enviado ao ClicVendas com sucesso.{detail}"
+        if not result.ok:
+            return False, f"Senior ERP retornou erro ao enviar o pedido.{f' Pedido numero {number}.' if number else ''}"
+        if not number:
+            db.table("secretary_orders").update(
+                {
+                    "status": "failed",
+                    "error_message": "Senior ERP retornou sucesso sem numero de pedido.",
+                    "updated_at": _now(),
+                }
+            ).eq("id", order["id"]).execute()
+            return False, "Senior ERP retornou sucesso sem numero de pedido. Verifique os logs antes de reenviar."
+        return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*."
     except Exception as exc:
         http_status, response_payload, error_message = _clic_error_payload(exc)
         _clic_log_finish(
@@ -975,7 +1019,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
                 "updated_at": _now(),
             }
         ).eq("id", order["id"]).execute()
-        return False, "Nao consegui enviar o pedido ao ClicVendas. Ele ficou salvo para uma nova tentativa."
+        return False, "Nao consegui enviar o pedido ao Senior ERP. Ele ficou salvo para uma nova tentativa."
 
 
 def _latest_orders(db, cod_rep: int, limit: int = 5) -> str:
@@ -1100,8 +1144,17 @@ def process_secretary_message(
     elif CONFIRM_RE.search(text):
         order_id = state.get("order_id")
         if not order_id or not state.get("ready_to_submit"):
-            if state.get("customer") and state.get("items") and not state.get("sale_type_code"):
-                reply = f"Antes de enviar preciso confirmar o tipo do pedido. {_sale_type_prompt()}"
+            if state.get("customer") and state.get("items"):
+                try:
+                    order = _save_draft(db, conversation, representative, state)
+                    state["order_id"] = order.get("id")
+                    state["protocol"] = order.get("protocol")
+                    state["ready_to_submit"] = True
+                    _, reply = _submit(db, order)
+                    state = {}
+                    action = "secretary_submitted"
+                except ValueError as exc:
+                    reply = str(exc)
             else:
                 reply = "Nao ha pedido pronto para confirmacao. Informe primeiro o cliente e os itens."
         else:
@@ -1224,27 +1277,15 @@ def process_secretary_message(
                             )
                         else:
                             state["items"] = current
-                            if not state.get("sale_type_code"):
-                                state["ready_to_submit"] = False
-                                reply = (
-                                    _order_summary(
-                                        customer,
-                                        current,
-                                        state.get("observations") or "",
-                                        ask_confirmation=False,
-                                    )
-                                    + f"\n\nAntes de enviar, {_sale_type_prompt()}"
-                                )
-                            else:
-                                order = _save_draft(db, conversation, representative, state)
-                                state["order_id"] = order.get("id")
-                                state["protocol"] = order.get("protocol")
-                                state["ready_to_submit"] = True
-                                reply = _order_summary(
-                                    customer,
-                                    current,
-                                    state.get("observations") or "",
-                                )
+                            order = _save_draft(db, conversation, representative, state)
+                            state["order_id"] = order.get("id")
+                            state["protocol"] = order.get("protocol")
+                            state["ready_to_submit"] = True
+                            reply = _order_summary(
+                                customer,
+                                current,
+                                state.get("observations") or "",
+                            )
                             state["product_history"].append(
                                 {"role": "assistant", "content": reply}
                             )

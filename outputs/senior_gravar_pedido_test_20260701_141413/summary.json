@@ -1,0 +1,58 @@
+{
+  "http_status": 200,
+  "duration_ms": 3202,
+  "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+  "request_file": "C:\\Users\\joaom\\OneDrive\\Área de Trabalho\\AGENTEPEDIDOSPRES\\outputs\\senior_gravar_pedido_test_20260701_141413\\request_masked.xml",
+  "response_file": "C:\\Users\\joaom\\OneDrive\\Área de Trabalho\\AGENTEPEDIDOSPRES\\outputs\\senior_gravar_pedido_test_20260701_141413\\response.xml",
+  "order_info_file": "C:\\Users\\joaom\\OneDrive\\Área de Trabalho\\AGENTEPEDIDOSPRES\\outputs\\senior_gravar_pedido_test_20260701_141413\\order_info.json",
+  "senior": {
+    "mensagemRetorno": [
+      "Processado com Sucesso."
+    ],
+    "numPed": [
+      "352736",
+      "352736",
+      "0"
+    ],
+    "retorno": [
+      "OK",
+      "OK",
+      "Usuário não tem permissão para fechar o pedido (não pode alterar a situação do pedido)"
+    ],
+    "ideExt": [
+      "0"
+    ],
+    "msgRet": [
+      "Usuário não tem permissão para fechar o pedido (não pode alterar a situação do pedido)"
+    ],
+    "sitPed": [
+      "0"
+    ],
+    "tipRet": [
+      "2"
+    ],
+    "tipoRetorno": [
+      "1"
+    ],
+    "gridPro": [
+      {
+        "cnpjFilial": "0",
+        "codEmp": "1",
+        "codFil": "1",
+        "numPed": "352736",
+        "retorno": "OK",
+        "seqIpd": "1",
+        "sitIpd": "9"
+      },
+      {
+        "cnpjFilial": "0",
+        "codEmp": "1",
+        "codFil": "1",
+        "numPed": "352736",
+        "retorno": "OK",
+        "seqIpd": "2",
+        "sitIpd": "9"
+      }
+    ]
+  }
+}

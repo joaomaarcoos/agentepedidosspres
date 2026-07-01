@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "execution"))
 
 import clic_vendas_cli
+import clic_vendas_client
 import secretary_agent
 
 
@@ -160,6 +161,42 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(rep["cod_rep"], 52)
         self.assertEqual(rep["name"], "ELIEZER GONZAGA DOS REIS")
 
+    def test_representative_document_reads_profile(self):
+        db = _FakeDb(
+            {
+                "system_settings": [
+                    {
+                        "value": {
+                            "52": {
+                                "cod_rep": 52,
+                                "documento": "345.017.048-10",
+                            }
+                        }
+                    }
+                ],
+            }
+        )
+        self.assertEqual(secretary_agent._representative_document(db, 52), "34501704810")
+
+    def test_clic_client_uses_representative_credentials_when_configured(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "CLIC_VENDAS_URL": "https://api.example.test",
+                "CLIC_VENDAS_AUTH_URL": "https://auth.example.test",
+                "CLIC_VENDAS_USER": "admin",
+                "CLIC_VENDAS_PASSWORD": "admin-pass",
+                "CLIC_VENDAS_SUBDOMAIN": "sucosspres",
+                "CLIC_VENDAS_REP_52_USER": "52",
+                "CLIC_VENDAS_REP_52_PASSWORD": "rep-pass",
+            },
+        ):
+            client = clic_vendas_client.ClicVendasClient.for_representative(52)
+
+        self.assertEqual(client.username, "52")
+        self.assertEqual(client.password, "rep-pass")
+        self.assertEqual(client.credential_label, "rep:52")
+
     def test_build_clic_payload_omits_auto_fields(self):
         payload = secretary_agent._build_clic_order_payload(
             {
@@ -174,7 +211,8 @@ class SecretaryAgentTests(unittest.TestCase):
                         "preco_unitario": 10.78,
                     }
                 ],
-            }
+            },
+            representative_document="34501704810",
         )
         self.assertEqual(
             payload,
@@ -220,7 +258,8 @@ class SecretaryAgentTests(unittest.TestCase):
                     {"cod_produto": "SCPSSLAR", "derivacao": "200ml", "quantidade": 20, "preco_unitario": 1.49},
                     {"cod_produto": "SGPSSLAR", "derivacao": "5L", "quantidade": 1, "preco_unitario": 28.88},
                 ],
-            }
+            },
+            representative_document="34501704810",
         )
         self.assertEqual(
             [item["codigoVariacao"] for item in payload[0]["itens"]],
@@ -232,6 +271,20 @@ class SecretaryAgentTests(unittest.TestCase):
             secretary_agent._build_clic_order_payload(
                 {
                     "customer_document": "05482507000142",
+                    "price_table_code": "205",
+                    "items_json": [
+                        {"cod_produto": "SGRSSLAR", "derivacao": "900", "quantidade": 12, "preco_unitario": 5.92},
+                    ],
+                },
+                representative_document="34501704810",
+            )
+
+    def test_build_clic_payload_requires_representative_document(self):
+        with self.assertRaises(ValueError):
+            secretary_agent._build_clic_order_payload(
+                {
+                    "customer_document": "05482507000142",
+                    "sale_type_code": "9010O",
                     "price_table_code": "205",
                     "items_json": [
                         {"cod_produto": "SGRSSLAR", "derivacao": "900", "quantidade": 12, "preco_unitario": 5.92},

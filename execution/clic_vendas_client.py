@@ -30,12 +30,19 @@ class ClicVendasClient:
     - Renova token quando expira (via refresh ou re-login)
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        username: str | None = None,
+        password: str | None = None,
+        subdomain: str | None = None,
+        credential_label: str | None = None,
+    ):
         self.base_url = os.getenv('CLIC_VENDAS_URL', '').rstrip('/')
         self.auth_url = os.getenv('CLIC_VENDAS_AUTH_URL', '').rstrip('/')
-        self.username = os.getenv('CLIC_VENDAS_USER', '')
-        self.password = os.getenv('CLIC_VENDAS_PASSWORD', '')
-        self.subdomain = os.getenv('CLIC_VENDAS_SUBDOMAIN', 'sucosspres')
+        self.username = username or os.getenv('CLIC_VENDAS_USER', '')
+        self.password = password or os.getenv('CLIC_VENDAS_PASSWORD', '')
+        self.subdomain = subdomain or os.getenv('CLIC_VENDAS_SUBDOMAIN', 'sucosspres')
+        self.credential_label = credential_label or 'global'
 
         if not all([self.base_url, self.auth_url, self.username, self.password]):
             raise ValueError(
@@ -55,6 +62,26 @@ class ClicVendasClient:
             'subdominio': self.subdomain,  # Header obrigatorio para API multi-tenant
         })
 
+    @classmethod
+    def for_representative(cls, cod_rep: int | str | None, fallback: bool = True):
+        """Cria cliente com credenciais especificas do representante, se configuradas."""
+        code = str(cod_rep or "").strip()
+        if code:
+            safe_code = "".join(ch for ch in code if ch.isalnum() or ch == "_")
+            user = os.getenv(f"CLIC_VENDAS_REP_{safe_code}_USER", "").strip()
+            password = os.getenv(f"CLIC_VENDAS_REP_{safe_code}_PASSWORD", "").strip()
+            subdomain = os.getenv(f"CLIC_VENDAS_REP_{safe_code}_SUBDOMAIN", "").strip() or None
+            if user and password:
+                return cls(
+                    username=user,
+                    password=password,
+                    subdomain=subdomain,
+                    credential_label=f"rep:{safe_code}",
+                )
+            if not fallback:
+                raise ValueError(f"Credenciais ClicVendas do representante {safe_code} nao configuradas")
+        return cls()
+
     def _login(self) -> bool:
         """
         Realiza login e obtem tokens JWT.
@@ -70,7 +97,7 @@ class ClicVendasClient:
             'subdominio': self.subdomain,
         }
 
-        logger.info('Clic Vendas: Realizando login...')
+        logger.info('Clic Vendas: Realizando login (%s)...', self.credential_label)
 
         try:
             resp = self.session.post(url, json=payload, timeout=30)
@@ -83,7 +110,7 @@ class ClicVendasClient:
             # Token JWT tipicamente expira em 1h, usamos 50min para margem
             self.token_expires_at = time.time() + 3000
 
-            logger.info('Clic Vendas: Login bem-sucedido')
+            logger.info('Clic Vendas: Login bem-sucedido (%s)', self.credential_label)
             return True
 
         except requests.exceptions.HTTPError as e:

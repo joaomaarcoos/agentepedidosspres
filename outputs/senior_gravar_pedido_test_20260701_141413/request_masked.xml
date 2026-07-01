@@ -1,0 +1,35 @@
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:ser="http://services.senior.com.br">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <ser:GravarPedidos>
+      <user>felipe.dantas</user>
+      <password>***MASKED***</password>
+      <encryption>0</encryption>
+      <parameters>
+        <pedido>
+          <opeExe>I</opeExe>
+          <codEmp>1</codEmp>
+          <codFil>1</codFil>
+          <codCli>21548</codCli>
+          <tipPed>1</tipPed>
+          <fecPed>S</fecPed>
+
+          <produto>
+            <opeExe>I</opeExe>
+            <codPro>SCPSSLAR</codPro>
+            <codDer>200</codDer>
+            <qtdPed>3,00</qtdPed>
+          </produto>
+
+          <produto>
+            <opeExe>I</opeExe>
+            <codPro>SCPSSUVA</codPro>
+            <codDer>200</codDer>
+            <qtdPed>3,00</qtdPed>
+          </produto>
+        </pedido>
+      </parameters>
+    </ser:GravarPedidos>
+  </soapenv:Body>
+</soapenv:Envelope>
