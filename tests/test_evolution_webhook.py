@@ -174,6 +174,10 @@ class EvolutionWebhookTests(unittest.TestCase):
         secretary.assert_called_once()
         sales.assert_not_called()
 
+    def test_send_number_adds_country_code_for_brazilian_mobile(self):
+        self.assertEqual(evolution_webhook._evolution_send_number("98981522794"), "5598981522794")
+        self.assertEqual(evolution_webhook._evolution_send_number("5598981522794"), "5598981522794")
+
     def test_secretary_instance_ignores_non_allowed_phone_silently(self):
         payload = {
             "instance": "secretaria-01",

@@ -261,12 +261,20 @@ def _evolution_config() -> tuple[str, str]:
     return api_url, api_key
 
 
+def _evolution_send_number(phone: str) -> str:
+    digits = normalize_phone(phone)
+    if digits and not digits.startswith("55") and len(digits) in (10, 11):
+        digits = f"55{digits}"
+    return digits
+
+
 def send_whatsapp(phone: str, text: str, instance: str) -> dict:
     api_url, api_key = _evolution_config()
     text = normalize_whatsapp_markdown(text)
+    number = _evolution_send_number(phone)
     response = requests.post(
         f"{api_url}/message/sendText/{instance}",
-        json={"number": f"{phone}@s.whatsapp.net", "text": f"{text}{AI_OUTGOING_MARKER}"},
+        json={"number": number, "text": f"{text}{AI_OUTGOING_MARKER}"},
         headers={"apikey": api_key, "Content-Type": "application/json"},
         timeout=20,
     )
