@@ -439,6 +439,31 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
         resolve_products.assert_not_called()
 
+    def test_natural_sale_type_phrase_with_customer_is_not_product(self):
+        customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        saved_states = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={"id": "conv-1", "state_json": {"customer": customer}},
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_portfolio_customers", return_value=[customer]
+        ), patch.object(
+            secretary_agent, "_resolve_products_with_sales_subagent"
+        ) as resolve_products, patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5598981522794", "Pedido normal mesmo", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_sale_type_selected")
+        self.assertIn("pedido normal", result["reply"])
+        self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
+        resolve_products.assert_not_called()
+
     def test_created_order_number_reads_nested_clic_response(self):
         response = {
             "resultados": [
@@ -618,6 +643,107 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertIn("IGOR MIRANDA BORGES", result["reply"])
         self.assertEqual(saved_states[-1]["pending_action"]["type"], "change_customer")
         resolve_products.assert_not_called()
+
+    def test_product_message_during_items_does_not_try_to_change_customer(self):
+        current_customer = {"code": "1233", "name": "Cliente Atual", "document": "1", "price_table_code": "205"}
+        confusing_customer = {"code": "10", "name": "POSTO JASMIN DE FRANCA LTDA", "document": "2", "price_table_code": "205"}
+        saved_states = []
+
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": current_customer,
+                    "sale_type_code": "9010O",
+                    "items": [{"cod_produto": "A"}],
+                    "product_history": [],
+                },
+            },
+        ), patch.object(secretary_agent, "_add_message", return_value=True), patch.object(
+            secretary_agent, "_portfolio_customers", return_value=[current_customer, confusing_customer]
+        ), patch.object(secretary_agent, "_catalog", return_value=[{"cod_produto": "SGRSSLAR"}]), patch.object(
+            secretary_agent,
+            "_resolve_products_with_sales_subagent",
+            return_value={
+                "itens": [
+                    {
+                        "status": "encontrado",
+                        "cod_produto": "SGRSSLAR",
+                        "nome_catalogo": "SUCO GARRAFA PASTEURIZADO DE LARANJA",
+                        "formato": "garrafa",
+                        "tamanho": "900",
+                        "quantidade": 10,
+                        "preco_unitario": 5.92,
+                    }
+                ]
+            },
+        ) as resolve_products, patch.object(
+            secretary_agent, "_save_draft", return_value={"id": "order-1", "protocol": "MSE-1"}
+        ), patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5516991377335", "10 suco de laranja de 900", "secretaria")
+
+        self.assertNotEqual(result["action"], "secretary_confirm_customer_change")
+        resolve_products.assert_called_once()
+        self.assertNotIn("pending_action", saved_states[-1])
+
+    def test_keep_current_customer_and_product_in_same_message_continues_order(self):
+        current_customer = {"code": "1233", "name": "Cliente Atual", "document": "1", "price_table_code": "205"}
+        new_customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        saved_states = []
+
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": current_customer,
+                    "sale_type_code": "9010O",
+                    "items": [{"cod_produto": "A"}],
+                    "product_history": [],
+                    "pending_action": {"type": "change_customer", "customer": new_customer},
+                },
+            },
+        ), patch.object(secretary_agent, "_add_message", return_value=True), patch.object(
+            secretary_agent, "_portfolio_customers", return_value=[current_customer, new_customer]
+        ), patch.object(secretary_agent, "_catalog", return_value=[{"cod_produto": "SGRSSLAR"}]), patch.object(
+            secretary_agent,
+            "_resolve_products_with_sales_subagent",
+            return_value={
+                "itens": [
+                    {
+                        "status": "encontrado",
+                        "cod_produto": "SGRSSLAR",
+                        "nome_catalogo": "SUCO GARRAFA PASTEURIZADO DE LARANJA",
+                        "formato": "garrafa",
+                        "tamanho": "900",
+                        "quantidade": 10,
+                        "preco_unitario": 5.92,
+                    }
+                ]
+            },
+        ) as resolve_products, patch.object(
+            secretary_agent, "_save_draft", return_value={"id": "order-1", "protocol": "MSE-1"}
+        ), patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message(
+                "5516991377335",
+                "Nao quero mudar o cliente. Quero suco de laranja de 900",
+                "secretaria",
+            )
+
+        self.assertNotEqual(result["action"], "secretary_confirm_customer_change")
+        resolve_products.assert_called_once()
+        self.assertNotIn("pending_action", saved_states[-1])
 
     def test_confirm_pending_customer_change_resets_items_and_keeps_new_customer(self):
         current_customer = {"code": "1233", "name": "Cliente Atual", "document": "1", "price_table_code": "205"}

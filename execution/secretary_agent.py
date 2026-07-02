@@ -25,12 +25,14 @@ from ai_agent import (
     _reconcile_catalog_resolution,
     resolve_order_with_subagent,
 )
+from secretary_ai_agent import analyze_secretary_message
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 CONFIRM_RE = re.compile(r"\b(confirmo|confirmado|pode enviar|pode mandar|pode fechar|esta tudo certo|est[aá] certo)\b", re.I)
 CANCEL_RE = re.compile(r"\b(cancelar|cancela|desistir|apagar pedido)\b", re.I)
 STATUS_RE = re.compile(r"\b(status|situa[cç][aã]o|acompanhar|pedidos?|hist[oó]rico|atualiza[cç][aã]o)\b", re.I)
+STATUS_CREATE_GUARD_RE = re.compile(r"\b(quero|fazer|montar|criar|abrir|novo|nova|entrada)\b", re.I)
 NEW_ORDER_RE = re.compile(r"\b(novo pedido|outro pedido|recomecar|recomeçar|comecar de novo|começar de novo|refazer pedido)\b", re.I)
 CHANGE_CUSTOMER_RE = re.compile(r"\b(trocar cliente|mudar cliente|alterar cliente|cliente errado|corrigir cliente)\b", re.I)
 KEEP_CURRENT_RE = re.compile(r"\b(continuar|continua|manter|fica nesse|seguir nesse|nao trocar|não trocar)\b", re.I)
@@ -136,6 +138,28 @@ def _generic_chat_message(text: Any) -> bool:
     if re.fullmatch(r"(oi|ola|bom dia|boa tarde|boa noite|teste|testando|alo|e ai|eai)", value):
         return True
     return bool(re.search(r"\b(ajuda|comecar|começar|pedido|fazer pedido)\b", value)) and not re.search(r"\d{2,}", value)
+
+
+def _status_request_message(text: Any) -> bool:
+    value = _norm(text)
+    if not STATUS_RE.search(text):
+        return False
+    if STATUS_CREATE_GUARD_RE.search(value):
+        return False
+    return bool(
+        re.search(
+            r"\b(status|situacao|acompanhar|historico|atualizacao|ultimos pedidos|pedidos recentes|meus pedidos)\b",
+            value,
+        )
+    )
+
+
+def _summary_request_message(text: Any) -> bool:
+    value = _norm(text)
+    return bool(
+        re.search(r"\b(mostra|mostrar|resumo|rever|revisar|conferir|confirmar)\b", value)
+        and re.search(r"\b(pedido|rascunho)\b", value)
+    )
 
 
 def _start_conversation_reply(state: dict) -> str:
@@ -1143,7 +1167,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
 def _latest_orders(db, cod_rep: int, limit: int = 5) -> str:
     rows = (
         db.table("rep_order_base")
-        .select("num_ped,dat_emi,sit_ped,order_total_value,customer_name,origin_protocol")
+        .select("num_ped,cod_cli,dat_emi,sit_ped,order_total_value,origin_protocol")
         .eq("cod_rep", cod_rep)
         .order("dat_emi", desc=True)
         .limit(limit)
@@ -1153,12 +1177,21 @@ def _latest_orders(db, cod_rep: int, limit: int = 5) -> str:
     )
     if not rows:
         return "Nao encontrei pedidos sincronizados para sua carteira."
+    profiles = _customer_profiles(db)
     lines = ["Pedidos mais recentes:"]
     for row in rows:
         total = _safe_float(row.get("order_total_value"))
         origin = f" | {row.get('origin_protocol')}" if row.get("origin_protocol") else ""
+        customer_code = str(row.get("cod_cli") or "")
+        profile = profiles.get(customer_code) or {}
+        customer_name = (
+            profile.get("nome")
+            or profile.get("fantasia")
+            or profile.get("razao_social")
+            or f"Cliente {customer_code or '-'}"
+        )
         lines.append(
-            f"- {row.get('num_ped')} | {row.get('customer_name') or 'Cliente'} | "
+            f"- {row.get('num_ped')} | {customer_name} | "
             f"{row.get('sit_ped') or '-'} | R$ {total:.2f}{origin}"
         )
     return "\n".join(lines).replace(".", ",")
@@ -1193,8 +1226,19 @@ def process_secretary_message(
     state = dict(conversation.get("state_json") or {})
     reply = ""
     action = "secretary_reply"
+    brain = analyze_secretary_message(text, state)
+    if (
+        state.get("pending_action")
+        and brain.get("keep_current_customer")
+        and brain.get("looks_like_product")
+        and state.get("customer")
+    ):
+        state.pop("pending_action", None)
+        text = str(brain.get("product_text") or text)
+        brain = analyze_secretary_message(text, state)
+        action = "secretary_kept_current_order"
 
-    if STATUS_RE.search(text) and not _sale_type_code_from_text(text) and not state.get("items"):
+    if _status_request_message(text) and not _sale_type_code_from_text(text) and not state.get("items"):
         reply = _latest_orders(db, int(representative["cod_rep"]))
         action = "secretary_status"
     elif CANCEL_RE.search(text):
@@ -1268,8 +1312,9 @@ def process_secretary_message(
                     state["order_id"] = order.get("id")
                     state["protocol"] = order.get("protocol")
                     state["ready_to_submit"] = True
-                    _, reply = _submit(db, order)
-                    state = {}
+                    submitted, reply = _submit(db, order)
+                    if submitted:
+                        state = {}
                     action = "secretary_submitted"
                 except ValueError as exc:
                     reply = str(exc)
@@ -1280,14 +1325,15 @@ def process_secretary_message(
             if not rows:
                 reply = "Nao encontrei o rascunho desse pedido."
             else:
-                _, reply = _submit(db, rows[0])
-                state = {}
+                submitted, reply = _submit(db, rows[0])
+                if submitted:
+                    state = {}
                 action = "secretary_submitted"
     else:
         sale_type_code = _sale_type_code_from_text(text)
         if sale_type_code:
             state["sale_type_code"] = sale_type_code
-        sale_type_only = bool(sale_type_code and _sale_type_only_message(text))
+        sale_type_only = bool(sale_type_code and (brain.get("sale_type_only") or _sale_type_only_message(text)))
         customers = []
         if not state.get("customer") and sale_type_only:
             reply = _start_conversation_reply(state)
@@ -1326,7 +1372,14 @@ def process_secretary_message(
                         "Agora me envie os produtos e quantidades."
                     )
                 action = "secretary_sale_type_selected"
-            candidate = None if reply else _customer_change_candidate(customers, text, state.get("customer"))
+            elif _summary_request_message(text) and state.get("items"):
+                reply = _order_summary(
+                    state["customer"],
+                    state.get("items") or [],
+                    state.get("observations") or "",
+                )
+                action = "secretary_order_summary"
+            candidate = None if reply or brain.get("looks_like_product") else _customer_change_candidate(customers, text, state.get("customer"))
             if not reply and candidate:
                 state["pending_action"] = {
                     "type": "change_customer",
@@ -1398,6 +1451,13 @@ def process_secretary_message(
                         f"Tipo de pedido definido: *{_sale_type_label(state.get('sale_type_code'))}*. "
                         "Agora envie os produtos e quantidades do pedido."
                     )
+            elif _summary_request_message(text) and state.get("items"):
+                reply = _order_summary(
+                    customer,
+                    state.get("items") or [],
+                    state.get("observations") or "",
+                )
+                action = "secretary_order_summary"
             else:
                 catalog = _catalog(db, customer)
                 if not catalog:
