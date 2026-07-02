@@ -178,6 +178,24 @@ class EvolutionWebhookTests(unittest.TestCase):
         self.assertEqual(evolution_webhook._evolution_send_number("98981522794"), "5598981522794")
         self.assertEqual(evolution_webhook._evolution_send_number("5598981522794"), "5598981522794")
 
+    def test_extract_message_prefers_phone_jid_when_remote_is_lid(self):
+        payload = {
+            "instance": "secretaria-01",
+            "data": {
+                "key": {
+                    "remoteJid": "123456789012345@lid",
+                    "fromMe": False,
+                    "id": "SEC-LID1",
+                },
+                "contact": {"remoteJid": "5598981522794@s.whatsapp.net"},
+                "message": {"conversation": "oi"},
+            },
+        }
+
+        incoming = evolution_webhook.extract_message(payload, instance="secretaria-01")
+
+        self.assertEqual(incoming["phone"], "5598981522794")
+
     def test_secretary_instance_ignores_non_allowed_phone_silently(self):
         payload = {
             "instance": "secretaria-01",

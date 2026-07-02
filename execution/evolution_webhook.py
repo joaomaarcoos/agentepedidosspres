@@ -73,6 +73,44 @@ def _jid_phone(value: Any) -> str:
     return normalize_phone(raw.split("@", 1)[0])
 
 
+def _collect_jids(value: Any) -> list[str]:
+    found: list[str] = []
+    if isinstance(value, dict):
+        for item in value.values():
+            found.extend(_collect_jids(item))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_collect_jids(item))
+    elif isinstance(value, str) and "@" in value:
+        for part in re.split(r"[\s,;]+", value):
+            if "@" in part:
+                found.append(part.strip().strip('"').strip("'"))
+    return found
+
+
+def _best_sender_jid(payload: dict, remote_jid: str, participant_jid: str) -> str:
+    candidates = [participant_jid, remote_jid, *_collect_jids(payload)]
+    clean = [str(item or "").strip() for item in candidates if str(item or "").strip()]
+    direct = [
+        item
+        for item in clean
+        if "@s.whatsapp.net" in item and "@g.us" not in item and _jid_phone(item)
+    ]
+    if direct:
+        return direct[0]
+    non_lid = [
+        item
+        for item in clean
+        if "@lid" not in item and "@g.us" not in item and _jid_phone(item)
+    ]
+    if non_lid:
+        return non_lid[0]
+    lid = [item for item in clean if "@lid" in item and _jid_phone(item)]
+    if lid:
+        return lid[0]
+    return remote_jid or participant_jid
+
+
 def _message_remote_jid(payload: dict, data: dict, key: dict) -> str:
     return str(
         key.get("remoteJid")
@@ -208,9 +246,9 @@ def extract_message(payload: dict, instance: str = "", transcribe_audio: bool = 
     participant_jid = _message_participant_jid(payload, data, key)
     from_me = bool(key.get("fromMe") or data.get("fromMe"))
     if "@g.us" in str(remote_jid) and participant_jid:
-        phone = _jid_phone(participant_jid)
+        phone = _jid_phone(_best_sender_jid(payload, "", participant_jid))
     else:
-        phone = _jid_phone(remote_jid)
+        phone = _jid_phone(_best_sender_jid(payload, remote_jid, participant_jid))
     text = (
         message.get("conversation")
         or _dig(message, "extendedTextMessage", "text")

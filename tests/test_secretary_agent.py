@@ -121,6 +121,11 @@ class SecretaryAgentTests(unittest.TestCase):
         with patch.dict("os.environ", {"SECRETARY_ALLOWED_PHONES": "16999999999"}):
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("5516999999999"))
 
+    def test_secretary_allowed_phone_accepts_mobile_ninth_digit_variation(self):
+        with patch.dict("os.environ", {"SECRETARY_ALLOWED_PHONES": "5598981522794"}):
+            self.assertTrue(secretary_agent._is_secretary_phone_allowed("559881522794"))
+            self.assertTrue(secretary_agent._is_secretary_phone_allowed("9881522794"))
+
     def test_secretary_rejects_phone_without_active_representative(self):
         db = _FakeDb({"representatives": []})
         with patch.dict("os.environ", {"SECRETARY_ALLOWED_PHONES": "5516999999999"}), patch.object(
@@ -158,6 +163,7 @@ class SecretaryAgentTests(unittest.TestCase):
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("16991377335"))
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("98981522794"))
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("5598981522794"))
+            self.assertTrue(secretary_agent._is_secretary_phone_allowed("559881422794"))
             self.assertFalse(secretary_agent._is_secretary_phone_allowed("5516888888888"))
 
     def test_allowed_eliezer_phone_uses_profile_fallback(self):

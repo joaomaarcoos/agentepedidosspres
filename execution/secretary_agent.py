@@ -35,7 +35,7 @@ NEW_ORDER_RE = re.compile(r"\b(novo pedido|outro pedido|recomecar|recomeçar|com
 CHANGE_CUSTOMER_RE = re.compile(r"\b(trocar cliente|mudar cliente|alterar cliente|cliente errado|corrigir cliente)\b", re.I)
 KEEP_CURRENT_RE = re.compile(r"\b(continuar|continua|manter|fica nesse|seguir nesse|nao trocar|não trocar)\b", re.I)
 REFERENCE_RE = re.compile(r"\bMSE-\d{6}-[A-Z0-9]{6}\b", re.I)
-DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335,98981522794"
+DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335,98981522794,559881422794"
 ELIEZER_REP_DOCUMENT = "34501704810"
 ELIEZER_FALLBACK_COD_REP = 52
 REPRESENTATIVE_PROFILES_KEY = "clic_representative_profiles"
@@ -129,6 +129,15 @@ def _phone_candidates(phone: str) -> list[str]:
         values.add(value[2:])
     elif len(value) in (10, 11):
         values.add(f"55{value}")
+    for item in list(values):
+        if item.startswith("55") and len(item) == 13 and item[4] == "9":
+            values.add(f"{item[:4]}{item[5:]}")
+        elif item.startswith("55") and len(item) == 12:
+            values.add(f"{item[:4]}9{item[4:]}")
+        elif len(item) == 11 and item[2] == "9":
+            values.add(f"{item[:2]}{item[3:]}")
+        elif len(item) == 10:
+            values.add(f"{item[:2]}9{item[2:]}")
     return [item for item in values if item]
 
 
