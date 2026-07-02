@@ -99,12 +99,50 @@ def _sale_type_label(code: Any) -> str:
 
 
 def _sale_type_only_message(text: Any) -> bool:
-    value = _norm(text)
+    value = re.sub(r"[^\w\s/]+", " ", _norm(text))
+    value = re.sub(r"\s+", " ", value).strip()
+    simplified = value
+    for prefix in ("entrada pedido ", "pedido ", "entrada "):
+        if simplified.startswith(prefix):
+            simplified = simplified[len(prefix) :].strip()
+            break
+    if simplified in {
+        "normal",
+        "com nota",
+        "nota fiscal",
+        "pdv",
+        "sem nota",
+        "bonificacao",
+        "bonif",
+        "bonificacao acordo",
+    }:
+        return True
     return bool(
         re.fullmatch(
             r"(pedido\s+)?(normal|pdv|sem nota|com nota|nota fiscal|bonificacao|bonifica[cÃ§][aÃ£]o|bonif)(\s+acordo)?",
             value,
         )
+    )
+
+
+def _generic_chat_message(text: Any) -> bool:
+    value = _norm(text)
+    if not value:
+        return True
+    if re.fullmatch(r"(oi|ola|bom dia|boa tarde|boa noite|teste|testando|alo|e ai|eai)", value):
+        return True
+    return bool(re.search(r"\b(ajuda|comecar|começar|pedido|fazer pedido)\b", value)) and not re.search(r"\d{2,}", value)
+
+
+def _start_conversation_reply(state: dict) -> str:
+    if state.get("sale_type_code"):
+        return (
+            f"Perfeito, vou montar como *{_sale_type_label(state.get('sale_type_code'))}*. "
+            "Me envie o codigo, nome ou documento do cliente para eu localizar na carteira."
+        )
+    return (
+        "Oi, sou a secretaria de pedidos. Posso te ajudar a montar um pedido para o Eliezer. "
+        "Me envie o codigo, nome ou documento do cliente para comecarmos."
     )
 
 
@@ -696,10 +734,10 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
 
     found = [item for item in items if item.get("status") == "encontrado"]
     pending = [item for item in items if item.get("status") != "encontrado"]
-    lines = ["Montei o rascunho com os itens encontrados, mas ainda nao posso enviar ao Senior ERP."]
+    lines = ["Pedido conferido:"]
 
     if found:
-        lines += ["", "Itens encontrados no rascunho:"]
+        lines += ["", "Encontrados:"]
     total_found = 0.0
     for index, item in enumerate(found, 1):
         product = str(item.get("nome_catalogo") or item.get("produto") or "Produto")
@@ -721,7 +759,7 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
         lines.append(f"Total parcial encontrado: {_money_br(total_found)}")
 
     if pending:
-        lines += ["", "Itens que nao encontrei ou que precisam de correcao:"]
+        lines += ["", "Nao encontrados:"]
     for item in pending:
         product = str(item.get("produto") or item.get("nome_catalogo") or "Produto")
         requested = " ".join(
@@ -729,13 +767,6 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
         ).strip()
         if item.get("status") == "nao_encontrado":
             lines.append(f"- {product}{f' | {requested}' if requested else ''}")
-            alternatives = [
-                str(option)
-                for option in (item.get("alternativas") or [])[:3]
-                if option
-            ]
-            if alternatives:
-                lines.append(f"  Opcoes reais encontradas: {', '.join(alternatives)}")
         else:
             missing = ", ".join(item.get("faltando") or [])
             lines.append(f"- {product}: falta confirmar {missing or 'a opcao exata'}")
@@ -743,10 +774,7 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
     if any(not item.get("quantidade") for item in found):
         lines += ["", "Informe a quantidade dos itens que ainda estao sem quantidade."]
     if pending:
-        lines += [
-            "",
-            "Responda corrigindo o item faltante ou diga para remover esse item do pedido.",
-        ]
+        lines += ["", "Me envie a correcao dos itens nao encontrados ou diga qual deles devo remover."]
     return "\n".join(lines)
 
 
@@ -1162,7 +1190,7 @@ def process_secretary_message(
     reply = ""
     action = "secretary_reply"
 
-    if STATUS_RE.search(text) and not state.get("items"):
+    if STATUS_RE.search(text) and not _sale_type_code_from_text(text) and not state.get("items"):
         reply = _latest_orders(db, int(representative["cod_rep"]))
         action = "secretary_status"
     elif CANCEL_RE.search(text):
@@ -1256,17 +1284,46 @@ def process_secretary_message(
         if sale_type_code:
             state["sale_type_code"] = sale_type_code
         sale_type_only = bool(sale_type_code and _sale_type_only_message(text))
-        customers = _portfolio_customers(db, int(representative["cod_rep"]))
-        if NEW_ORDER_RE.search(text) and _has_order_context(state):
+        customers = []
+        if not state.get("customer") and sale_type_only:
+            reply = _start_conversation_reply(state)
+            action = "secretary_sale_type_selected"
+        elif not state.get("customer") and _generic_chat_message(text):
+            reply = _start_conversation_reply(state)
+            action = "secretary_greeting"
+
+        if not reply:
+            customers = _portfolio_customers(db, int(representative["cod_rep"]))
+        if not reply and NEW_ORDER_RE.search(text) and _has_order_context(state):
             state["pending_action"] = {
                 "type": "reset_order",
                 "prompt": "Voce quer apagar o pedido atual e comecar um novo? Responda *confirmo* para apagar ou *continuar* para manter.",
             }
             reply = state["pending_action"]["prompt"]
             action = "secretary_confirm_reset"
-        elif state.get("customer"):
-            candidate = _customer_change_candidate(customers, text, state.get("customer"))
-            if candidate:
+        elif not reply and state.get("customer"):
+            if sale_type_only:
+                if state.get("items"):
+                    order = _save_draft(db, conversation, representative, state)
+                    state["order_id"] = order.get("id")
+                    state["protocol"] = order.get("protocol")
+                    state["ready_to_submit"] = True
+                    reply = (
+                        f"Tipo de pedido definido: *{_sale_type_label(state.get('sale_type_code'))}*.\n\n"
+                        + _order_summary(
+                            state["customer"],
+                            state.get("items") or [],
+                            state.get("observations") or "",
+                        )
+                    )
+                else:
+                    reply = (
+                        f"Perfeito, pedido *{_sale_type_label(state.get('sale_type_code'))}*. "
+                        "Agora me envie os produtos e quantidades."
+                    )
+                action = "secretary_sale_type_selected"
+            candidate = None if reply else _customer_change_candidate(customers, text, state.get("customer"))
+            if not reply and candidate:
                 state["pending_action"] = {
                     "type": "change_customer",
                     "customer": candidate,
@@ -1277,7 +1334,7 @@ def process_secretary_message(
                 }
                 reply = state["pending_action"]["prompt"]
                 action = "secretary_confirm_customer_change"
-            elif CHANGE_CUSTOMER_RE.search(text):
+            elif not reply and CHANGE_CUSTOMER_RE.search(text):
                 state["pending_action"] = {
                     "type": "change_customer_pending_code",
                     "prompt": "Qual e o codigo, nome ou documento do cliente correto?",
@@ -1312,7 +1369,10 @@ def process_secretary_message(
                         for index, customer in enumerate(matches, 1)
                     )
                 else:
-                    reply = "Nao encontrei esse cliente na sua carteira. Informe nome, codigo, documento ou cidade."
+                    reply = (
+                        "Ainda nao consegui localizar esse cliente na carteira do Eliezer. "
+                        "Me envie o codigo do cliente, CNPJ/CPF, nome ou cidade que eu procuro de novo."
+                    )
         elif not reply:
             customer = state["customer"]
             if sale_type_only:

@@ -369,6 +369,75 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(secretary_agent._sale_type_code_from_text("bonificacao acordo"), "BONIF4")
         self.assertEqual(secretary_agent._sale_type_code_from_text("normal com nota"), "9010O")
         self.assertTrue(secretary_agent._sale_type_only_message("pedido normal"))
+        self.assertTrue(secretary_agent._sale_type_only_message("entrada pedido normal."))
+
+    def test_generic_message_without_customer_starts_conversation_naturally(self):
+        saved_states = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent, "_conversation", return_value={"id": "conv-1", "state_json": {}}
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_portfolio_customers"
+        ) as portfolio, patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5598981522794", "teste", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_greeting")
+        self.assertIn("sou a secretaria de pedidos", result["reply"])
+        self.assertIn("codigo, nome ou documento do cliente", result["reply"])
+        portfolio.assert_not_called()
+
+    def test_sale_type_without_customer_is_not_treated_as_product_or_customer(self):
+        saved_states = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent, "_conversation", return_value={"id": "conv-1", "state_json": {}}
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_portfolio_customers"
+        ) as portfolio, patch.object(
+            secretary_agent, "_resolve_products_with_sales_subagent"
+        ) as resolve_products, patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5598981522794", "pedido normal", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_sale_type_selected")
+        self.assertIn("pedido normal", result["reply"])
+        self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
+        portfolio.assert_not_called()
+        resolve_products.assert_not_called()
+
+    def test_sale_type_with_customer_does_not_go_to_product_resolver(self):
+        customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        saved_states = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={"id": "conv-1", "state_json": {"customer": customer}},
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_portfolio_customers", return_value=[customer]
+        ), patch.object(
+            secretary_agent, "_resolve_products_with_sales_subagent"
+        ) as resolve_products, patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5598981522794", "pedido normal", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_sale_type_selected")
+        self.assertIn("Agora me envie os produtos", result["reply"])
+        self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
+        resolve_products.assert_not_called()
 
     def test_created_order_number_reads_nested_clic_response(self):
         response = {
@@ -429,14 +498,14 @@ class SecretaryAgentTests(unittest.TestCase):
                 ]
             }
         )
-        self.assertIn("Montei o rascunho com os itens encontrados", reply)
-        self.assertIn("Itens encontrados no rascunho:", reply)
+        self.assertIn("Pedido conferido:", reply)
+        self.assertIn("Encontrados:", reply)
         self.assertIn("SGPSSLAR - SUCO GALAO LARANJA PET | 5L | 20 un", reply)
         self.assertIn("Total parcial encontrado: R$ 577,60", reply)
-        self.assertIn("Itens que nao encontrei", reply)
+        self.assertIn("Nao encontrados:", reply)
         self.assertIn("- uva | bag 5L", reply)
-        self.assertIn("Opcoes reais encontradas: Uva bolsa 5L, Uva copo 200ml", reply)
-        self.assertIn("corrigindo o item faltante", reply)
+        self.assertNotIn("Opcoes reais", reply)
+        self.assertIn("correcao dos itens nao encontrados", reply)
 
     def test_later_found_product_replaces_pending_equivalent(self):
         resolution = {
@@ -490,9 +559,9 @@ class SecretaryAgentTests(unittest.TestCase):
         cleaned = secretary_agent._drop_resolved_pending_items(resolution)
         self.assertEqual(len(cleaned["itens"]), 2)
         reply = secretary_agent._secretary_resolution_reply(cleaned)
-        self.assertIn("Itens que nao encontrei", reply)
+        self.assertIn("Nao encontrados", reply)
         self.assertIn("laranja composto", reply)
-        self.assertIn("Composto De Laranja: bolsa 5L", reply)
+        self.assertNotIn("Composto De Laranja: bolsa 5L", reply)
 
     def test_short_size_reply_replaces_generic_pending_equivalent(self):
         resolution = {
