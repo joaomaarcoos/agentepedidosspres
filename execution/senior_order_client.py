@@ -21,7 +21,7 @@ from xml.sax.saxutils import escape
 import requests
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 
 def _text(value: Any) -> str:

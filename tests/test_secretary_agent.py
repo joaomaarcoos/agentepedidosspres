@@ -649,6 +649,37 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertNotIn("items", saved_states[-1])
         self.assertNotIn("pending_action", saved_states[-1])
 
+    def test_ready_order_accepts_sim_as_confirmation_to_submit(self):
+        customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        db = _FakeDb({"secretary_orders": [{"id": "order-1"}]})
+        with patch.object(secretary_agent, "_db", return_value=db), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": customer,
+                    "items": [{"cod_produto": "SGRSSLAR", "quantidade": 10, "subtotal": 59.20}],
+                    "order_id": "order-1",
+                    "ready_to_submit": True,
+                },
+            },
+        ), patch.object(secretary_agent, "_add_message", return_value=True), patch.object(
+            secretary_agent, "_save_state"
+        ), patch.object(
+            secretary_agent, "_resolve_products_with_sales_subagent"
+        ) as resolve_products, patch.object(
+            secretary_agent, "_submit", return_value=(True, "Pedido enviado ao Senior ERP com sucesso. Pedido numero *123*."),
+        ) as submit:
+            result = secretary_agent.process_secretary_message("5598981522794", "sim", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_submitted")
+        self.assertIn("Pedido enviado", result["reply"])
+        submit.assert_called_once()
+        resolve_products.assert_not_called()
+
     def test_quantity_like_number_does_not_trigger_customer_change_by_fuzzy_match(self):
         customers = [
             {"code": "1233", "name": "Cliente Atual", "document": "1"},

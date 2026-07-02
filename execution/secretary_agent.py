@@ -40,6 +40,10 @@ ELIEZER_REP_DOCUMENT = "34501704810"
 ELIEZER_FALLBACK_COD_REP = 52
 REPRESENTATIVE_PROFILES_KEY = "clic_representative_profiles"
 CUSTOMER_PROFILES_KEY = "clic_customer_profiles"
+CONFIRM_RE = re.compile(
+    r"\b(sim|ok|okay|confirmo|confirmado|pode enviar|pode mandar|pode fechar|manda|envia|fechar|esta tudo certo|est[aÃ¡] certo|correto|certo)\b",
+    re.I,
+)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -799,7 +803,7 @@ def _order_summary(
     if observations:
         lines += ["", f"Observacoes: {observations}"]
     if ask_confirmation:
-        lines += ["", "Se estiver correto, responda *confirmo* para enviar ao Senior ERP."]
+        lines += ["", "Se estiver correto, responda *sim*, *confirmo* ou *pode enviar* para enviar ao Senior ERP."]
     return "\n".join(lines).replace(".", ",")
 
 
