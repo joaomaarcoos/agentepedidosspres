@@ -42,6 +42,27 @@ class _FakeDb:
         return _FakeQuery(self.tables.get(name, []))
 
 
+class _CaptureUpsertQuery:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def upsert(self, row, **kwargs):
+        self.calls.append((row, kwargs))
+        return self
+
+    def execute(self):
+        return type("Result", (), {"data": []})()
+
+
+class _CaptureUpsertDb:
+    def __init__(self):
+        self.calls = []
+
+    def table(self, name):
+        self.calls.append(("table", name))
+        return _CaptureUpsertQuery(self.calls)
+
+
 class SecretaryAgentTests(unittest.TestCase):
     def test_protocol_has_secretary_prefix(self):
         self.assertRegex(secretary_agent._new_protocol(), r"^MSE-\d{6}-[A-F0-9]{6}$")
@@ -131,10 +152,12 @@ class SecretaryAgentTests(unittest.TestCase):
         ):
             self.assertTrue(secretary_agent.is_secretary_phone_allowed("5516988887777"))
 
-    def test_secretary_default_allows_only_eliezer_phone(self):
+    def test_secretary_default_allows_eliezer_and_test_phone(self):
         with patch.dict("os.environ", {}, clear=True):
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("5516991377335"))
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("16991377335"))
+            self.assertTrue(secretary_agent._is_secretary_phone_allowed("98981522794"))
+            self.assertTrue(secretary_agent._is_secretary_phone_allowed("5598981522794"))
             self.assertFalse(secretary_agent._is_secretary_phone_allowed("5516888888888"))
 
     def test_allowed_eliezer_phone_uses_profile_fallback(self):
@@ -265,6 +288,49 @@ class SecretaryAgentTests(unittest.TestCase):
             [item["codigoVariacao"] for item in payload[0]["itens"]],
             ["900", "200", "05L"],
         )
+
+    def test_senior_order_is_mirrored_to_rep_order_base_for_representative(self):
+        db = _CaptureUpsertDb()
+        result = type("SeniorResult", (), {"parsed": {"sitPed": "1"}})()
+        ok = secretary_agent._save_senior_order_to_rep_order_base(
+            db,
+            {
+                "id": "order-1",
+                "protocol": "MSE-260702-ABC123",
+                "instance_name": "secretaria",
+                "cod_rep": 52,
+                "customer_code": "16069",
+                "customer_document": "42423525818",
+                "customer_name": "IGOR MIRANDA BORGES",
+                "total": 71.04,
+                "items_json": [
+                    {
+                        "cod_produto": "SGRSSLAR",
+                        "derivacao": "900",
+                        "nome": "SUCO GARRAFA LARANJA",
+                        "quantidade": 12,
+                        "preco_unitario": 5.92,
+                        "subtotal": 71.04,
+                    }
+                ],
+            },
+            "352739",
+            result,
+        )
+
+        self.assertTrue(ok)
+        self.assertEqual(db.calls[0], ("table", "rep_order_base"))
+        row, kwargs = db.calls[1]
+        self.assertEqual(kwargs, {"on_conflict": "cod_rep,num_ped"})
+        self.assertEqual(row["cod_rep"], 52)
+        self.assertEqual(row["cod_cli"], 16069)
+        self.assertEqual(row["rep_name"], "ELIEZER GONZAGA DOS REIS")
+        self.assertEqual(row["num_ped"], "352739")
+        self.assertEqual(row["source"], "senior_erp")
+        self.assertEqual(row["origin_agent"], "marcela_secretaria")
+        self.assertEqual(row["origin_protocol"], "MSE-260702-ABC123")
+        self.assertEqual(row["items_json"][0]["codPro"], "SGRSSLAR")
+        self.assertEqual(row["items_json"][0]["qtdPed"], 12.0)
 
     def test_build_clic_payload_requires_sale_type(self):
         with self.assertRaises(ValueError):

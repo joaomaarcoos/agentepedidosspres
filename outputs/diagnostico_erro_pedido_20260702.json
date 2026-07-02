@@ -1,0 +1,169 @@
+{
+  "note": "Nao havia logs no dia 2026-07-02 no banco configurado; este e o unico erro salvo encontrado.",
+  "order": {
+    "id": "74088529-58b3-4a32-ae8b-469beeabc528",
+    "protocol": "MSE-260624-171E5F",
+    "conversation_id": null,
+    "instance_name": "manual-test",
+    "cod_rep": 52,
+    "representative_phone": "5516991377335",
+    "customer_code": "1233",
+    "customer_document": "05482507000142",
+    "customer_name": "BIUNESSA & GAZZOTTI DISTRIBUIDORA DE ALIMENTOS LTDA",
+    "price_table_code": "205",
+    "items_json": [
+      {
+        "derivacao": "900",
+        "quantidade": 12,
+        "cod_produto": "SGRSSLAR"
+      },
+      {
+        "derivacao": "200",
+        "quantidade": 20,
+        "cod_produto": "SCPSSLAR"
+      }
+    ],
+    "observations": "Teste manual sem preco e sem tabela nos itens; produto, variacao e quantidade.",
+    "total": 0.0,
+    "status": "failed",
+    "idempotency_key": "manual-test:MSE-260624-171E5F",
+    "clic_order_number": null,
+    "clic_external_id": null,
+    "clic_status": null,
+    "submit_payload": [
+      {
+        "itens": [
+          {
+            "quantidade": 12,
+            "codigoProduto": "SGRSSLAR",
+            "codigoVariacao": "900"
+          },
+          {
+            "quantidade": 20,
+            "codigoProduto": "SCPSSLAR",
+            "codigoVariacao": "200"
+          }
+        ],
+        "codigoTipoVenda": "9010O",
+        "numeroDocumentoCliente": "05482507000142",
+        "numeroDocumentoRepresentante": "34501704810"
+      }
+    ],
+    "submit_response": {
+      "codigo": 1,
+      "mensagem": "Processamento em lote concluído",
+      "resultados": [
+        {
+          "body": {
+            "itens": [
+              {
+                "quantidade": 12,
+                "codigoProduto": "SGRSSLAR",
+                "codigoVariacao": "900"
+              },
+              {
+                "quantidade": 20,
+                "codigoProduto": "SCPSSLAR",
+                "codigoVariacao": "200"
+              }
+            ],
+            "codigoTipoVenda": "9010O",
+            "numeroPedidoClicVenda": "810362838",
+            "numeroDocumentoCliente": "05482507000142",
+            "numeroDocumentoRepresentante": "34501704810"
+          },
+          "codigo": 0,
+          "mensagem": "Falha ao processar item: Error: Tabela de preço 'undefined' não encontrada para o produto SGRSSLAR"
+        }
+      ],
+      "totalFalhas": 1,
+      "totalSucessos": 0,
+      "totalItensProcessados": 1
+    },
+    "error_message": null,
+    "confirmed_at": "2026-06-24T16:22:21.48651+00:00",
+    "submitted_at": "2026-06-24T16:22:21.48651+00:00",
+    "synced_at": null,
+    "created_at": "2026-06-24T16:22:21.48651+00:00",
+    "updated_at": "2026-06-24T16:22:23.408412+00:00",
+    "sale_type_code": "9010O"
+  },
+  "logs": [
+    {
+      "id": "0aab73db-9713-4de9-b65a-5772b96e6a91",
+      "source": "secretary_manual_test",
+      "operation": "create_order_without_price_with_quantity",
+      "endpoint": "/extpedidos",
+      "method": "POST",
+      "status": "success",
+      "http_status": 200,
+      "order_id": "74088529-58b3-4a32-ae8b-469beeabc528",
+      "protocol": "MSE-260624-171E5F",
+      "cod_rep": 52,
+      "representative_document": "34501704810",
+      "customer_code": "1233",
+      "customer_document": "05482507000142",
+      "request_payload": [
+        {
+          "itens": [
+            {
+              "quantidade": 12,
+              "codigoProduto": "SGRSSLAR",
+              "codigoVariacao": "900"
+            },
+            {
+              "quantidade": 20,
+              "codigoProduto": "SCPSSLAR",
+              "codigoVariacao": "200"
+            }
+          ],
+          "codigoTipoVenda": "9010O",
+          "numeroDocumentoCliente": "05482507000142",
+          "numeroDocumentoRepresentante": "34501704810"
+        }
+      ],
+      "response_payload": {
+        "codigo": 1,
+        "mensagem": "Processamento em lote concluído",
+        "resultados": [
+          {
+            "body": {
+              "itens": [
+                {
+                  "quantidade": 12,
+                  "codigoProduto": "SGRSSLAR",
+                  "codigoVariacao": "900"
+                },
+                {
+                  "quantidade": 20,
+                  "codigoProduto": "SCPSSLAR",
+                  "codigoVariacao": "200"
+                }
+              ],
+              "codigoTipoVenda": "9010O",
+              "numeroPedidoClicVenda": "810362838",
+              "numeroDocumentoCliente": "05482507000142",
+              "numeroDocumentoRepresentante": "34501704810"
+            },
+            "codigo": 0,
+            "mensagem": "Falha ao processar item: Error: Tabela de preço 'undefined' não encontrada para o produto SGRSSLAR"
+          }
+        ],
+        "totalFalhas": 1,
+        "totalSucessos": 0,
+        "totalItensProcessados": 1
+      },
+      "error_message": null,
+      "created_at": "2026-06-24T16:22:21.48651+00:00",
+      "sent_at": "2026-06-24T16:22:21.48651+00:00",
+      "responded_at": "2026-06-24T16:22:23.730692+00:00",
+      "duration_ms": 1492
+    }
+  ],
+  "analysis": {
+    "erro": "Tabela de pre?o 'undefined' n?o encontrada para o produto SGRSSLAR",
+    "causa": "Payload enviado ao ClicVendas sem codigoTabelaPreco/precoVenda; nao foi uma chamada Senior ERP.",
+    "endpoint": "/extpedidos",
+    "fluxo": "ClicVendas legado/manual_test"
+  }
+}

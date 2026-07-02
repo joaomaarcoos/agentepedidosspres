@@ -35,7 +35,7 @@ NEW_ORDER_RE = re.compile(r"\b(novo pedido|outro pedido|recomecar|recomeçar|com
 CHANGE_CUSTOMER_RE = re.compile(r"\b(trocar cliente|mudar cliente|alterar cliente|cliente errado|corrigir cliente)\b", re.I)
 KEEP_CURRENT_RE = re.compile(r"\b(continuar|continua|manter|fica nesse|seguir nesse|nao trocar|não trocar)\b", re.I)
 REFERENCE_RE = re.compile(r"\bMSE-\d{6}-[A-Z0-9]{6}\b", re.I)
-DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335"
+DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335,98981522794"
 ELIEZER_REP_DOCUMENT = "34501704810"
 ELIEZER_FALLBACK_COD_REP = 52
 REPRESENTATIVE_PROFILES_KEY = "clic_representative_profiles"
@@ -941,6 +941,75 @@ def _build_clic_order_payload(order: dict, representative_document: str | None =
     ]
 
 
+def _rep_order_base_items(order: dict) -> list[dict]:
+    rows = []
+    for item in order.get("items_json") or []:
+        if not isinstance(item, dict):
+            continue
+        quantity = _safe_float(item.get("quantidade") or item.get("qtdPed"))
+        unit_price = _safe_float(item.get("preco_unitario"))
+        total = _safe_float(item.get("subtotal"))
+        if not total and quantity and unit_price:
+            total = round(quantity * unit_price, 2)
+        rows.append(
+            {
+                "codPro": str(item.get("cod_produto") or item.get("codPro") or item.get("codigo") or ""),
+                "codDer": str(item.get("derivacao") or item.get("variacao") or item.get("codDer") or ""),
+                "desPro": str(item.get("nome") or item.get("produto") or item.get("nome_catalogo") or ""),
+                "qtdPed": quantity,
+                "vlrUnit": unit_price,
+                "vlrTotal": total,
+                "unidade": str(item.get("unidade") or "UN"),
+            }
+        )
+    return rows
+
+
+def _save_senior_order_to_rep_order_base(db, order: dict, number: str, result: Any) -> bool:
+    if not number:
+        return False
+    try:
+        cod_rep = int(order.get("cod_rep"))
+    except (TypeError, ValueError):
+        return False
+    try:
+        cod_cli = int(order.get("customer_code"))
+    except (TypeError, ValueError):
+        cod_cli = None
+    now = _now()
+    row = {
+        "id": str(uuid.uuid4()),
+        "cod_rep": cod_rep,
+        "cod_cli": cod_cli,
+        "customer_document": order.get("customer_document"),
+        "customer_name": order.get("customer_name"),
+        "rep_name": order.get("representative_name")
+        or ("ELIEZER GONZAGA DOS REIS" if cod_rep == ELIEZER_FALLBACK_COD_REP else f"Representante {cod_rep}"),
+        "num_ped": str(number),
+        "dat_emi": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "sit_ped": str((getattr(result, "parsed", {}) or {}).get("sitPed") or "1"),
+        "order_total_value": _safe_float(order.get("total")),
+        "items_json": _rep_order_base_items(order),
+        "has_items": bool(order.get("items_json")),
+        "source": "senior_erp",
+        "external_id": str(number),
+        "observation": order.get("observations") or None,
+        "origin_agent": "marcela_secretaria",
+        "origin_order_id": order.get("id"),
+        "origin_instance": order.get("instance_name"),
+        "origin_cod_rep": cod_rep,
+        "origin_protocol": order.get("protocol"),
+        "erp_synced_at": now,
+        "created_at": now,
+        "updated_at": now,
+    }
+    try:
+        db.table("rep_order_base").upsert(row, on_conflict="cod_rep,num_ped").execute()
+        return True
+    except Exception:
+        return False
+
+
 def _submit(db, order: dict) -> tuple[bool, str]:
     if order.get("status") in {"submitted", "synced"}:
         number = order.get("clic_order_number")
@@ -998,6 +1067,14 @@ def _submit(db, order: dict) -> tuple[bool, str]:
                 }
             ).eq("id", order["id"]).execute()
             return False, "Senior ERP retornou sucesso sem numero de pedido. Verifique os logs antes de reenviar."
+        mirrored = _save_senior_order_to_rep_order_base(db, order, number, result)
+        if not mirrored:
+            db.table("secretary_orders").update(
+                {
+                    "error_message": "Pedido enviado ao Senior, mas nao foi espelhado em rep_order_base.",
+                    "updated_at": _now(),
+                }
+            ).eq("id", order["id"]).execute()
         return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*."
     except Exception as exc:
         http_status, response_payload, error_message = _clic_error_payload(exc)

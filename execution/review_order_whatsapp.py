@@ -329,7 +329,7 @@ def format_order_review_message(order: dict) -> str:
         lines += ["", f"Observações: {_text(order.get('observacoes'))}"]
     lines += [
         "",
-        "Lance esse pedido manualmente no Clic Vendas.",
+        "Revise esse pedido pelo fluxo autorizado do Senior ERP.",
         f"Depois de lançar, responda: aprovar {protocolo}",
         f"Para cancelar, responda: cancelar {protocolo}",
     ]
@@ -379,31 +379,9 @@ def _clic_item_payload(item: dict) -> dict:
 
 
 def _submit_order_to_clic(db, order: dict, cod_rep: int | None) -> dict:
-    from clic_vendas_client import ClicVendasClient
-
-    customer = _customer_by_phone(db, _text(order.get("cliente_telefone"))) or {}
-    cod_cli = customer.get("cod_cli") or customer.get("cpf_cnpj") or customer.get("documento")
-    if not cod_cli:
-        raise RuntimeError("Cliente sem código/documento para envio ao Clic Vendas")
-    if cod_rep is None:
-        raise RuntimeError("Representante sem cod_rep para envio ao Clic Vendas")
-
-    items = [_clic_item_payload(item) for item in order.get("itens_json") or [] if isinstance(item, dict)]
-    if not items:
-        raise RuntimeError("Pedido sem itens para envio ao Clic Vendas")
-
-    total = sum(float(item.get("valorTotal") or 0) for item in items)
-    payload = {
-        "cliente": {"backoffice": {"codigo": cod_cli}},
-        "representante": {"backoffice": {"codigo": cod_rep}},
-        "itens": items,
-        "situacao": {"id": "aprovado"},
-        "observacao": f"Pedido aprovado via IA. Protocolo interno {order.get('protocolo')}. {order.get('observacoes') or ''}".strip(),
-    }
-    if total > 0:
-        payload["totais"] = {"valorTotalLiquido": round(total, 2)}
-
-    return ClicVendasClient().post("/extpedidos", payload)
+    raise RuntimeError(
+        "Envio legado ao Clic Vendas desativado. Pedidos novos devem ser enviados pelo Senior ERP."
+    )
 
 
 def _extract_created_order_number(response: dict) -> str:
@@ -516,9 +494,9 @@ def process_representative_message(phone: str, text: str, instance_name: str) ->
         "Use somente os pedidos fornecidos no contexto e nunca mostre pedidos de outro representante. "
         "Quando perguntarem quais pedidos estão pendentes, informe protocolo, cliente, telefone, itens e total. "
         "Quando perguntarem por um protocolo, detalhe somente esse pedido. "
-        "Explique que 'aprovar PROTOCOLO' significa que o representante já lançou o pedido manualmente no Clic Vendas. "
+        "Explique que 'aprovar PROTOCOLO' significa que o representante revisou e autorizou o pedido. "
         "Explique que 'cancelar PROTOCOLO' cancela a revisão. "
-        "Não diga que enviará automaticamente ao Clic Vendas, porque essa integração está desativada. "
+        "Não diga que enviará automaticamente ao Clic Vendas, porque pedidos novos usam o fluxo do Senior ERP. "
         "Não altere status por conversa comum; alterações só ocorrem pelos comandos explícitos processados pelo sistema."
     )
     payload = {
@@ -602,5 +580,5 @@ def process_representative_order_command(phone: str, text: str, instance_name: s
     return {
         "action": "review_approved_manual",
         "should_reply": True,
-        "reply": f"Pedido {protocolo} marcado como feito. Considerei que você subiu esse pedido manualmente no Clic Vendas.",
+        "reply": f"Pedido {protocolo} marcado como feito. Considerei que você revisou e autorizou esse pedido.",
     }
