@@ -41,9 +41,10 @@ def select_sale_type_tool(
             )
         )
     else:
+        state["awaiting_observation"] = True
         reply = (
             f"Perfeito, pedido *{sale_type_label(state.get('sale_type_code'))}*. "
-            "Agora me envie os produtos e quantidades."
+            "Quer adicionar alguma observacao nesse pedido? Se nao quiser, responda *nao*."
         )
     return ToolResult("secretary_sale_type_selected", reply, state)
 
@@ -71,6 +72,7 @@ def resolve_products_tool(
     resolution_items: Callable[[dict | None], list[dict]],
     safe_float: Callable[[Any], float],
     resolution_reply: Callable[[dict | None], str],
+    suggestions_enricher: Callable[[dict | None, list[dict]], dict | None] | None = None,
     save_draft: Callable[[dict], dict],
     order_summary: Callable[[dict, list[dict], str], str],
 ) -> ToolResult:
@@ -91,6 +93,8 @@ def resolve_products_tool(
         )
 
     resolution = drop_resolved_pending_items(resolution) or resolution
+    if suggestions_enricher:
+        resolution = suggestions_enricher(resolution, catalog) or resolution
     state["catalog_resolution"] = resolution
     current = resolution_items(resolution)
     issues = [

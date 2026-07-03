@@ -11,6 +11,7 @@ import clic_vendas_client
 import secretary_agent
 import secretary_ai_agent
 import secretary_tools
+import senior_order_client
 
 
 class _FakeQuery:
@@ -554,8 +555,9 @@ class SecretaryAgentTests(unittest.TestCase):
             result = secretary_agent.process_secretary_message("5598981522794", "pedido normal", "secretaria")
 
         self.assertEqual(result["action"], "secretary_sale_type_selected")
-        self.assertIn("Agora me envie os produtos", result["reply"])
+        self.assertIn("Quer adicionar alguma observacao", result["reply"])
         self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
+        self.assertTrue(saved_states[-1]["awaiting_observation"])
         resolve_products.assert_not_called()
 
     def test_natural_sale_type_phrase_with_customer_is_not_product(self):
@@ -581,7 +583,67 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(result["action"], "secretary_sale_type_selected")
         self.assertIn("pedido normal", result["reply"])
         self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
+        self.assertTrue(saved_states[-1]["awaiting_observation"])
         resolve_products.assert_not_called()
+
+    def test_observation_no_after_sale_type_asks_for_products(self):
+        customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        saved_states = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": customer,
+                    "sale_type_code": "9010O",
+                    "awaiting_observation": True,
+                },
+            },
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5598981522794", "nao", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_observation_skipped")
+        self.assertIn("Agora me envie os produtos", result["reply"])
+        self.assertTrue(saved_states[-1]["observation_step_done"])
+        self.assertNotIn("awaiting_observation", saved_states[-1])
+
+    def test_observation_text_is_saved_before_products(self):
+        customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        saved_states = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": customer,
+                    "sale_type_code": "9010O",
+                    "awaiting_observation": True,
+                },
+            },
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message(
+                "5598981522794",
+                "entregar pela manhã",
+                "secretaria",
+            )
+
+        self.assertEqual(result["action"], "secretary_observation_saved")
+        self.assertEqual(saved_states[-1]["observations"], "entregar pela manhã")
+        self.assertIn("Agora me envie os produtos", result["reply"])
 
     def test_created_order_number_reads_nested_clic_response(self):
         response = {
@@ -596,6 +658,39 @@ class SecretaryAgentTests(unittest.TestCase):
             ]
         }
         self.assertEqual(secretary_agent._created_order_number(response), "742269263")
+
+    def test_senior_observation_payload_uses_inserir_observacoes(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "SENIOR_BASE_URL": "https://senior.example.test",
+                "SENIOR_USER": "usuario",
+                "SENIOR_PASSWORD": "senha",
+                "SENIOR_ENCRYPTION": "0",
+                "SENIOR_COD_EMP": "1",
+                "SENIOR_COD_FIL": "1",
+            },
+            clear=False,
+        ):
+            client = senior_order_client.SeniorOrderClient()
+            payload = client.build_masked_observation_payload("352881", "Entregar pela manha")
+        self.assertEqual(payload["operation"], "inserirObservacoes")
+        self.assertIn("<ser:inserirObservacoes>", payload["xml"])
+        self.assertIn("<numeroPedido>352881</numeroPedido>", payload["xml"])
+        self.assertIn("<observacao>Entregar pela manha</observacao>", payload["xml"])
+        self.assertIn("***MASKED***", payload["xml"])
+
+    def test_parse_senior_observation_response(self):
+        parsed = senior_order_client.parse_inserir_observacoes_response(
+            """<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body>
+            <ns2:inserirObservacoesResponse xmlns:ns2="http://services.senior.com.br"><result>
+            <codigoResultado>1</codigoResultado><resultado>OK</resultado>
+            <retorno><codigoEmpresa>1</codigoEmpresa><codigoFilial>1</codigoFilial>
+            <numeroPedido>352881</numeroPedido></retorno>
+            </result></ns2:inserirObservacoesResponse></S:Body></S:Envelope>"""
+        )
+        self.assertEqual(parsed["codigoResultado"], "1")
+        self.assertEqual(parsed["numeroPedido"], "352881")
 
     def test_secretary_reply_exposes_official_code(self):
         reply = secretary_agent._secretary_resolution_reply(
@@ -648,7 +743,8 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertIn("Total parcial encontrado: R$ 577,60", reply)
         self.assertIn("Nao encontrados:", reply)
         self.assertIn("- uva | bag 5L", reply)
-        self.assertNotIn("Opcoes reais", reply)
+        self.assertIn("Sugestoes na tabela:", reply)
+        self.assertIn("Uva bolsa 5L", reply)
         self.assertIn("correcao dos itens nao encontrados", reply)
 
     def test_later_found_product_replaces_pending_equivalent(self):
@@ -705,7 +801,40 @@ class SecretaryAgentTests(unittest.TestCase):
         reply = secretary_agent._secretary_resolution_reply(cleaned)
         self.assertIn("Nao encontrados", reply)
         self.assertIn("laranja composto", reply)
-        self.assertNotIn("Composto De Laranja: bolsa 5L", reply)
+        self.assertIn("Composto De Laranja: bolsa 5L", reply)
+
+    def test_missing_product_suggestions_use_catalog_flavor_and_size(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "laranja composto",
+                    "formato": "galao",
+                    "tamanho": "5L",
+                    "texto_original": "galao de laranja composto 5l",
+                    "alternativas": ["CBPSSLAR - COMPOSTO DE LARANJA BOLSA | 5L | R$ 24,00"],
+                },
+            ]
+        }
+        catalog = [
+            {
+                "cod_produto": "SGPSSLAR",
+                "nome_produto": "SUCO GALAO LARANJA PET",
+                "variacao": "05L",
+                "preco": 28.88,
+            },
+            {
+                "cod_produto": "SCPSSLAR",
+                "nome_produto": "SUCO COPO LARANJA",
+                "variacao": "200ML",
+                "preco": 0.36,
+            },
+        ]
+        enriched = secretary_agent._augment_resolution_suggestions(resolution, catalog)
+        reply = secretary_agent._secretary_resolution_reply(enriched)
+        self.assertIn("CBPSSLAR - COMPOSTO DE LARANJA BOLSA | 5L", reply)
+        self.assertIn("SGPSSLAR - SUCO GALAO LARANJA PET | 05L", reply)
+        self.assertNotIn("SCPSSLAR - SUCO COPO LARANJA", reply)
 
     def test_short_size_reply_replaces_generic_pending_equivalent(self):
         resolution = {

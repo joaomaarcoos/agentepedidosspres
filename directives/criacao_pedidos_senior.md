@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Mapear a requisicao SOAP direta para gravar pedidos no Senior ERP, substituindo ou complementando o envio atual via ClicVendas.
+Mapear a requisicao SOAP direta para gravar pedidos no Senior ERP.
 
 Esta diretriz define o contrato inicial. Antes de ligar em producao, ainda faltam confirmar alguns codigos comerciais do ambiente Senior.
 
@@ -11,7 +11,8 @@ Esta diretriz define o contrato inicial. Antes de ligar em producao, ainda falta
 Servico Senior:
 
 - Web service: `com.senior.g5.co.mcm.ven.pedidos`
-- Porta: `GravarPedidos`
+- Porta de criacao: `GravarPedidos`
+- Porta de observacao: `inserirObservacoes`
 - Descricao Senior: Mercado - Gestao de Vendas - Pedidos - Gravar Pedidos
 - Endpoint sincrono: `${SENIOR_BASE_URL}/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos`
 - WSDL: `${SENIOR_BASE_URL}/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos?wsdl`
@@ -26,8 +27,7 @@ Validacao feita em 2026-07-01: o WSDL do ambiente configurado respondeu HTTP 200
 - WSDL/XSD do ambiente configurado em `SENIOR_BASE_URL`.
 - Print de exemplo com `ser:GravarPedidos`.
 - Fluxo atual da secretaria em `execution/secretary_agent.py`.
-- Contrato anterior ClicVendas em `directives/criacao_pedidos_clicvendas.md`.
-- Exemplo real em `outputs/payload_pedido_clic_84475545_com_tabela_preco.json`.
+- Exemplo historico de pedido sincronizado em `outputs/payload_pedido_clic_84475545_com_tabela_preco.json`.
 
 ## Decisao atual
 
@@ -42,7 +42,7 @@ Em 2026-07-01, o envio real com usuario Senior autorizado gravou e fechou o pedi
 - `sitPed`: `1`
 - itens com `retorno=OK` e `sitIpd=1`
 
-O fluxo ativo da secretaria deve enviar pedidos direto ao Senior ERP. O envio via ClicVendas fica preservado no codigo como legado/fallback manual, mas nao deve ser o caminho chamado por padrao.
+O fluxo ativo da secretaria deve enviar pedidos direto ao Senior ERP. A criacao de pedidos nao usa ClicVendas.
 
 ## Requisicao SOAP base minima validada
 
@@ -94,7 +94,7 @@ Pedido:
 - `opeExe`: fixo `I` para incluir.
 - `codEmp`: temos em `SENIOR_COD_EMP`.
 - `codFil`: temos em `SENIOR_COD_FIL`.
-- `codCli`: temos como `customer_code` em `secretary_orders` e `cod_cli` em `rep_order_base`. Como o Clic vem do Senior, a expectativa e que seja codigo Senior.
+- `codCli`: temos como `customer_code` em `secretary_orders` e `cod_cli` em `rep_order_base`. A origem operacional desse codigo e o cadastro/pedido sincronizado do Senior.
 - `tipPed`: no teste validado foi `1`.
 - `fecPed`: usar `S` para fechar o pedido.
 
@@ -116,7 +116,55 @@ Itens:
 
 Nao falta outro codigo para reproduzir o payload do print.
 
-Os codigos de tipo de venda vindos do Senior/Clic (`9010O`, `9010P`, `BONIF4` etc.) ficam fora do payload minimo. Eles so entram se descobrirmos, em teste, qual campo o Senior exige para diferenciar normal, PDV e bonificacao na gravacao direta. O principal candidato e `tnsPro`, mas o payload validado nao precisou dele.
+Os codigos de tipo de venda (`9010O`, `9010P`, `BONIF4` etc.) ficam fora do payload minimo. Eles so entram se descobrirmos, em teste, qual campo o Senior exige para diferenciar normal, PDV e bonificacao na gravacao direta. O principal candidato e `tnsPro`, mas o payload validado nao precisou dele.
+
+## Observacao do pedido
+
+Confirmado no XSD do proprio servico Senior em 2026-07-03: a observacao nao deve ser enviada dentro de `GravarPedidos`.
+
+O servico possui uma operacao separada chamada `inserirObservacoes`.
+
+Campos de entrada da operacao `inserirObservacoes`:
+
+- `pedido.codigoEmpresa`: empresa Senior. Origem: `SENIOR_COD_EMP`.
+- `pedido.codigoFilial`: filial Senior. Origem: `SENIOR_COD_FIL`.
+- `pedido.numeroPedido`: numero retornado por `GravarPedidos` em `respostaPedido.numPed`.
+- `pedido.observacao`: texto informado pelo representante no WhatsApp.
+- `pedido.sequenciaItemProduto`: opcional. Usar vazio para observacao geral do pedido.
+- `pedido.sequenciaItemServico`: opcional. Usar vazio para observacao geral do pedido.
+
+Fluxo correto:
+
+1. Chamar `GravarPedidos` para criar o pedido.
+2. Ler `respostaPedido.numPed`.
+3. Se o representante informou observacao, chamar `inserirObservacoes` usando o numero do pedido retornado.
+4. Salvar log separado para `GravarPedidos` e para `inserirObservacoes`.
+
+Payload SOAP de observacao geral do pedido:
+
+```xml
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:ser="http://services.senior.com.br">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <ser:inserirObservacoes>
+      <user>${SENIOR_USER}</user>
+      <password>${SENIOR_PASSWORD}</password>
+      <encryption>${SENIOR_ENCRYPTION}</encryption>
+      <parameters>
+        <pedido>
+          <codigoEmpresa>${SENIOR_COD_EMP}</codigoEmpresa>
+          <codigoFilial>${SENIOR_COD_FIL}</codigoFilial>
+          <numeroPedido>${NUMERO_PEDIDO_RETORNADO}</numeroPedido>
+          <observacao>${OBSERVACAO_DO_REPRESENTANTE}</observacao>
+        </pedido>
+      </parameters>
+    </ser:inserirObservacoes>
+  </soapenv:Body>
+</soapenv:Envelope>
+```
+
+Regra: nao inventar campo `obsPed` em `GravarPedidos`. `obsPed` aparece em estruturas de exportacao/consulta, mas a gravacao direta de observacao confirmada para este servico e `inserirObservacoes`.
 
 ## Implementacao atual
 
@@ -125,14 +173,14 @@ Os codigos de tipo de venda vindos do Senior/Clic (`9010O`, `9010P`, `BONIF4` et
 - Payload salvo em `secretary_orders.submit_payload` com senha mascarada.
 - Resposta salva em `secretary_orders.submit_response`.
 - Numero Senior salvo provisoriamente em `secretary_orders.clic_order_number` por compatibilidade com schema/UI existente.
-- Logs continuam usando a tabela legada `clic_request_logs`, mas com `source=secretary_senior` e `operation=GravarPedidos`.
+- Logs continuam usando a tabela existente `clic_request_logs`, mas com `source=secretary_senior` e `operation=GravarPedidos` ou `operation=inserirObservacoes`.
 
 ## Campos pendentes ou a confirmar
 
 Obrigatorios pela documentacao ou pela regra comercial:
 
-- `codCpg`: condicao de pagamento. O fluxo atual omite no Clic para preenchimento automatico. Para Senior direto, precisa vir do cadastro do cliente/pedido ou de uma regra padrao.
-- `cifFob`: frete CIF/FOB. O Clic retornou exemplo com `C`, mas precisamos confirmar regra por cliente/pedido.
+- `codCpg`: condicao de pagamento. Para Senior direto, precisa vir do cadastro do cliente/pedido ou de uma regra padrao.
+- `cifFob`: frete CIF/FOB. Precisamos confirmar regra por cliente/pedido.
 - `tnsPro`: transacao de pedido para produto. Deve ser mapeada por tipo de pedido.
 - `pgtAnt`: pagamento antecipado. Sugestao inicial `N`, mas precisa confirmacao comercial.
 - `uniMed`: unidade de medida por item. Sugestao inicial `UN`, mas precisa vir do cadastro do produto.
@@ -147,7 +195,7 @@ Obrigatorios pela documentacao ou pela regra comercial:
 
 Mapeamento de tipo de pedido:
 
-- Normal com nota: hoje o Clic usa `9010O` na diretriz, mas payload real integrado mostrou `tipoVenda.id/idExterno = 90100`. Confirmar se o correto no Senior e `9010O` ou `90100`.
+- Normal com nota: confirmar se o correto no Senior e `9010O`, `90100` ou outro codigo/transacao.
 - PDV sem nota: hoje mapeado como `9010P`; confirmar transacao Senior.
 - Bonificacao: hoje mapeado como `BONIF4`; confirmar se entra em `tnsPro` ou se exige outro campo/regra.
 - `tipPed`: usar `1` para pedido normal inicialmente. Bonificacao/PDV provavelmente continuam `1`; o diferencial deve ser `tnsPro`, mas falta confirmar.
@@ -181,4 +229,4 @@ Antes de implementar o cliente SOAP final, precisamos confirmar:
 1. Codigos `tnsPro` para normal, PDV e bonificacao.
 2. Origem de `codCpg`, `codFpg`, `cifFob`, `uniMed`, `datEnt` e possivelmente `codDep`.
 3. Se `numPed=0` e omissao de `catCli` sao aceitos no ambiente atual para inclusao.
-4. Se observacao deve ir em `pedido.obsPed` ou no grupo `pedido.observacao`.
+4. Resultado real de homologacao da operacao `inserirObservacoes` no ambiente de producao controlado.

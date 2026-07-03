@@ -43,6 +43,8 @@ NEW_ORDER_RE = re.compile(r"\b(novo pedido|outro pedido|recomecar|recomeçar|com
 CHANGE_CUSTOMER_RE = re.compile(r"\b(trocar cliente|mudar cliente|alterar cliente|cliente errado|corrigir cliente)\b", re.I)
 KEEP_CURRENT_RE = re.compile(r"\b(continuar|continua|manter|fica nesse|seguir nesse|nao trocar|não trocar)\b", re.I)
 REFERENCE_RE = re.compile(r"\bMSE-\d{6}-[A-Z0-9]{6}\b", re.I)
+OBSERVATION_NO_RE = re.compile(r"^\s*(n[aã]o|nao|sem|sem observacao|sem observa[cç][aã]o|nenhuma|nao precisa|não precisa)\s*[.!]?\s*$", re.I)
+OBSERVATION_YES_RE = re.compile(r"^\s*(sim|quero|pode adicionar|adicionar|tenho|tem)\s*[.!]?\s*$", re.I)
 DEFAULT_SECRETARY_ALLOWED_PHONE = "5516991377335,98981522794,559881422794"
 ELIEZER_REP_DOCUMENT = "34501704810"
 ELIEZER_FALLBACK_COD_REP = 52
@@ -168,6 +170,45 @@ def _summary_request_message(text: Any) -> bool:
     )
 
 
+def _after_observation_reply(state: dict) -> str:
+    if state.get("items"):
+        return _order_summary(
+            state["customer"],
+            state.get("items") or [],
+            state.get("observations") or "",
+        )
+    return "Certo. Agora me envie os produtos e quantidades do pedido."
+
+
+def _handle_observation_response(text: str, state: dict) -> tuple[str, str] | None:
+    if not (state.get("awaiting_observation") or state.get("awaiting_observation_text")):
+        return None
+    value = str(text or "").strip()
+    if not value:
+        return ("Pode me dizer a observacao, ou responder *nao* para seguir sem observacao.", "secretary_ask_observation")
+    if state.get("awaiting_observation_text"):
+        if OBSERVATION_NO_RE.search(value):
+            state["observations"] = ""
+        else:
+            state["observations"] = value
+        state.pop("awaiting_observation_text", None)
+        state.pop("awaiting_observation", None)
+        state["observation_step_done"] = True
+        return (_after_observation_reply(state), "secretary_observation_saved")
+    if OBSERVATION_NO_RE.search(value):
+        state["observations"] = ""
+        state.pop("awaiting_observation", None)
+        state["observation_step_done"] = True
+        return (_after_observation_reply(state), "secretary_observation_skipped")
+    if OBSERVATION_YES_RE.search(value):
+        state["awaiting_observation_text"] = True
+        return ("Qual observacao devo adicionar nesse pedido?", "secretary_ask_observation_text")
+    state["observations"] = value
+    state.pop("awaiting_observation", None)
+    state["observation_step_done"] = True
+    return (_after_observation_reply(state), "secretary_observation_saved")
+
+
 def _start_conversation_reply(state: dict) -> str:
     if state.get("sale_type_code"):
         return (
@@ -181,7 +222,12 @@ def _start_conversation_reply(state: dict) -> str:
 
 
 def _next_order_step_message(state: dict, product_wording: str = "Agora envie os produtos e quantidades do pedido.") -> str:
-    return product_wording if state.get("sale_type_code") else _sale_type_prompt()
+    if not state.get("sale_type_code"):
+        return _sale_type_prompt()
+    if not state.get("observation_step_done"):
+        state["awaiting_observation"] = True
+        return "Quer adicionar alguma observacao nesse pedido? Se nao quiser, responda *nao*."
+    return product_wording
 
 
 def _db():
@@ -689,6 +735,121 @@ def _product_words(value: Any) -> set[str]:
     }
 
 
+def _suggestion_score(option: str, item: dict) -> int:
+    option_norm = _norm(option)
+    option_size = _norm_size(option)
+    wanted_size = _norm_size(item.get("tamanho") or item.get("derivacao"))
+    wanted_words = _product_words(
+        " ".join(
+            str(item.get(key) or "")
+            for key in ("produto", "nome_catalogo", "texto_original")
+        )
+    )
+    option_words = _product_words(option)
+    score = 0
+    if wanted_size and wanted_size == option_size:
+        score += 4
+    if wanted_size and wanted_size in option_norm.replace(" ", ""):
+        score += 4
+    score += len(wanted_words & option_words) * 3
+    requested_format = _norm(item.get("formato"))
+    if requested_format and requested_format in option_norm:
+        score += 2
+    return score
+
+
+def _filtered_suggestions(item: dict, limit: int = 4) -> list[str]:
+    options = [str(option).strip() for option in item.get("alternativas") or [] if str(option).strip()]
+    if not options:
+        return []
+    scored = [(option, _suggestion_score(option, item)) for option in options]
+    positive = [pair for pair in scored if pair[1] > 0]
+    ranked = sorted(positive or scored, key=lambda pair: pair[1], reverse=True)
+    result = []
+    for option, _score in ranked:
+        if option not in result:
+            result.append(option)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _catalog_option_text(row: dict) -> str:
+    code = str(row.get("cod_produto") or "").strip()
+    name = str(row.get("nome_produto") or row.get("nome") or "").strip()
+    variation = str(row.get("variacao") or row.get("derivacao") or "").strip()
+    price = _safe_float(row.get("preco") or row.get("preco_unitario"))
+    parts = [part for part in (f"{code} - {name}".strip(" -"), variation, _money_br(price) if price else "") if part]
+    return " | ".join(parts)
+
+
+def _augment_resolution_suggestions(resolution: dict | None, catalog: list[dict], limit: int = 6) -> dict | None:
+    if not isinstance(resolution, dict) or not catalog:
+        return resolution
+    enriched_items = []
+    for item in resolution.get("itens") or []:
+        if not isinstance(item, dict):
+            enriched_items.append(item)
+            continue
+        if item.get("status") == "encontrado":
+            enriched_items.append(item)
+            continue
+
+        wanted_size = _norm_size(item.get("tamanho") or item.get("derivacao") or item.get("formato"))
+        wanted_words = _product_words(
+            " ".join(
+                str(item.get(key) or "")
+                for key in ("produto", "nome_catalogo", "texto_original", "formato")
+            )
+        )
+        requested_flavors = wanted_words & {
+            "laranja",
+            "uva",
+            "caju",
+            "manga",
+            "maracuja",
+            "morango",
+            "abacaxi",
+            "goiaba",
+            "maca",
+            "limonada",
+        }
+        suggestions = [str(option).strip() for option in item.get("alternativas") or [] if str(option).strip()]
+        scored: list[tuple[str, int]] = []
+        for row in catalog:
+            row_text = " ".join(
+                str(row.get(key) or "")
+                for key in ("cod_produto", "nome_produto", "nome", "variacao", "derivacao")
+            )
+            row_norm = _norm(row_text)
+            row_words = _product_words(row_text)
+            row_size = _norm_size(row.get("variacao") or row.get("derivacao"))
+            same_size = bool(wanted_size and (row_size == wanted_size or wanted_size in row_norm.replace(" ", "")))
+            same_flavor = bool(requested_flavors and requested_flavors & row_words)
+            if wanted_size and not same_size:
+                continue
+            if requested_flavors and not same_flavor:
+                continue
+            if not same_size and not same_flavor:
+                continue
+            score = 0
+            if same_size:
+                score += 8
+            if same_flavor:
+                score += 8
+            score += len(wanted_words & row_words) * 2
+            option = _catalog_option_text(row)
+            if option and option not in suggestions:
+                scored.append((option, score))
+        for option, _score in sorted(scored, key=lambda pair: pair[1], reverse=True):
+            if option not in suggestions:
+                suggestions.append(option)
+            if len(suggestions) >= limit:
+                break
+        enriched_items.append({**item, "alternativas": suggestions})
+    return {**resolution, "itens": enriched_items}
+
+
 def _same_pending_product(pending: dict, found: dict) -> bool:
     pending_format = _norm(pending.get("formato"))
     found_format = _norm(found.get("formato"))
@@ -801,9 +962,19 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
         ).strip()
         if item.get("status") == "nao_encontrado":
             lines.append(f"- {product}{f' | {requested}' if requested else ''}")
+            suggestions = _filtered_suggestions(item)
+            if suggestions:
+                lines.append("  Sugestoes na tabela:")
+                for option in suggestions:
+                    lines.append(f"  - {option}")
         else:
             missing = ", ".join(item.get("faltando") or [])
             lines.append(f"- {product}: falta confirmar {missing or 'a opcao exata'}")
+            suggestions = _filtered_suggestions(item)
+            if suggestions:
+                lines.append("  Sugestoes na tabela:")
+                for option in suggestions:
+                    lines.append(f"  - {option}")
 
     if any(not item.get("quantidade") for item in found):
         lines += ["", "Informe a quantidade dos itens que ainda estao sem quantidade."]
@@ -909,7 +1080,7 @@ def _clic_log_create(db, order: dict, payload: dict) -> tuple[str | None, float]
         rows = db.table("clic_request_logs").insert(
             {
                 "source": "secretary_senior" if is_senior else "secretary",
-                "operation": "GravarPedidos" if is_senior else "create_order",
+                "operation": payload.get("operation") if is_senior else "create_order",
                 "endpoint": payload.get("endpoint") if is_senior else "/extpedidos",
                 "method": "POST",
                 "status": "pending",
@@ -1077,8 +1248,24 @@ def _save_senior_order_to_rep_order_base(db, order: dict, number: str, result: A
     try:
         db.table("rep_order_base").upsert(row, on_conflict="cod_rep,num_ped").execute()
         return True
-    except Exception:
-        return False
+    except Exception as exc:
+        missing_optional = {
+            "customer_document",
+            "customer_name",
+            "rep_name",
+        }
+        if not any(column in str(exc) for column in missing_optional):
+            return False
+        compatible_row = {
+            key: value
+            for key, value in row.items()
+            if key not in missing_optional
+        }
+        try:
+            db.table("rep_order_base").upsert(compatible_row, on_conflict="cod_rep,num_ped").execute()
+            return True
+        except Exception:
+            return False
 
 
 def _submit(db, order: dict) -> tuple[bool, str]:
@@ -1138,6 +1325,61 @@ def _submit(db, order: dict) -> tuple[bool, str]:
                 }
             ).eq("id", order["id"]).execute()
             return False, "Senior ERP retornou sucesso sem numero de pedido. Verifique os logs antes de reenviar."
+        observation = str(order.get("observations") or "").strip()
+        observation_error = None
+        if observation:
+            try:
+                observation_payload = senior_client.build_masked_observation_payload(number, observation)
+                obs_log_id, obs_log_started = _clic_log_create(db, order, observation_payload)
+                obs_result = senior_client.submit_observation(number, observation)
+                observation_response = obs_result.to_response_payload()
+                response["inserirObservacoes"] = observation_response
+                _clic_log_finish(
+                    db,
+                    obs_log_id,
+                    obs_log_started,
+                    "success" if obs_result.ok else "error",
+                    response_payload=observation_response,
+                    http_status=obs_result.http_status,
+                    error_message=None
+                    if obs_result.ok
+                    else (obs_result.parsed.get("mensagemErro") or obs_result.parsed.get("erroExecucao")),
+                )
+                if not obs_result.ok:
+                    observation_error = (
+                        obs_result.parsed.get("mensagemErro")
+                        or obs_result.parsed.get("erroExecucao")
+                        or "Senior nao confirmou a observacao."
+                    )
+            except Exception as exc:
+                status, body, message = _clic_error_payload(exc)
+                response["inserirObservacoes"] = {
+                    "http_status": status,
+                    "senior": body,
+                    "error": message,
+                }
+                observation_error = message
+                try:
+                    _clic_log_finish(
+                        db,
+                        locals().get("obs_log_id"),
+                        locals().get("obs_log_started", time.perf_counter()),
+                        "error",
+                        response_payload=body,
+                        http_status=status,
+                        error_message=message,
+                    )
+                except Exception:
+                    pass
+            db.table("secretary_orders").update(
+                {
+                    "submit_response": response,
+                    "error_message": f"Pedido enviado, mas observacao nao foi gravada no Senior: {observation_error}"
+                    if observation_error
+                    else None,
+                    "updated_at": _now(),
+                }
+            ).eq("id", order["id"]).execute()
         mirrored = _save_senior_order_to_rep_order_base(db, order, number, result)
         if not mirrored:
             db.table("secretary_orders").update(
@@ -1146,6 +1388,10 @@ def _submit(db, order: dict) -> tuple[bool, str]:
                     "updated_at": _now(),
                 }
             ).eq("id", order["id"]).execute()
+        if observation_error:
+            return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*. A observacao nao foi gravada: {observation_error}"
+        if observation:
+            return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*. Observacao enviada junto."
         return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*."
     except Exception as exc:
         http_status, response_payload, error_message = _clic_error_payload(exc)
@@ -1233,6 +1479,14 @@ def process_secretary_message(
     reply = ""
     action = "secretary_reply"
     brain = analyze_secretary_message(text, state)
+    if (
+        (state.get("awaiting_observation") or state.get("awaiting_observation_text"))
+        and brain.get("looks_like_product")
+    ):
+        state.pop("awaiting_observation", None)
+        state.pop("awaiting_observation_text", None)
+        state["observations"] = state.get("observations") or ""
+        state["observation_step_done"] = True
 
     def save_current_draft(current_state: dict) -> dict:
         return _save_draft(db, conversation, representative, current_state)
@@ -1260,6 +1514,13 @@ def process_secretary_message(
         state = {}
         reply = "Pedido cancelado. Quando quiser, informe o cliente para iniciar outro."
         action = "secretary_cancelled"
+    elif state.get("awaiting_observation") or state.get("awaiting_observation_text"):
+        observation_result = _handle_observation_response(text, state)
+        if observation_result:
+            reply, action = observation_result
+        else:
+            reply = "Pode me dizer a observacao, ou responder *nao* para seguir sem observacao."
+            action = "secretary_ask_observation"
     elif state.get("pending_action"):
         pending = state.get("pending_action") or {}
         if pending.get("type") == "change_customer_pending_code" and not KEEP_CURRENT_RE.search(text):
@@ -1449,6 +1710,7 @@ def process_secretary_message(
                     resolution_items=_resolution_items,
                     safe_float=_safe_float,
                     resolution_reply=_secretary_resolution_reply,
+                    suggestions_enricher=_augment_resolution_suggestions,
                     save_draft=save_current_draft,
                     order_summary=_order_summary,
                 )

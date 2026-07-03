@@ -72,6 +72,31 @@ class SeniorOrderResult:
         }
 
 
+@dataclass
+class SeniorObservationResult:
+    http_status: int
+    duration_ms: int
+    endpoint: str
+    request_xml_masked: str
+    response_xml: str
+    parsed: dict[str, Any]
+
+    @property
+    def ok(self) -> bool:
+        error = _text(self.parsed.get("erroExecucao") or self.parsed.get("mensagemErro"))
+        codigo = _text(self.parsed.get("codigoResultado"))
+        return not error and codigo not in {"2", "ERRO", "ERROR"}
+
+    def to_response_payload(self) -> dict[str, Any]:
+        return {
+            "http_status": self.http_status,
+            "duration_ms": self.duration_ms,
+            "endpoint": self.endpoint,
+            "senior": self.parsed,
+            "response_xml": self.response_xml,
+        }
+
+
 class SeniorOrderClient:
     def __init__(self) -> None:
         self.base_url = os.getenv("SENIOR_BASE_URL", "").rstrip("/")
@@ -165,6 +190,72 @@ class SeniorOrderClient:
             parsed=parse_gravar_pedidos_response(response.text),
         )
 
+    def _build_observation_xml(
+        self,
+        *,
+        order_number: str,
+        observation: str,
+        masked: bool = False,
+    ) -> str:
+        number = _text(order_number)
+        text = _text(observation)
+        if not number:
+            raise ValueError("Numero do pedido Senior nao definido para inserir observacao.")
+        if not text:
+            raise ValueError("Observacao vazia; nada a enviar ao Senior.")
+        password = "***MASKED***" if masked else self.password
+        return f"""<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:ser="http://services.senior.com.br">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <ser:inserirObservacoes>
+      <user>{escape(self.user)}</user>
+      <password>{escape(password)}</password>
+      <encryption>{escape(self.encryption)}</encryption>
+      <parameters>
+        <pedido>
+          <codigoEmpresa>{escape(self.cod_emp)}</codigoEmpresa>
+          <codigoFilial>{escape(self.cod_fil)}</codigoFilial>
+          <numeroPedido>{escape(number)}</numeroPedido>
+          <observacao>{escape(text)}</observacao>
+        </pedido>
+      </parameters>
+    </ser:inserirObservacoes>
+  </soapenv:Body>
+</soapenv:Envelope>"""
+
+    def build_masked_observation_payload(self, order_number: str, observation: str) -> dict[str, Any]:
+        return {
+            "provider": "senior",
+            "operation": "inserirObservacoes",
+            "endpoint": self.endpoint,
+            "xml": self._build_observation_xml(
+                order_number=order_number,
+                observation=observation,
+                masked=True,
+            ),
+        }
+
+    def submit_observation(self, order_number: str, observation: str) -> SeniorObservationResult:
+        body = self._build_observation_xml(order_number=order_number, observation=observation, masked=False)
+        masked_body = self._build_observation_xml(order_number=order_number, observation=observation, masked=True)
+        headers = {
+            "Content-Type": "text/xml; charset=utf-8",
+            "SOAPAction": '""',
+        }
+        started = time.perf_counter()
+        response = requests.post(self.endpoint, data=body.encode("utf-8"), headers=headers, timeout=60)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        response.raise_for_status()
+        return SeniorObservationResult(
+            http_status=response.status_code,
+            duration_ms=duration_ms,
+            endpoint=self.endpoint,
+            request_xml_masked=masked_body,
+            response_xml=response.text,
+            parsed=parse_inserir_observacoes_response(response.text),
+        )
+
 
 def parse_gravar_pedidos_response(xml_text: str) -> dict[str, Any]:
     root = ET.fromstring(xml_text.encode("utf-8"))
@@ -197,4 +288,38 @@ def parse_gravar_pedidos_response(xml_text: str) -> dict[str, Any]:
     if grid_pro:
         parsed["gridPro"] = grid_pro
 
+    return parsed
+
+
+def parse_inserir_observacoes_response(xml_text: str) -> dict[str, Any]:
+    root = ET.fromstring(xml_text.encode("utf-8"))
+    parsed: dict[str, Any] = {}
+    wanted = {"codigoResultado", "erroExecucao", "resultado"}
+    retorno_wanted = {
+        "codigoEmpresa",
+        "codigoFilial",
+        "mensagemErro",
+        "numeroPedido",
+        "sequenciaItemProduto",
+        "sequenciaItemServico",
+    }
+
+    for el in root.iter():
+        name = _strip_ns(el.tag)
+        text = (el.text or "").strip()
+        if text and name in wanted:
+            parsed[name] = text
+
+    retorno = []
+    for node in root.iter():
+        if _strip_ns(node.tag) != "retorno":
+            continue
+        row = {_strip_ns(child.tag): (child.text or "").strip() for child in node}
+        if row:
+            retorno.append(row)
+            for key in retorno_wanted:
+                if row.get(key) and key not in parsed:
+                    parsed[key] = row[key]
+    if retorno:
+        parsed["retorno"] = retorno
     return parsed
