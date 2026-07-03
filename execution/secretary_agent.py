@@ -26,6 +26,12 @@ from ai_agent import (
     resolve_order_with_subagent,
 )
 from secretary_ai_agent import analyze_secretary_message
+from secretary_tools import (
+    resolve_products_tool,
+    select_sale_type_tool,
+    show_summary_tool,
+    submit_order_tool,
+)
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -1227,6 +1233,14 @@ def process_secretary_message(
     reply = ""
     action = "secretary_reply"
     brain = analyze_secretary_message(text, state)
+
+    def save_current_draft(current_state: dict) -> dict:
+        return _save_draft(db, conversation, representative, current_state)
+
+    def load_current_order(order_id: str) -> dict | None:
+        rows = db.table("secretary_orders").select("*").eq("id", order_id).limit(1).execute().data or []
+        return rows[0] if rows else None
+
     if (
         state.get("pending_action")
         and brain.get("keep_current_customer")
@@ -1304,31 +1318,18 @@ def process_secretary_message(
         else:
             reply = pending.get("prompt") or "Confirme se quer continuar com essa mudanca ou manter o pedido atual."
     elif CONFIRM_RE.search(text):
-        order_id = state.get("order_id")
-        if not order_id or not state.get("ready_to_submit"):
-            if state.get("customer") and state.get("items"):
-                try:
-                    order = _save_draft(db, conversation, representative, state)
-                    state["order_id"] = order.get("id")
-                    state["protocol"] = order.get("protocol")
-                    state["ready_to_submit"] = True
-                    submitted, reply = _submit(db, order)
-                    if submitted:
-                        state = {}
-                    action = "secretary_submitted"
-                except ValueError as exc:
-                    reply = str(exc)
-            else:
-                reply = "Nao ha pedido pronto para confirmacao. Informe primeiro o cliente e os itens."
-        else:
-            rows = db.table("secretary_orders").select("*").eq("id", order_id).limit(1).execute().data or []
-            if not rows:
-                reply = "Nao encontrei o rascunho desse pedido."
-            else:
-                submitted, reply = _submit(db, rows[0])
-                if submitted:
-                    state = {}
-                action = "secretary_submitted"
+        try:
+            tool_result = submit_order_tool(
+                state=state,
+                load_order=load_current_order,
+                save_draft=save_current_draft,
+                submit=lambda order: _submit(db, order),
+            )
+            state = tool_result.state
+            reply = tool_result.reply
+            action = tool_result.action
+        except ValueError as exc:
+            reply = str(exc)
     else:
         sale_type_code = _sale_type_code_from_text(text)
         if sale_type_code:
@@ -1353,32 +1354,21 @@ def process_secretary_message(
             action = "secretary_confirm_reset"
         elif not reply and state.get("customer"):
             if sale_type_only:
-                if state.get("items"):
-                    order = _save_draft(db, conversation, representative, state)
-                    state["order_id"] = order.get("id")
-                    state["protocol"] = order.get("protocol")
-                    state["ready_to_submit"] = True
-                    reply = (
-                        f"Tipo de pedido definido: *{_sale_type_label(state.get('sale_type_code'))}*.\n\n"
-                        + _order_summary(
-                            state["customer"],
-                            state.get("items") or [],
-                            state.get("observations") or "",
-                        )
-                    )
-                else:
-                    reply = (
-                        f"Perfeito, pedido *{_sale_type_label(state.get('sale_type_code'))}*. "
-                        "Agora me envie os produtos e quantidades."
-                    )
-                action = "secretary_sale_type_selected"
-            elif _summary_request_message(text) and state.get("items"):
-                reply = _order_summary(
-                    state["customer"],
-                    state.get("items") or [],
-                    state.get("observations") or "",
+                tool_result = select_sale_type_tool(
+                    state,
+                    sale_type_code,
+                    _sale_type_label,
+                    _order_summary,
+                    save_current_draft,
                 )
-                action = "secretary_order_summary"
+                state = tool_result.state
+                reply = tool_result.reply
+                action = tool_result.action
+            elif _summary_request_message(text) and state.get("items"):
+                tool_result = show_summary_tool(state, _order_summary)
+                state = tool_result.state
+                reply = tool_result.reply
+                action = tool_result.action
             candidate = None if reply or brain.get("looks_like_product") else _customer_change_candidate(customers, text, state.get("customer"))
             if not reply and candidate:
                 state["pending_action"] = {
@@ -1433,72 +1423,38 @@ def process_secretary_message(
         elif not reply:
             customer = state["customer"]
             if sale_type_only:
-                if state.get("items"):
-                    order = _save_draft(db, conversation, representative, state)
-                    state["order_id"] = order.get("id")
-                    state["protocol"] = order.get("protocol")
-                    state["ready_to_submit"] = True
-                    reply = (
-                        f"Tipo de pedido definido: *{_sale_type_label(state.get('sale_type_code'))}*.\n\n"
-                        + _order_summary(
-                            customer,
-                            state.get("items") or [],
-                            state.get("observations") or "",
-                        )
-                    )
-                else:
-                    reply = (
-                        f"Tipo de pedido definido: *{_sale_type_label(state.get('sale_type_code'))}*. "
-                        "Agora envie os produtos e quantidades do pedido."
-                    )
-            elif _summary_request_message(text) and state.get("items"):
-                reply = _order_summary(
-                    customer,
-                    state.get("items") or [],
-                    state.get("observations") or "",
+                tool_result = select_sale_type_tool(
+                    state,
+                    sale_type_code,
+                    _sale_type_label,
+                    _order_summary,
+                    save_current_draft,
                 )
-                action = "secretary_order_summary"
+                state = tool_result.state
+                reply = tool_result.reply
+                action = tool_result.action
+            elif _summary_request_message(text) and state.get("items"):
+                tool_result = show_summary_tool(state, _order_summary)
+                state = tool_result.state
+                reply = tool_result.reply
+                action = tool_result.action
             else:
-                catalog = _catalog(db, customer)
-                if not catalog:
-                    reply = "Nao encontrei a tabela de precos desse cliente. O pedido nao pode ser enviado sem essa validacao."
-                else:
-                    resolution = _resolve_products_with_sales_subagent(text, catalog, state)
-                    if not resolution:
-                        reply = "Nao consegui identificar os produtos. Informe produto, formato, tamanho e quantidade."
-                    else:
-                        resolution = _drop_resolved_pending_items(resolution) or resolution
-                        state["catalog_resolution"] = resolution
-                        current = _resolution_items(resolution)
-                        issues = [
-                            item
-                            for item in resolution.get("itens") or []
-                            if isinstance(item, dict) and item.get("status") != "encontrado"
-                        ]
-                        missing_quantities = [
-                            item for item in current if _safe_float(item.get("quantidade")) <= 0
-                        ]
-                        if issues or missing_quantities:
-                            reply = _secretary_resolution_reply(resolution)
-                            state["items"] = current
-                            state["ready_to_submit"] = False
-                            state["product_history"].append(
-                                {"role": "assistant", "content": reply}
-                            )
-                        else:
-                            state["items"] = current
-                            order = _save_draft(db, conversation, representative, state)
-                            state["order_id"] = order.get("id")
-                            state["protocol"] = order.get("protocol")
-                            state["ready_to_submit"] = True
-                            reply = _order_summary(
-                                customer,
-                                current,
-                                state.get("observations") or "",
-                            )
-                            state["product_history"].append(
-                                {"role": "assistant", "content": reply}
-                            )
+                tool_result = resolve_products_tool(
+                    text=text,
+                    state=state,
+                    customer=customer,
+                    catalog_lookup=lambda selected_customer: _catalog(db, selected_customer),
+                    resolver=_resolve_products_with_sales_subagent,
+                    drop_resolved_pending_items=_drop_resolved_pending_items,
+                    resolution_items=_resolution_items,
+                    safe_float=_safe_float,
+                    resolution_reply=_secretary_resolution_reply,
+                    save_draft=save_current_draft,
+                    order_summary=_order_summary,
+                )
+                state = tool_result.state
+                reply = tool_result.reply
+                action = tool_result.action
 
     _save_state(db, str(conversation["id"]), state)
     _add_message(db, str(conversation["id"]), "assistant", reply, payload={"action": action})

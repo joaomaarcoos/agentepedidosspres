@@ -9,6 +9,8 @@ sys.path.insert(0, str(ROOT / "execution"))
 import clic_vendas_cli
 import clic_vendas_client
 import secretary_agent
+import secretary_ai_agent
+import secretary_tools
 
 
 class _FakeQuery:
@@ -63,7 +65,74 @@ class _CaptureUpsertDb:
         return _CaptureUpsertQuery(self.calls)
 
 
+class _FakeOpenAIMessage:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeOpenAIChoice:
+    def __init__(self, content):
+        self.message = _FakeOpenAIMessage(content)
+
+
+class _FakeOpenAIResponse:
+    def __init__(self, content):
+        self.choices = [_FakeOpenAIChoice(content)]
+
+
+class _FakeChatCompletions:
+    def __init__(self, content):
+        self.content = content
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return _FakeOpenAIResponse(self.content)
+
+
+class _FakeChat:
+    def __init__(self, content):
+        self.completions = _FakeChatCompletions(content)
+
+
+class _FakeOpenAIClient:
+    def __init__(self, content):
+        self.chat = _FakeChat(content)
+
+
 class SecretaryAgentTests(unittest.TestCase):
+    def test_secretary_brain_falls_back_without_gpt_enabled(self):
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test", "SECRETARY_AI_BRAIN_ENABLED": "false"}):
+            decision = secretary_ai_agent.analyze_secretary_message(
+                "Nao quero mudar o cliente. Quero suco de laranja de 900",
+                {"customer": {"name": "Cliente Atual"}},
+            )
+
+        self.assertEqual(decision["intent"], "inform_products")
+        self.assertTrue(decision["keep_current_customer"])
+        self.assertIn("suco de laranja", decision["product_text"].lower())
+        self.assertEqual(decision["source"], "heuristic")
+
+    def test_secretary_brain_uses_gpt_json_when_enabled(self):
+        fake_client = _FakeOpenAIClient(
+            '{"intent":"select_sale_type","sale_type_code":"9010P","sale_type_only":true,'
+            '"looks_like_product":false,"keep_current_customer":false,'
+            '"product_text":"","customer_query":"","confidence":0.91}'
+        )
+
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test", "SECRETARY_AI_BRAIN_ENABLED": "true"}), patch(
+            "openai.OpenAI", return_value=fake_client
+        ):
+            decision = secretary_ai_agent.analyze_secretary_message(
+                "vai ser sem nota mesmo",
+                {"customer": {"name": "Cliente Atual"}},
+            )
+
+        self.assertEqual(decision["source"], "gpt")
+        self.assertEqual(decision["intent"], "select_sale_type")
+        self.assertEqual(decision["sale_type_code"], "9010P")
+        self.assertTrue(decision["sale_type_only"])
+
     def test_protocol_has_secretary_prefix(self):
         self.assertRegex(secretary_agent._new_protocol(), r"^MSE-\d{6}-[A-F0-9]{6}$")
 
@@ -164,7 +233,57 @@ class SecretaryAgentTests(unittest.TestCase):
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("98981522794"))
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("5598981522794"))
             self.assertTrue(secretary_agent._is_secretary_phone_allowed("559881422794"))
-            self.assertFalse(secretary_agent._is_secretary_phone_allowed("5516888888888"))
+        self.assertFalse(secretary_agent._is_secretary_phone_allowed("5516888888888"))
+
+    def test_product_tool_resolves_items_and_saves_draft(self):
+        state = {"customer": {"name": "Cliente"}, "product_history": []}
+        result = secretary_tools.resolve_products_tool(
+            text="10 suco de laranja 900",
+            state=state,
+            customer={"name": "Cliente"},
+            catalog_lookup=lambda _customer: [{"cod_produto": "SGRSSLAR"}],
+            resolver=lambda _text, _catalog, _state: {
+                "itens": [
+                    {
+                        "status": "encontrado",
+                        "cod_produto": "SGRSSLAR",
+                        "nome_catalogo": "SUCO LARANJA",
+                        "tamanho": "900",
+                        "quantidade": 10,
+                        "preco_unitario": 5.92,
+                    }
+                ]
+            },
+            drop_resolved_pending_items=lambda resolution: resolution,
+            resolution_items=secretary_agent._resolution_items,
+            safe_float=secretary_agent._safe_float,
+            resolution_reply=secretary_agent._secretary_resolution_reply,
+            save_draft=lambda _state: {"id": "order-1", "protocol": "MSE-1"},
+            order_summary=secretary_agent._order_summary,
+        )
+
+        self.assertEqual(result.action, "secretary_reply")
+        self.assertEqual(result.state["order_id"], "order-1")
+        self.assertTrue(result.state["ready_to_submit"])
+        self.assertIn("SUCO LARANJA", result.reply)
+
+    def test_submit_tool_keeps_state_when_senior_fails(self):
+        state = {
+            "customer": {"name": "Cliente"},
+            "items": [{"cod_produto": "SGRSSLAR", "subtotal": 59.2}],
+            "order_id": "order-1",
+            "ready_to_submit": True,
+        }
+        result = secretary_tools.submit_order_tool(
+            state=state,
+            load_order=lambda _order_id: {"id": "order-1"},
+            save_draft=lambda _state: {"id": "order-1", "protocol": "MSE-1"},
+            submit=lambda _order: (False, "Configuracao Senior incompleta."),
+        )
+
+        self.assertEqual(result.action, "secretary_submitted")
+        self.assertEqual(result.state["order_id"], "order-1")
+        self.assertIn("Senior", result.reply)
 
     def test_allowed_eliezer_phone_uses_profile_fallback(self):
         db = _FakeDb(
