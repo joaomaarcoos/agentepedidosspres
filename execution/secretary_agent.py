@@ -209,14 +209,28 @@ def _handle_observation_response(text: str, state: dict) -> tuple[str, str] | No
     return (_after_observation_reply(state), "secretary_observation_saved")
 
 
-def _start_conversation_reply(state: dict) -> str:
+def _representative_display_name(representative: dict | None) -> str:
+    name = str((representative or {}).get("name") or "").strip()
+    return name or "esse representante"
+
+
+def _representative_first_name(representative: dict | None) -> str:
+    name = _representative_display_name(representative)
+    if name == "esse representante":
+        return ""
+    return name.split()[0].title()
+
+
+def _start_conversation_reply(state: dict, representative: dict | None = None) -> str:
     if state.get("sale_type_code"):
         return (
             f"Perfeito, vou montar como *{_sale_type_label(state.get('sale_type_code'))}*. "
-            "Me envie o codigo, nome ou documento do cliente para eu localizar na carteira."
+            "Me envie o codigo, nome ou documento do cliente para eu localizar na sua carteira."
         )
+    first_name = _representative_first_name(representative)
+    greeting = f"Oi, {first_name}, " if first_name else "Oi, "
     return (
-        "Oi, sou a secretaria de pedidos. Posso te ajudar a montar um pedido para o Eliezer. "
+        f"{greeting}sou a secretaria de pedidos. "
         "Me envie o codigo, nome ou documento do cliente para comecarmos."
     )
 
@@ -1598,10 +1612,10 @@ def process_secretary_message(
         sale_type_only = bool(sale_type_code and (brain.get("sale_type_only") or _sale_type_only_message(text)))
         customers = []
         if not state.get("customer") and sale_type_only:
-            reply = _start_conversation_reply(state)
+            reply = _start_conversation_reply(state, representative)
             action = "secretary_sale_type_selected"
         elif not state.get("customer") and _generic_chat_message(text):
-            reply = _start_conversation_reply(state)
+            reply = _start_conversation_reply(state, representative)
             action = "secretary_greeting"
 
         if not reply:
@@ -1678,7 +1692,7 @@ def process_secretary_message(
                     )
                 else:
                     reply = (
-                        "Ainda nao consegui localizar esse cliente na carteira do Eliezer. "
+                        "Ainda nao consegui localizar esse cliente na sua carteira. "
                         "Me envie o codigo do cliente, CNPJ/CPF, nome ou cidade que eu procuro de novo."
                     )
         elif not reply:
