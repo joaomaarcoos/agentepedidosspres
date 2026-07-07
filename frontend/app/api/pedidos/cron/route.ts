@@ -13,7 +13,13 @@ export async function POST(req: Request) {
   const auth = await requireApiRole(API_ROLES.ELEVATED);
   if (isApiAuthFailure(auth)) return auth.response;
 
-  const body = await req.json() as { enabled?: boolean; interval_hours?: number; dias?: number; rep_document?: string | null };
+  const body = await req.json() as {
+    enabled?: boolean;
+    interval_hours?: number;
+    dias?: number;
+    rep_document?: string | null;
+    rep_documents?: string[] | null;
+  };
   const settings = readCronSettings();
   if (typeof body.enabled === "boolean") settings.enabled = body.enabled;
   if (typeof body.interval_hours === "number") {
@@ -27,6 +33,16 @@ export async function POST(req: Request) {
   if (body.rep_document !== undefined) {
     const cleaned = String(body.rep_document || "").replace(/\D/g, "");
     settings.rep_document = cleaned || null;
+    settings.rep_documents = cleaned ? [cleaned] : [];
+  }
+  if (body.rep_documents !== undefined) {
+    const documents = Array.isArray(body.rep_documents)
+      ? body.rep_documents
+          .map((item) => String(item || "").replace(/\D/g, ""))
+          .filter((item) => item.length >= 5)
+      : [];
+    settings.rep_documents = documents;
+    settings.rep_document = documents[0] || null;
   }
   writeCronSettings(settings);
   return NextResponse.json(settings);

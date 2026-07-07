@@ -48,6 +48,12 @@ export const pedidosApi = {
       total: number;
       page: number;
       pages: number;
+      metrics?: {
+        unique_clients: number;
+        total_value: number;
+        metrics_limit?: number;
+        metrics_truncated?: boolean;
+      };
       pedidos: import("./types").Pedido[];
     }>(`/api/pedidos?${q}`);
   },
@@ -270,18 +276,25 @@ export const cronApi = {
       interval_hours: number;
       dias?: number;
       rep_document?: string | null;
+      rep_documents?: string[];
       last_run: string | null;
       last_run_status: "success" | "error" | null;
     }>("/api/pedidos/cron"),
-  setEnabled: (enabled: boolean, options?: { dias?: number; repDocument?: string | null }) =>
+  setEnabled: (enabled: boolean, options?: { dias?: number; repDocument?: string | null; repDocuments?: string[] }) =>
     api.post<{
       enabled: boolean;
       interval_hours: number;
       dias?: number;
       rep_document?: string | null;
+      rep_documents?: string[];
       last_run: string | null;
       last_run_status: "success" | "error" | null;
-    }>("/api/pedidos/cron", { enabled, dias: options?.dias, rep_document: options?.repDocument }),
+    }>("/api/pedidos/cron", {
+      enabled,
+      dias: options?.dias,
+      rep_document: options?.repDocument,
+      rep_documents: options?.repDocuments,
+    }),
 };
 
 export const ativacaoApi = {

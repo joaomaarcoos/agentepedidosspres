@@ -12,6 +12,7 @@ const ALL: Role[] = ["master_dev", "admin", "gestor", "representante"];
 const ELEVATED: Role[] = ["master_dev", "admin"];
 const GESTOR_UP: Role[] = ["master_dev", "admin", "gestor"];
 const DEV_ONLY: Role[] = ["master_dev"];
+const DISABLED: Role[] = [];
 
 // Primeiro match ganha. Rotas mais restritivas devem vir primeiro.
 export const ROUTE_RULES: RouteRule[] = [
@@ -21,7 +22,7 @@ export const ROUTE_RULES: RouteRule[] = [
   { pattern: /^\/agente-studio/,    roles: ELEVATED },
   { pattern: /^\/ia-secretaria/,    roles: ALL },
   { pattern: /^\/conexao/,          roles: ALL },
-  { pattern: /^\/revisaopedido/,    roles: ALL },
+  { pattern: /^\/revisaopedido/,    roles: DISABLED },
   { pattern: /^\/pedidos\/monitor/, roles: GESTOR_UP },
   { pattern: /^\/produtos/,         roles: ALL },
   { pattern: /^\/tabela-preco/,     roles: ALL },
@@ -46,7 +47,7 @@ export const API_ROUTE_RULES: RouteRule[] = [
   { pattern: /^\/api\/secretaria\/conversas/, roles: DEV_ONLY },
   { pattern: /^\/api\/secretaria/,     roles: ALL },
   { pattern: /^\/api\/conexao/,        roles: ALL },
-  { pattern: /^\/api\/revisaopedido/,  roles: ALL },
+  { pattern: /^\/api\/revisaopedido/,  roles: DISABLED },
   { pattern: /^\/api\/settings/,       roles: ELEVATED },
   { pattern: /^\/api\/pedidos\/cron/,  roles: ELEVATED },
   { pattern: /^\/api\/pedidos\/sync/,  roles: GESTOR_UP },
@@ -93,7 +94,6 @@ export const NAV_ITEMS = [
   { href: "/log-secretaria", label: "Log Secretaria",   roles: DEV_ONLY },
   { href: "/produtos",       label: "Produtos",         roles: ALL },
   { href: "/tabela-preco",   label: "Tabela de Preço",  roles: ALL },
-  { href: "/revisaopedido",  label: "Revisão de Pedidos", roles: ALL },
   { href: "/conexao",        label: "Conexão",          roles: ALL },
   { href: "/ia-secretaria",  label: "IA Secretária",    roles: ALL },
   { href: "/agente-studio",  label: "Agente Studio",    roles: ELEVATED },

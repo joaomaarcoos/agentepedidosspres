@@ -160,6 +160,7 @@ export default function PedidosPage() {
   const [lastLog, setLastLog] = useState<SyncLog | null>(null);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [total, setTotal] = useState(0);
+  const [metrics, setMetrics] = useState<{ unique_clients: number; total_value: number } | null>(null);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [dias, setDias] = useState(0);
@@ -181,6 +182,10 @@ export default function PedidosPage() {
       });
       setPedidos(result.pedidos);
       setTotal(result.total);
+      setMetrics(result.metrics ? {
+        unique_clients: result.metrics.unique_clients,
+        total_value: result.metrics.total_value,
+      } : null);
       setPages(result.pages);
       setPage(targetPage);
     } catch (err) {
@@ -252,8 +257,8 @@ export default function PedidosPage() {
     }
   };
 
-  const totalValue = pedidos.reduce((sum, p) => sum + (p.order_total_value || 0), 0);
-  const uniqueClients = new Set(pedidos.map((p) => p.cod_cli)).size;
+  const totalValue = metrics?.total_value ?? pedidos.reduce((sum, p) => sum + (p.order_total_value || 0), 0);
+  const uniqueClients = metrics?.unique_clients ?? new Set(pedidos.map((p) => p.cod_cli)).size;
   const rangeLabel = dias === 0 ? "Toda a base local" : `Ultimos ${dias} dias`;
 
   return (

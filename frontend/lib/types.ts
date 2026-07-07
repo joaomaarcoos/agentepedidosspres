@@ -96,6 +96,10 @@ export interface SyncLog {
     status_breakdown?: Record<string, number>;
     date_from?: string;
     dias?: number;
+    rep_document?: string | null;
+    pages?: number;
+    total_geral?: number | null;
+    secretary_orders_reconciled?: number;
   };
   created_at: string;
 }

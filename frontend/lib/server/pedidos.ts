@@ -55,6 +55,12 @@ export function listPedidos(params: {
     page: number;
     page_size: number;
     pages: number;
+    metrics?: {
+      unique_clients: number;
+      total_value: number;
+      metrics_limit?: number;
+      metrics_truncated?: boolean;
+    };
     pedidos: Array<Record<string, unknown>>;
   }>(args);
 }

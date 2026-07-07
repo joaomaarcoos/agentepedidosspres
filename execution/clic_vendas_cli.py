@@ -539,24 +539,54 @@ def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int, cod_
     select_fields = "id, num_ped, cod_cli, cod_rep, customer_name, rep_name, dat_emi, sit_ped, order_total_value, items_json, has_items, source"
     fallback_select_fields = "id, num_ped, cod_cli, cod_rep, dat_emi, sit_ped, order_total_value, items_json, has_items, source"
 
-    def execute(fields: str):
+    def filtered_query(fields: str, *, count: str | None = None):
         q = (
             db.table("rep_order_base")
-            .select(fields)
+            .select(fields, count=count)
             .order("dat_emi", desc=True)
-            .limit(5000)
         )
         if dias > 0:
             from_date = (datetime.utcnow() - timedelta(days=dias)).strftime("%Y-%m-%d")
             q = q.gte("dat_emi", from_date)
-        return q.execute().data or []
+        if cod_cli is not None:
+            q = q.eq("cod_cli", cod_cli)
+        if cod_rep is not None:
+            q = q.eq("cod_rep", cod_rep)
+        return q
+
+    def execute_page(fields: str):
+        start = max(0, (page - 1) * page_size)
+        end = start + page_size - 1
+        return filtered_query(fields, count="exact").range(start, end).execute()
+
+    def fetch_metric_rows(max_rows: int = 50000) -> tuple[list[dict], bool]:
+        batch_size = 1000
+        offset = 0
+        all_rows: list[dict] = []
+        while offset < max_rows:
+            end = min(offset + batch_size - 1, max_rows - 1)
+            batch = filtered_query("cod_cli, order_total_value").range(offset, end).execute().data or []
+            all_rows.extend(batch)
+            if len(batch) < batch_size:
+                return all_rows, False
+            offset += batch_size
+        return all_rows, True
 
     try:
-        rows = execute(select_fields)
+        result = execute_page(select_fields)
     except Exception as exc:
         if "customer_name" not in str(exc) and "rep_name" not in str(exc):
             raise
-        rows = execute(fallback_select_fields)
+        result = execute_page(fallback_select_fields)
+
+    rows = result.data or []
+    total = int(getattr(result, "count", None) or 0)
+
+    metric_rows, metrics_truncated = fetch_metric_rows()
+    unique_clients = len({row.get("cod_cli") for row in metric_rows if row.get("cod_cli") is not None})
+    total_value = sum(float(row.get("order_total_value") or 0) for row in metric_rows)
+    if total == 0:
+        total = len(metric_rows)
 
     pedidos = []
     for r in rows:
@@ -574,20 +604,18 @@ def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int, cod_
             "source": r.get("source") or "clic_vendas",
         })
 
-    if cod_cli is not None:
-        pedidos = [p for p in pedidos if p.get("cod_cli") == cod_cli]
-    if cod_rep is not None:
-        pedidos = [p for p in pedidos if p.get("cod_rep") == cod_rep]
-
-    total = len(pedidos)
-    start = (page - 1) * page_size
-
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
         "pages": max(1, -(-total // page_size)),
-        "pedidos": pedidos[start: start + page_size],
+        "metrics": {
+            "unique_clients": unique_clients,
+            "total_value": round(total_value, 2),
+            "metrics_limit": 50000,
+            "metrics_truncated": metrics_truncated,
+        },
+        "pedidos": pedidos,
     }
 
 

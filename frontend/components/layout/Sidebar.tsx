@@ -8,7 +8,6 @@ import {
   BarChart2,
   Bot,
   BrainCircuit,
-  ClipboardCheck,
   Download,
   FileText,
   MessageSquareText,
@@ -45,7 +44,6 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "/log-secretaria": FileText,
   "/produtos": Package,
   "/tabela-preco": Tag,
-  "/revisaopedido": ClipboardCheck,
   "/conexao": Activity,
   "/ia-secretaria": Bot,
   "/agente-studio": BrainCircuit,
@@ -65,7 +63,7 @@ const MENU_SECTIONS = [
   {
     type: "group",
     label: "Vendas",
-    items: ["/pedidos", "/recorrencia", "/revisaopedido", "/ativacao", "/saida-produtos"],
+    items: ["/pedidos", "/recorrencia", "/ativacao", "/saida-produtos"],
   },
   {
     type: "group",
