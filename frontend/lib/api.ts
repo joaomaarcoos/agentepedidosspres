@@ -239,8 +239,8 @@ export const logsApi = {
   },
   getDisparo: (id: string) =>
     api.get<import("./types").DisparoLog>(`/api/logs/disparo/${id}`),
-  listClicVendas: (params?: {
-    status?: import("./types").ClicRequestLogStatus | "all";
+  listRequisitionLogs: (params?: {
+    status?: import("./types").RequisitionLogStatus | "all";
     dateFrom?: string;
     dateTo?: string;
     search?: string;
@@ -254,12 +254,12 @@ export const logsApi = {
     if (params?.search) q.set("search", params.search);
     if (params?.page) q.set("page", String(params.page));
     if (params?.pageSize) q.set("page_size", String(params.pageSize));
-    return api.get<import("./types").ClicRequestLogsOverview>(
-      `/api/logs/clic-vendas${q.size ? `?${q}` : ""}`
+    return api.get<import("./types").RequisitionLogsOverview>(
+      `/api/logs/requisitions${q.size ? `?${q}` : ""}`
     );
   },
-  getClicVendas: (id: string) =>
-    api.get<import("./types").ClicRequestLog>(`/api/logs/clic-vendas/${id}`),
+  getRequisitionLog: (id: string) =>
+    api.get<import("./types").RequisitionLog>(`/api/logs/requisitions/${id}`),
 };
 
 export const settingsApi = {

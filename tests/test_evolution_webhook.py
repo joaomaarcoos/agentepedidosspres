@@ -65,6 +65,10 @@ class EvolutionWebhookTests(unittest.TestCase):
         process_command.assert_not_called()
         process_representative.assert_not_called()
 
+    def test_split_reply_respects_explicit_marker(self):
+        parts = evolution_webhook.split_reply("Resumo do pedido\n<<<SPLIT_REPLY>>>\nItens pendentes")
+        self.assertEqual(parts, ["Resumo do pedido", "Itens pendentes"])
+
     def test_embedded_audio_base64_is_used_without_api_download(self):
         payload = {
             "instance": "rep-01",

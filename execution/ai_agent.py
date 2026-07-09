@@ -302,6 +302,8 @@ def _catalog_flavor_token_list(row: dict) -> list[str]:
         "ml",
         "litro",
         "litros",
+        "unidade",
+        "unidades",
     }
     result = []
     for token in re.findall(r"[a-z0-9]+", name):
@@ -1281,7 +1283,6 @@ def _dedupe_catalog_rows(rows: list[dict]) -> list[dict]:
 
 
 def _resolution_product_tokens(item: dict, produtos: list[dict] | None) -> set[str]:
-    product_text = _item_value(item, "produto", "nome_catalogo", "texto_original")
     ignored = {
         "suco",
         "nectar",
@@ -1303,12 +1304,34 @@ def _resolution_product_tokens(item: dict, produtos: list[dict] | None) -> set[s
         "ml",
         "litro",
         "litros",
+        "unidade",
+        "unidades",
+        "quero",
+        "entao",
     }
-    return {
-        token
-        for token in re.findall(r"[a-z0-9]+", _lower_ascii(product_text))
-        if len(token) >= 3 and token not in ignored and not any(ch.isdigit() for ch in token)
-    }
+
+    def tokens_from_text(value: str) -> set[str]:
+        return {
+            token
+            for token in re.findall(r"[a-z0-9]+", _lower_ascii(value))
+            if len(token) >= 3 and token not in ignored and not any(ch.isdigit() for ch in token)
+        }
+
+    primary_text = " ".join(
+        _item_value(item, key)
+        for key in ("produto", "nome_catalogo", "nome", "formato")
+    )
+    primary_tokens = tokens_from_text(primary_text)
+    if primary_tokens:
+        return primary_tokens
+
+    alternative_tokens: set[str] = set()
+    for option in item.get("alternativas") or []:
+        alternative_tokens |= _alternative_product_tokens(str(option))
+    if alternative_tokens:
+        return alternative_tokens
+
+    return tokens_from_text(_item_value(item, "texto_original"))
 
 
 def _alternative_product_tokens(value: str) -> set[str]:
@@ -1429,9 +1452,14 @@ def _reconcile_catalog_resolution(
         ]
         flavor_candidates = exact_flavor_candidates if product_tokens else broad_candidates
 
-        wanted_type = _normalize_product_type(
-            _item_value(item, "formato", "tipo", "embalagem")
-        )
+        known_types = {"copo", "garrafa", "bolsa", "bolsa concentrada", "galao"}
+        format_value = _item_value(item, "formato", "tipo", "embalagem")
+        product_value = _item_value(item, "produto")
+        format_type = _normalize_product_type(format_value)
+        product_type = _normalize_product_type(product_value)
+        wanted_type = format_type
+        if format_type not in known_types and product_type in known_types:
+            wanted_type = product_type
         wanted_size = _norm_size(_item_value(item, "tamanho", "variacao", "derivacao", "volume"))
         exact_candidates = []
         for row in canonical_candidates or flavor_candidates:
@@ -2535,7 +2563,9 @@ def _norm_size(value: str) -> str:
 def _catalog_options_for_item(item: dict, produtos: list[dict] | None) -> list[dict]:
     if not produtos:
         return []
-    text = _lower_ascii(" ".join(_item_value(item, key) for key in ("produto", "nome")))
+    text = _lower_ascii(
+        " ".join(_item_value(item, key) for key in ("produto", "nome", "formato", "texto_original"))
+    )
     terms = _requested_catalog_tokens(text, produtos, require_trigger=False)
     if not terms:
         return []

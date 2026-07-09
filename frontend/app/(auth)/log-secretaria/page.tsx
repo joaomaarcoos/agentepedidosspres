@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Clock, Eye, RefreshCw, Search, X } from "lucide-react";
 import Header from "@/components/layout/Header";
 import { logsApi } from "@/lib/api";
-import type { ClicRequestLog, ClicRequestLogsOverview, ClicRequestLogStatus } from "@/lib/types";
+import type { RequisitionLog, RequisitionLogsOverview, RequisitionLogStatus } from "@/lib/types";
 
-const STATUS_OPTIONS: Array<{ value: ClicRequestLogStatus | "all"; label: string }> = [
+const STATUS_OPTIONS: Array<{ value: RequisitionLogStatus | "all"; label: string }> = [
   { value: "all", label: "Todos os status" },
   { value: "success", label: "Sucesso" },
   { value: "error", label: "Erro" },
@@ -25,13 +25,13 @@ function fmtDateTime(value?: string | null) {
   });
 }
 
-function statusMeta(status: ClicRequestLogStatus) {
+function statusMeta(status: RequisitionLogStatus) {
   if (status === "success") return { label: "Sucesso", color: "var(--success)", icon: CheckCircle2 };
   if (status === "error") return { label: "Erro", color: "var(--error)", icon: AlertCircle };
   return { label: "Pendente", color: "var(--warn)", icon: Clock };
 }
 
-function StatusBadge({ status }: { status: ClicRequestLogStatus }) {
+function StatusBadge({ status }: { status: RequisitionLogStatus }) {
   const meta = statusMeta(status);
   const Icon = meta.icon;
   return (
@@ -86,7 +86,7 @@ function JsonBlock({ title, value }: { title: string; value: unknown }) {
   );
 }
 
-function DetailPanel({ log, onClose }: { log: ClicRequestLog | null; onClose: () => void }) {
+function DetailPanel({ log, onClose }: { log: RequisitionLog | null; onClose: () => void }) {
   if (!log) return null;
   return (
     <aside
@@ -111,7 +111,7 @@ function DetailPanel({ log, onClose }: { log: ClicRequestLog | null; onClose: ()
             <span style={{ color: "var(--muted)", fontSize: 12 }}>{log.method} {log.endpoint}</span>
           </div>
           <h2 style={{ margin: 0, fontSize: 18, color: "var(--text)" }}>
-            Requisicao ao Clic Vendas
+            Requisition Log
           </h2>
         </div>
         <button
@@ -171,13 +171,13 @@ function DetailPanel({ log, onClose }: { log: ClicRequestLog | null; onClose: ()
   );
 }
 
-export default function ClicVendasLogsPage() {
-  const [data, setData] = useState<ClicRequestLogsOverview | null>(null);
-  const [selected, setSelected] = useState<ClicRequestLog | null>(null);
+export default function RequisitionLogsPage() {
+  const [data, setData] = useState<RequisitionLogsOverview | null>(null);
+  const [selected, setSelected] = useState<RequisitionLog | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<ClicRequestLogStatus | "all">("all");
+  const [status, setStatus] = useState<RequisitionLogStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -187,7 +187,7 @@ export default function ClicVendasLogsPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await logsApi.listClicVendas({
+      const result = await logsApi.listRequisitionLogs({
         status,
         search: search || undefined,
         dateFrom: dateFrom || undefined,
@@ -207,10 +207,10 @@ export default function ClicVendasLogsPage() {
     load();
   }, [load]);
 
-  async function openDetail(row: ClicRequestLog) {
+  async function openDetail(row: RequisitionLog) {
     setDetailLoading(true);
     try {
-      const detail = await logsApi.getClicVendas(row.id);
+      const detail = await logsApi.getRequisitionLog(row.id);
       setSelected(detail);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao abrir log");
@@ -225,9 +225,9 @@ export default function ClicVendasLogsPage() {
       <main style={{ flex: 1, overflow: "auto", padding: 24 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 18 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 24, color: "var(--text)" }}>Log Secretaria</h1>
+            <h1 style={{ margin: 0, fontSize: 24, color: "var(--text)" }}>Requisition Logs</h1>
             <p style={{ margin: "6px 0 0", color: "var(--muted)", fontSize: 13 }}>
-              Auditoria das requisicoes montadas pela secretaria e enviadas para o Clic.
+              Auditoria das requisicoes montadas pela secretaria e enviadas para integracoes externas.
             </p>
           </div>
           <button
@@ -270,7 +270,7 @@ export default function ClicVendasLogsPage() {
           </label>
           <select
             value={status}
-            onChange={(event) => { setStatus(event.target.value as ClicRequestLogStatus | "all"); setPage(1); }}
+            onChange={(event) => { setStatus(event.target.value as RequisitionLogStatus | "all"); setPage(1); }}
             style={{ height: 40, borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", padding: "0 10px" }}
           >
             {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}

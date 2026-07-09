@@ -836,6 +836,40 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertIn("SGPSSLAR - SUCO GALAO LARANJA PET | 05L", reply)
         self.assertNotIn("SCPSSLAR - SUCO COPO LARANJA", reply)
 
+    def test_reconcile_handles_product_and_format_inverted_for_cup_orange_115(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "copo",
+                    "formato": "laranja",
+                    "tamanho": "115ml",
+                    "quantidade": 120,
+                    "unidade": "unidades",
+                    "texto_original": "copo laranja 115 ml 120 unidades",
+                    "alternativas": ["SCPSSLAR - SUCO COPO LARANJA 115ML | 115 | R$ 1,33"],
+                }
+            ]
+        }
+        catalog = [
+            {
+                "cod_produto": "SCPSSLAR",
+                "nome_produto": "SUCO COPO LARANJA 115ML",
+                "variacao": "115",
+                "preco": 1.33,
+            }
+        ]
+
+        reconciled = secretary_agent._reconcile_catalog_resolution(resolution, catalog)
+        item = reconciled["itens"][0]
+
+        self.assertEqual(item["status"], "encontrado")
+        self.assertEqual(item["cod_produto"], "SCPSSLAR")
+        self.assertEqual(item["formato"], "copo")
+        self.assertEqual(item["tamanho"], "115ml")
+        self.assertEqual(item["quantidade"], 120)
+        self.assertAlmostEqual(item["subtotal"], 159.6)
+
     def test_short_size_reply_replaces_generic_pending_equivalent(self):
         resolution = {
             "itens": [

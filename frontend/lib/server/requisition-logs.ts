@@ -1,11 +1,11 @@
 import { runPythonJson } from "@/lib/server/python";
-import type { ClicRequestLog, ClicRequestLogsOverview } from "@/lib/types";
+import type { RequisitionLog, RequisitionLogsOverview } from "@/lib/types";
 
 type Envelope<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
 
-export async function listClicRequestLogs(params: {
+export async function listRequisitionLogs(params: {
   status?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -21,17 +21,17 @@ export async function listClicRequestLogs(params: {
   args.push("--page", String(params.page || 1));
   args.push("--page-size", String(params.pageSize || 30));
 
-  const result = await runPythonJson<Envelope<ClicRequestLogsOverview>>(
-    "execution/clic_request_logs_cli.py",
+  const result = await runPythonJson<Envelope<RequisitionLogsOverview>>(
+    "execution/requisition_logs_cli.py",
     args
   );
   if (!result.ok) throw new Error(result.error);
   return result.data;
 }
 
-export async function getClicRequestLog(id: string) {
-  const result = await runPythonJson<Envelope<ClicRequestLog>>(
-    "execution/clic_request_logs_cli.py",
+export async function getRequisitionLog(id: string) {
+  const result = await runPythonJson<Envelope<RequisitionLog>>(
+    "execution/requisition_logs_cli.py",
     ["detail", id]
   );
   if (!result.ok) throw new Error(result.error);

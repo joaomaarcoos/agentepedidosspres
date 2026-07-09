@@ -577,15 +577,15 @@ export interface DisparoLogsOverview {
   pages: number;
 }
 
-export type ClicRequestLogStatus = "pending" | "success" | "error";
+export type RequisitionLogStatus = "pending" | "success" | "error";
 
-export interface ClicRequestLog {
+export interface RequisitionLog {
   id: string;
   source: string;
   operation: string;
   endpoint: string;
   method: string;
-  status: ClicRequestLogStatus;
+  status: RequisitionLogStatus;
   http_status?: number | null;
   order_id?: string | null;
   protocol?: string | null;
@@ -602,8 +602,8 @@ export interface ClicRequestLog {
   duration_ms?: number | null;
 }
 
-export interface ClicRequestLogsOverview {
-  logs: ClicRequestLog[];
+export interface RequisitionLogsOverview {
+  logs: RequisitionLog[];
   total: number;
   page: number;
   page_size: number;

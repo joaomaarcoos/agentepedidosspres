@@ -1,0 +1,290 @@
+[
+  {
+    "id": "c001ce0e-0702-47bd-878a-8c5a2548d605",
+    "operation": "GravarPedidos",
+    "status": "success",
+    "request_payload": {
+      "xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\n                  xmlns:ser=\"http://services.senior.com.br\">\n  <soapenv:Header/>\n  <soapenv:Body>\n    <ser:GravarPedidos>\n      <user>rogerio.zanucoli</user>\n      <password>***MASKED***</password>\n      <encryption>0</encryption>\n      <parameters>\n        <pedido>\n          <opeExe>I</opeExe>\n          <codEmp>1</codEmp>\n          <codFil>1</codFil>\n          <codCli>23102</codCli>\n          <tipPed>1</tipPed>\n          <fecPed>S</fecPed>\n\n          <produto>\n            <opeExe>I</opeExe>\n            <codPro>SGRSSLAR</codPro>\n            <codDer>1L7</codDer>\n            <qtdPed>6,00</qtdPed>\n          </produto>\n          <produto>\n            <opeExe>I</opeExe>\n            <codPro>SGRSSMAR</codPro>\n            <codDer>1L7</codDer>\n            <qtdPed>6,00</qtdPed>\n          </produto>\n          <produto>\n            <opeExe>I</opeExe>\n            <codPro>SGRSSLAR</codPro>\n            <codDer>900</codDer>\n            <qtdPed>12,00</qtdPed>\n          </produto>\n        </pedido>\n      </parameters>\n    </ser:GravarPedidos>\n  </soapenv:Body>\n</soapenv:Envelope>",
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "provider": "senior",
+      "operation": "GravarPedidos"
+    },
+    "response_payload": {
+      "senior": {
+        "ideExt": "0",
+        "msgRet": "OK",
+        "numPed": "353186",
+        "sitPed": "1",
+        "tipRet": "1",
+        "gridPro": [
+          {
+            "codEmp": "1",
+            "codFil": "1",
+            "numPed": "353186",
+            "seqIpd": "1",
+            "sitIpd": "1",
+            "retorno": "OK",
+            "cnpjFilial": "0"
+          },
+          {
+            "codEmp": "1",
+            "codFil": "1",
+            "numPed": "353186",
+            "seqIpd": "2",
+            "sitIpd": "1",
+            "retorno": "OK",
+            "cnpjFilial": "0"
+          },
+          {
+            "codEmp": "1",
+            "codFil": "1",
+            "numPed": "353186",
+            "seqIpd": "3",
+            "sitIpd": "1",
+            "retorno": "OK",
+            "cnpjFilial": "0"
+          }
+        ],
+        "retorno": "OK",
+        "tipoRetorno": "1",
+        "mensagemRetorno": "Processado com Sucesso."
+      },
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "duration_ms": 4158,
+      "http_status": 200,
+      "response_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns2:GravarPedidosResponse xmlns:ns2=\"http://services.senior.com.br\"><result><erroExecucao xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\"/><mensagemRetorno>Processado com Sucesso.</mensagemRetorno><respostaPedido><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><gridPro><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><numPed>353186</numPed><retorno>OK</retorno><seqIpd>1</seqIpd><sitIpd>1</sitIpd></gridPro><gridPro><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><numPed>353186</numPed><retorno>OK</retorno><seqIpd>2</seqIpd><sitIpd>1</sitIpd></gridPro><gridPro><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><numPed>353186</numPed><retorno>OK</retorno><seqIpd>3</seqIpd><sitIpd>1</sitIpd></gridPro><ideExt>0</ideExt><msgRet>OK</msgRet><numPed>353186</numPed><retorno>OK</retorno><sitPed>1</sitPed><tipPed>1</tipPed><tipRet>1</tipRet></respostaPedido><tipoRetorno>1</tipoRetorno></result></ns2:GravarPedidosResponse></S:Body></S:Envelope>"
+    },
+    "created_at": "2026-07-08T13:38:48.216953+00:00",
+    "order_id": "1bd345e3-3713-4f15-a822-d5c14cb1a16b"
+  },
+  {
+    "id": "e8d7e6cc-b191-4e53-94fc-85a91697f53d",
+    "operation": "inserirObservacoes",
+    "status": "success",
+    "request_payload": {
+      "xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\n                  xmlns:ser=\"http://services.senior.com.br\">\n  <soapenv:Header/>\n  <soapenv:Body>\n    <ser:inserirObservacoes>\n      <user>rogerio.zanucoli</user>\n      <password>***MASKED***</password>\n      <encryption>0</encryption>\n      <parameters>\n        <pedido>\n          <codigoEmpresa>1</codigoEmpresa>\n          <codigoFilial>1</codigoFilial>\n          <numeroPedido>353186</numeroPedido>\n          <observacao>Sim, entregar das 8 horas às 11h30 ou das 14h30 às 17h.</observacao>\n        </pedido>\n      </parameters>\n    </ser:inserirObservacoes>\n  </soapenv:Body>\n</soapenv:Envelope>",
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "provider": "senior",
+      "operation": "inserirObservacoes"
+    },
+    "response_payload": {
+      "senior": {
+        "resultado": "Processado com sucesso",
+        "codigoResultado": "1"
+      },
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "duration_ms": 517,
+      "http_status": 200,
+      "response_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns2:inserirObservacoesResponse xmlns:ns2=\"http://services.senior.com.br\"><result><codigoResultado>1</codigoResultado><erroExecucao xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\"/><resultado>Processado com sucesso</resultado></result></ns2:inserirObservacoesResponse></S:Body></S:Envelope>"
+    },
+    "created_at": "2026-07-08T13:38:52.608839+00:00",
+    "order_id": "1bd345e3-3713-4f15-a822-d5c14cb1a16b"
+  },
+  {
+    "id": "e19fbfd6-dd7a-4d2e-b241-1c2b9237e2a8",
+    "operation": "GravarPedidos",
+    "status": "success",
+    "request_payload": {
+      "xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\n                  xmlns:ser=\"http://services.senior.com.br\">\n  <soapenv:Header/>\n  <soapenv:Body>\n    <ser:GravarPedidos>\n      <user>rogerio.zanucoli</user>\n      <password>***MASKED***</password>\n      <encryption>0</encryption>\n      <parameters>\n        <pedido>\n          <opeExe>I</opeExe>\n          <codEmp>1</codEmp>\n          <codFil>1</codFil>\n          <codCli>11240</codCli>\n          <tipPed>1</tipPed>\n          <fecPed>S</fecPed>\n\n          <produto>\n            <opeExe>I</opeExe>\n            <codPro>SCPSSLAR</codPro>\n            <codDer>200</codDer>\n            <qtdPed>20,00</qtdPed>\n          </produto>\n          <produto>\n            <opeExe>I</opeExe>\n            <codPro>SGRSSLAR</codPro>\n            <codDer>900</codDer>\n            <qtdPed>8,00</qtdPed>\n          </produto>\n          <produto>\n            <opeExe>I</opeExe>\n            <codPro>SGRSSLAR</codPro>\n            <codDer>1L7</codDer>\n            <qtdPed>6,00</qtdPed>\n          </produto>\n        </pedido>\n      </parameters>\n    </ser:GravarPedidos>\n  </soapenv:Body>\n</soapenv:Envelope>",
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "provider": "senior",
+      "operation": "GravarPedidos"
+    },
+    "response_payload": {
+      "senior": {
+        "ideExt": "0",
+        "msgRet": "OK",
+        "numPed": "353187",
+        "sitPed": "1",
+        "tipRet": "1",
+        "gridPro": [
+          {
+            "codEmp": "1",
+            "codFil": "1",
+            "numPed": "353187",
+            "seqIpd": "1",
+            "sitIpd": "1",
+            "retorno": "OK",
+            "cnpjFilial": "0"
+          },
+          {
+            "codEmp": "1",
+            "codFil": "1",
+            "numPed": "353187",
+            "seqIpd": "2",
+            "sitIpd": "1",
+            "retorno": "OK",
+            "cnpjFilial": "0"
+          },
+          {
+            "codEmp": "1",
+            "codFil": "1",
+            "numPed": "353187",
+            "seqIpd": "3",
+            "sitIpd": "1",
+            "retorno": "OK",
+            "cnpjFilial": "0"
+          }
+        ],
+        "retorno": "OK",
+        "tipoRetorno": "1",
+        "mensagemRetorno": "Processado com Sucesso."
+      },
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "duration_ms": 3325,
+      "http_status": 200,
+      "response_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns2:GravarPedidosResponse xmlns:ns2=\"http://services.senior.com.br\"><result><erroExecucao xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\"/><mensagemRetorno>Processado com Sucesso.</mensagemRetorno><respostaPedido><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><gridPro><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><numPed>353187</numPed><retorno>OK</retorno><seqIpd>1</seqIpd><sitIpd>1</sitIpd></gridPro><gridPro><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><numPed>353187</numPed><retorno>OK</retorno><seqIpd>2</seqIpd><sitIpd>1</sitIpd></gridPro><gridPro><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><numPed>353187</numPed><retorno>OK</retorno><seqIpd>3</seqIpd><sitIpd>1</sitIpd></gridPro><ideExt>0</ideExt><msgRet>OK</msgRet><numPed>353187</numPed><retorno>OK</retorno><sitPed>1</sitPed><tipPed>1</tipPed><tipRet>1</tipRet></respostaPedido><tipoRetorno>1</tipoRetorno></result></ns2:GravarPedidosResponse></S:Body></S:Envelope>"
+    },
+    "created_at": "2026-07-08T13:41:29.681359+00:00",
+    "order_id": "b63408ac-d5f0-43af-8b1a-ffcbdfae6118"
+  },
+  {
+    "id": "6265d9dc-841d-4594-8666-b155295f1ddb",
+    "operation": "inserirObservacoes",
+    "status": "success",
+    "request_payload": {
+      "xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\n                  xmlns:ser=\"http://services.senior.com.br\">\n  <soapenv:Header/>\n  <soapenv:Body>\n    <ser:inserirObservacoes>\n      <user>rogerio.zanucoli</user>\n      <password>***MASKED***</password>\n      <encryption>0</encryption>\n      <parameters>\n        <pedido>\n          <codigoEmpresa>1</codigoEmpresa>\n          <codigoFilial>1</codigoFilial>\n          <numeroPedido>353187</numeroPedido>\n          <observacao>Favor abastecer.</observacao>\n        </pedido>\n      </parameters>\n    </ser:inserirObservacoes>\n  </soapenv:Body>\n</soapenv:Envelope>",
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "provider": "senior",
+      "operation": "inserirObservacoes"
+    },
+    "response_payload": {
+      "senior": {
+        "resultado": "Processado com sucesso",
+        "codigoResultado": "1"
+      },
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "duration_ms": 509,
+      "http_status": 200,
+      "response_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns2:inserirObservacoesResponse xmlns:ns2=\"http://services.senior.com.br\"><result><codigoResultado>1</codigoResultado><erroExecucao xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\"/><resultado>Processado com sucesso</resultado></result></ns2:inserirObservacoesResponse></S:Body></S:Envelope>"
+    },
+    "created_at": "2026-07-08T13:41:33.312307+00:00",
+    "order_id": "b63408ac-d5f0-43af-8b1a-ffcbdfae6118"
+  },
+  {
+    "id": "c93ca079-1213-413d-af90-f9178a898f74",
+    "operation": "GravarPedidos",
+    "status": "success",
+    "request_payload": {
+      "xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\n                  xmlns:ser=\"http://services.senior.com.br\">\n  <soapenv:Header/>\n  <soapenv:Body>\n    <ser:GravarPedidos>\n      <user>rogerio.zanucoli</user>\n      <password>***MASKED***</password>\n      <encryption>0</encryption>\n      <parameters>\n        <pedido>\n          <opeExe>I</opeExe>\n          <codEmp>1</codEmp>\n          <codFil>1</codFil>\n          <codCli>11240</codCli>\n          <tipPed>1</tipPed>\n          <fecPed>S</fecPed>\n\n          <produto>\n            <opeExe>I</opeExe>\n            <codPro>SGRSSLAR</codPro>\n            <codDer>900</codDer>\n            <qtdPed>4,00</qtdPed>\n          </produto>\n        </pedido>\n      </parameters>\n    </ser:GravarPedidos>\n  </soapenv:Body>\n</soapenv:Envelope>",
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "provider": "senior",
+      "operation": "GravarPedidos"
+    },
+    "response_payload": {
+      "senior": {
+        "ideExt": "0",
+        "msgRet": "OK",
+        "numPed": "353188",
+        "sitPed": "1",
+        "tipRet": "1",
+        "gridPro": [
+          {
+            "codEmp": "1",
+            "codFil": "1",
+            "numPed": "353188",
+            "seqIpd": "1",
+            "sitIpd": "1",
+            "retorno": "OK",
+            "cnpjFilial": "0"
+          }
+        ],
+        "retorno": "OK",
+        "tipoRetorno": "1",
+        "mensagemRetorno": "Processado com Sucesso."
+      },
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "duration_ms": 2656,
+      "http_status": 200,
+      "response_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns2:GravarPedidosResponse xmlns:ns2=\"http://services.senior.com.br\"><result><erroExecucao xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\"/><mensagemRetorno>Processado com Sucesso.</mensagemRetorno><respostaPedido><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><gridPro><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><numPed>353188</numPed><retorno>OK</retorno><seqIpd>1</seqIpd><sitIpd>1</sitIpd></gridPro><ideExt>0</ideExt><msgRet>OK</msgRet><numPed>353188</numPed><retorno>OK</retorno><sitPed>1</sitPed><tipPed>1</tipPed><tipRet>1</tipRet></respostaPedido><tipoRetorno>1</tipoRetorno></result></ns2:GravarPedidosResponse></S:Body></S:Envelope>"
+    },
+    "created_at": "2026-07-08T13:44:00.820217+00:00",
+    "order_id": "cf55f4c9-62cb-4680-b8ef-12515a7db738"
+  },
+  {
+    "id": "73793bc3-457c-452d-ab05-bcce79a0aec3",
+    "operation": "inserirObservacoes",
+    "status": "success",
+    "request_payload": {
+      "xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\n                  xmlns:ser=\"http://services.senior.com.br\">\n  <soapenv:Header/>\n  <soapenv:Body>\n    <ser:inserirObservacoes>\n      <user>rogerio.zanucoli</user>\n      <password>***MASKED***</password>\n      <encryption>0</encryption>\n      <parameters>\n        <pedido>\n          <codigoEmpresa>1</codigoEmpresa>\n          <codigoFilial>1</codigoFilial>\n          <numeroPedido>353188</numeroPedido>\n          <observacao>Bonificação, vencimento.</observacao>\n        </pedido>\n      </parameters>\n    </ser:inserirObservacoes>\n  </soapenv:Body>\n</soapenv:Envelope>",
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "provider": "senior",
+      "operation": "inserirObservacoes"
+    },
+    "response_payload": {
+      "senior": {
+        "resultado": "Processado com sucesso",
+        "codigoResultado": "1"
+      },
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "duration_ms": 527,
+      "http_status": 200,
+      "response_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns2:inserirObservacoesResponse xmlns:ns2=\"http://services.senior.com.br\"><result><codigoResultado>1</codigoResultado><erroExecucao xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\"/><resultado>Processado com sucesso</resultado></result></ns2:inserirObservacoesResponse></S:Body></S:Envelope>"
+    },
+    "created_at": "2026-07-08T13:44:03.695868+00:00",
+    "order_id": "cf55f4c9-62cb-4680-b8ef-12515a7db738"
+  },
+  {
+    "id": "db5c4be0-5b3f-4111-ade1-c7c6916fc347",
+    "operation": "GravarPedidos",
+    "status": "success",
+    "request_payload": {
+      "xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\n                  xmlns:ser=\"http://services.senior.com.br\">\n  <soapenv:Header/>\n  <soapenv:Body>\n    <ser:GravarPedidos>\n      <user>rogerio.zanucoli</user>\n      <password>***MASKED***</password>\n      <encryption>0</encryption>\n      <parameters>\n        <pedido>\n          <opeExe>I</opeExe>\n          <codEmp>1</codEmp>\n          <codFil>1</codFil>\n          <codCli>2463</codCli>\n          <tipPed>1</tipPed>\n          <fecPed>S</fecPed>\n\n          <produto>\n            <opeExe>I</opeExe>\n            <codPro>SBSSSLAR</codPro>\n            <codDer>05L</codDer>\n            <qtdPed>5,00</qtdPed>\n          </produto>\n        </pedido>\n      </parameters>\n    </ser:GravarPedidos>\n  </soapenv:Body>\n</soapenv:Envelope>",
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "provider": "senior",
+      "operation": "GravarPedidos"
+    },
+    "response_payload": {
+      "senior": {
+        "ideExt": "0",
+        "msgRet": "OK",
+        "numPed": "353189",
+        "sitPed": "1",
+        "tipRet": "1",
+        "gridPro": [
+          {
+            "codEmp": "1",
+            "codFil": "1",
+            "numPed": "353189",
+            "seqIpd": "1",
+            "sitIpd": "1",
+            "retorno": "OK",
+            "cnpjFilial": "0"
+          }
+        ],
+        "retorno": "OK",
+        "tipoRetorno": "1",
+        "mensagemRetorno": "Processado com Sucesso."
+      },
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "duration_ms": 2707,
+      "http_status": 200,
+      "response_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns2:GravarPedidosResponse xmlns:ns2=\"http://services.senior.com.br\"><result><erroExecucao xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\"/><mensagemRetorno>Processado com Sucesso.</mensagemRetorno><respostaPedido><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><gridPro><cnpjFilial>0</cnpjFilial><codEmp>1</codEmp><codFil>1</codFil><numPed>353189</numPed><retorno>OK</retorno><seqIpd>1</seqIpd><sitIpd>1</sitIpd></gridPro><ideExt>0</ideExt><msgRet>OK</msgRet><numPed>353189</numPed><retorno>OK</retorno><sitPed>1</sitPed><tipPed>1</tipPed><tipRet>1</tipRet></respostaPedido><tipoRetorno>1</tipoRetorno></result></ns2:GravarPedidosResponse></S:Body></S:Envelope>"
+    },
+    "created_at": "2026-07-08T13:46:55.988704+00:00",
+    "order_id": "db480dc0-9b97-458d-a0e0-da2f93239c86"
+  },
+  {
+    "id": "fdcf8273-5347-4274-a271-5fa70739a59e",
+    "operation": "inserirObservacoes",
+    "status": "success",
+    "request_payload": {
+      "xml": "<soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\n                  xmlns:ser=\"http://services.senior.com.br\">\n  <soapenv:Header/>\n  <soapenv:Body>\n    <ser:inserirObservacoes>\n      <user>rogerio.zanucoli</user>\n      <password>***MASKED***</password>\n      <encryption>0</encryption>\n      <parameters>\n        <pedido>\n          <codigoEmpresa>1</codigoEmpresa>\n          <codigoFilial>1</codigoFilial>\n          <numeroPedido>353189</numeroPedido>\n          <observacao>Entregar após as 10 horas, PIX para Bungi, NF à vista.</observacao>\n        </pedido>\n      </parameters>\n    </ser:inserirObservacoes>\n  </soapenv:Body>\n</soapenv:Envelope>",
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "provider": "senior",
+      "operation": "inserirObservacoes"
+    },
+    "response_payload": {
+      "senior": {
+        "resultado": "Processado com sucesso",
+        "codigoResultado": "1"
+      },
+      "endpoint": "http://204.216.136.6:8080/g5-senior-services/sapiens_Synccom_senior_g5_co_mcm_ven_pedidos",
+      "duration_ms": 513,
+      "http_status": 200,
+      "response_xml": "<?xml version=\"1.0\" encoding=\"utf-8\"?><S:Envelope xmlns:S=\"http://schemas.xmlsoap.org/soap/envelope/\"><S:Body><ns2:inserirObservacoesResponse xmlns:ns2=\"http://services.senior.com.br\"><result><codigoResultado>1</codigoResultado><erroExecucao xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:nil=\"true\"/><resultado>Processado com sucesso</resultado></result></ns2:inserirObservacoesResponse></S:Body></S:Envelope>"
+    },
+    "created_at": "2026-07-08T13:46:58.909162+00:00",
+    "order_id": "db480dc0-9b97-458d-a0e0-da2f93239c86"
+  }
+]

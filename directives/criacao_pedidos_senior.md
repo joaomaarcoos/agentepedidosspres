@@ -173,7 +173,7 @@ Regra: nao inventar campo `obsPed` em `GravarPedidos`. `obsPed` aparece em estru
 - Payload salvo em `secretary_orders.submit_payload` com senha mascarada.
 - Resposta salva em `secretary_orders.submit_response`.
 - Numero Senior salvo provisoriamente em `secretary_orders.clic_order_number` por compatibilidade com schema/UI existente.
-- Logs continuam usando a tabela existente `clic_request_logs`, mas com `source=secretary_senior` e `operation=GravarPedidos` ou `operation=inserirObservacoes`.
+- Logs usam a tabela neutra `requisition_logs`, com fallback temporario para a tabela legada `clic_request_logs` enquanto a migracao nao tiver sido aplicada. Pedidos Senior devem registrar `source=secretary_senior` e `operation=GravarPedidos` ou `operation=inserirObservacoes`.
 
 ## Campos pendentes ou a confirmar
 

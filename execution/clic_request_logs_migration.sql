@@ -1,4 +1,4 @@
--- Auditoria de requisicoes enviadas ao Clic Vendas.
+-- Migracao legada. Use execution/requisition_logs_migration.sql para novos ambientes.
 
 CREATE TABLE IF NOT EXISTS public.clic_request_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

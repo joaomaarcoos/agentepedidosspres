@@ -50,6 +50,7 @@ ELIEZER_REP_DOCUMENT = "34501704810"
 ELIEZER_FALLBACK_COD_REP = 52
 REPRESENTATIVE_PROFILES_KEY = "clic_representative_profiles"
 CUSTOMER_PROFILES_KEY = "clic_customer_profiles"
+REPLY_SPLIT_MARKER = "\n<<<SPLIT_REPLY>>>\n"
 CONFIRM_RE = re.compile(
     r"\b(sim|ok|okay|confirmo|confirmado|pode enviar|pode mandar|pode fechar|manda|envia|fechar|esta tudo certo|est[aÃ¡] certo|correto|certo)\b",
     re.I,
@@ -943,10 +944,10 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
 
     found = [item for item in items if item.get("status") == "encontrado"]
     pending = [item for item in items if item.get("status") != "encontrado"]
-    lines = ["Pedido conferido:"]
+    found_lines = ["Pedido conferido:"]
 
     if found:
-        lines += ["", "Encontrados:"]
+        found_lines += ["", "Encontrados:"]
     total_found = 0.0
     for index, item in enumerate(found, 1):
         product = str(item.get("nome_catalogo") or item.get("produto") or "Produto")
@@ -960,41 +961,48 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
             subtotal = _safe_float(quantity) * price
         total_found += subtotal
         quantity_text = f"{quantity} {unit}" if quantity is not None else "falta quantidade"
-        lines.append(
+        found_lines.append(
             f"{index}. {code} - {product} | {size} | {quantity_text} | "
             f"{_money_br(price)} | subtotal {_money_br(subtotal)}"
         )
     if found:
-        lines.append(f"Total parcial encontrado: {_money_br(total_found)}")
+        found_lines.append(f"Total parcial encontrado: {_money_br(total_found)}")
 
+    pending_lines = ["Pedido conferido:"]
     if pending:
-        lines += ["", "Nao encontrados:"]
+        pending_lines += ["", "Nao encontrados:"]
     for item in pending:
         product = str(item.get("produto") or item.get("nome_catalogo") or "Produto")
         requested = " ".join(
             str(item.get(key) or "") for key in ("formato", "tamanho")
         ).strip()
         if item.get("status") == "nao_encontrado":
-            lines.append(f"- {product}{f' | {requested}' if requested else ''}")
+            pending_lines.append(f"- {product}{f' | {requested}' if requested else ''}")
             suggestions = _filtered_suggestions(item)
             if suggestions:
-                lines.append("  Sugestoes na tabela:")
+                pending_lines.append("  Sugestoes na tabela:")
                 for option in suggestions:
-                    lines.append(f"  - {option}")
+                    pending_lines.append(f"  - {option}")
         else:
             missing = ", ".join(item.get("faltando") or [])
-            lines.append(f"- {product}: falta confirmar {missing or 'a opcao exata'}")
+            pending_lines.append(f"- {product}: falta confirmar {missing or 'a opcao exata'}")
             suggestions = _filtered_suggestions(item)
             if suggestions:
-                lines.append("  Sugestoes na tabela:")
+                pending_lines.append("  Sugestoes na tabela:")
                 for option in suggestions:
-                    lines.append(f"  - {option}")
+                    pending_lines.append(f"  - {option}")
 
     if any(not item.get("quantidade") for item in found):
-        lines += ["", "Informe a quantidade dos itens que ainda estao sem quantidade."]
+        found_lines += ["", "Informe a quantidade dos itens que ainda estao sem quantidade."]
     if pending:
-        lines += ["", "Me envie a correcao dos itens nao encontrados ou diga qual deles devo remover."]
-    return "\n".join(lines)
+        pending_lines += ["", "Me envie a correcao dos itens nao encontrados ou diga qual deles devo remover."]
+
+    sections = []
+    if found:
+        sections.append("\n".join(found_lines))
+    if pending:
+        sections.append("\n".join(pending_lines))
+    return REPLY_SPLIT_MARKER.join(sections)
 
 
 def _order_summary(
@@ -1087,31 +1095,36 @@ def _created_order_number(response: Any) -> str:
     return ""
 
 
-def _clic_log_create(db, order: dict, payload: dict) -> tuple[str | None, float]:
+REQUISITION_LOGS_TABLE = "requisition_logs"
+LEGACY_REQUISITION_LOGS_TABLE = "clic_request_logs"
+
+
+def _requisition_log_create(db, order: dict, payload: dict) -> tuple[str | None, float]:
     started = time.perf_counter()
     is_senior = isinstance(payload, dict) and payload.get("provider") == "senior"
-    try:
-        rows = db.table("clic_request_logs").insert(
-            {
-                "source": "secretary_senior" if is_senior else "secretary",
-                "operation": payload.get("operation") if is_senior else "create_order",
-                "endpoint": payload.get("endpoint") if is_senior else "/extpedidos",
-                "method": "POST",
-                "status": "pending",
-                "order_id": order.get("id"),
-                "protocol": order.get("protocol"),
-                "cod_rep": order.get("cod_rep"),
-                "representative_document": order.get("representative_document"),
-                "customer_code": order.get("customer_code"),
-                "customer_document": order.get("customer_document"),
-                "request_payload": payload,
-                "created_at": _now(),
-                "sent_at": _now(),
-            }
-        ).execute().data or []
-        return (rows[0].get("id") if rows else None), started
-    except Exception:
-        return None, started
+    record = {
+        "source": "secretary_senior" if is_senior else "secretary",
+        "operation": payload.get("operation") if is_senior else "create_order",
+        "endpoint": payload.get("endpoint") if is_senior else "/extpedidos",
+        "method": "POST",
+        "status": "pending",
+        "order_id": order.get("id"),
+        "protocol": order.get("protocol"),
+        "cod_rep": order.get("cod_rep"),
+        "representative_document": order.get("representative_document"),
+        "customer_code": order.get("customer_code"),
+        "customer_document": order.get("customer_document"),
+        "request_payload": payload,
+        "created_at": _now(),
+        "sent_at": _now(),
+    }
+    for table in (REQUISITION_LOGS_TABLE, LEGACY_REQUISITION_LOGS_TABLE):
+        try:
+            rows = db.table(table).insert(record).execute().data or []
+            return (rows[0].get("id") if rows else None), started
+        except Exception:
+            continue
+    return None, started
 
 
 def _clic_error_payload(exc: Exception) -> tuple[int | None, dict | None, str]:
@@ -1140,7 +1153,7 @@ def _clic_variation_code(value: Any) -> str:
     return compact.upper() if compact.lower().endswith("l") else compact
 
 
-def _clic_log_finish(
+def _requisition_log_finish(
     db,
     log_id: str | None,
     started: float,
@@ -1151,19 +1164,20 @@ def _clic_log_finish(
 ) -> None:
     if not log_id:
         return
-    try:
-        db.table("clic_request_logs").update(
-            {
-                "status": status,
-                "http_status": http_status,
-                "response_payload": response_payload,
-                "error_message": error_message,
-                "responded_at": _now(),
-                "duration_ms": int((time.perf_counter() - started) * 1000),
-            }
-        ).eq("id", log_id).execute()
-    except Exception:
-        return
+    update = {
+        "status": status,
+        "http_status": http_status,
+        "response_payload": response_payload,
+        "error_message": error_message,
+        "responded_at": _now(),
+        "duration_ms": int((time.perf_counter() - started) * 1000),
+    }
+    for table in (REQUISITION_LOGS_TABLE, LEGACY_REQUISITION_LOGS_TABLE):
+        try:
+            db.table(table).update(update).eq("id", log_id).execute()
+            return
+        except Exception:
+            continue
 
 
 def _build_clic_order_payload(order: dict, representative_document: str | None = None) -> list[dict]:
@@ -1301,11 +1315,11 @@ def _submit(db, order: dict) -> tuple[bool, str]:
             {"status": "failed", "error_message": str(exc), "updated_at": _now()}
         ).eq("id", order["id"]).execute()
         return False, str(exc)
-    log_id, log_started = _clic_log_create(db, order, payload)
+    log_id, log_started = _requisition_log_create(db, order, payload)
     try:
         result = senior_client.submit_order(order)
         response = result.to_response_payload()
-        _clic_log_finish(
+        _requisition_log_finish(
             db,
             log_id,
             log_started,
@@ -1344,11 +1358,11 @@ def _submit(db, order: dict) -> tuple[bool, str]:
         if observation:
             try:
                 observation_payload = senior_client.build_masked_observation_payload(number, observation)
-                obs_log_id, obs_log_started = _clic_log_create(db, order, observation_payload)
+                obs_log_id, obs_log_started = _requisition_log_create(db, order, observation_payload)
                 obs_result = senior_client.submit_observation(number, observation)
                 observation_response = obs_result.to_response_payload()
                 response["inserirObservacoes"] = observation_response
-                _clic_log_finish(
+                _requisition_log_finish(
                     db,
                     obs_log_id,
                     obs_log_started,
@@ -1374,7 +1388,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
                 }
                 observation_error = message
                 try:
-                    _clic_log_finish(
+                    _requisition_log_finish(
                         db,
                         locals().get("obs_log_id"),
                         locals().get("obs_log_started", time.perf_counter()),
@@ -1409,7 +1423,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
         return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*."
     except Exception as exc:
         http_status, response_payload, error_message = _clic_error_payload(exc)
-        _clic_log_finish(
+        _requisition_log_finish(
             db,
             log_id,
             log_started,

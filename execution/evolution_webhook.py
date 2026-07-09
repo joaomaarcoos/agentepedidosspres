@@ -40,6 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 REPLY_SPLIT_MAX_CHARS = int(os.getenv("AI_REPLY_SPLIT_MAX_CHARS", "1200"))
 REPLY_SPLIT_DELAY_SECONDS = float(os.getenv("AI_REPLY_SPLIT_DELAY_SECONDS", "0.8"))
+REPLY_SPLIT_MARKER = "<<<SPLIT_REPLY>>>"
 
 
 def emit(payload: dict) -> None:
@@ -335,6 +336,11 @@ def split_reply(text: str, max_chars: int = REPLY_SPLIT_MAX_CHARS) -> list[str]:
     if not text:
         return []
     text = re.sub(r"<br\s*/?>", "\n\n", text, flags=re.IGNORECASE)
+    if REPLY_SPLIT_MARKER in text:
+        chunks: list[str] = []
+        for part in text.split(REPLY_SPLIT_MARKER):
+            chunks.extend(split_reply(part, max_chars=max_chars))
+        return [chunk for chunk in chunks if chunk]
     if max_chars <= 0 or len(text) <= max_chars:
         return [text]
 
