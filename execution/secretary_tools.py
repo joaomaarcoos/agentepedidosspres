@@ -22,7 +22,7 @@ def select_sale_type_tool(
     state: dict,
     sale_type_code: str,
     sale_type_label: Callable[[Any], str],
-    order_summary: Callable[[dict, list[dict], str], str],
+    order_summary: Callable[..., str],
     save_draft: Callable[[dict], dict] | None = None,
 ) -> ToolResult:
     state["sale_type_code"] = sale_type_code
@@ -38,6 +38,7 @@ def select_sale_type_tool(
                 state["customer"],
                 state.get("items") or [],
                 state.get("observations") or "",
+                sale_type_code=state.get("sale_type_code"),
             )
         )
     else:
@@ -51,12 +52,13 @@ def select_sale_type_tool(
 
 def show_summary_tool(
     state: dict,
-    order_summary: Callable[[dict, list[dict], str], str],
+    order_summary: Callable[..., str],
 ) -> ToolResult:
     reply = order_summary(
         state["customer"],
         state.get("items") or [],
         state.get("observations") or "",
+        sale_type_code=state.get("sale_type_code"),
     )
     return ToolResult("secretary_order_summary", reply, state)
 
@@ -74,7 +76,7 @@ def resolve_products_tool(
     resolution_reply: Callable[[dict | None], str],
     suggestions_enricher: Callable[[dict | None, list[dict]], dict | None] | None = None,
     save_draft: Callable[[dict], dict],
-    order_summary: Callable[[dict, list[dict], str], str],
+    order_summary: Callable[..., str],
 ) -> ToolResult:
     catalog = catalog_lookup(customer)
     if not catalog:
@@ -121,6 +123,7 @@ def resolve_products_tool(
         customer,
         current,
         state.get("observations") or "",
+        sale_type_code=state.get("sale_type_code"),
     )
     state.setdefault("product_history", []).append({"role": "assistant", "content": reply})
     return ToolResult("secretary_reply", reply, state)

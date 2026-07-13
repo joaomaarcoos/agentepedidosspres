@@ -114,6 +114,10 @@ class SeniorOrderClient:
         customer_code = escape(_text(order.get("customer_code")))
         if not customer_code:
             raise ValueError("Codigo do cliente Senior nao definido.")
+        sale_type_code = _text(order.get("sale_type_code"))
+        if not sale_type_code:
+            raise ValueError("Tipo de venda nao definido para envio ao Senior.")
+        sale_type_block = f"\n          <tnsPro>{escape(sale_type_code)}</tnsPro>"
 
         item_blocks: list[str] = []
         for item in order.get("items_json") or []:
@@ -154,6 +158,7 @@ class SeniorOrderClient:
           <codFil>{escape(self.cod_fil)}</codFil>
           <codCli>{customer_code}</codCli>
           <tipPed>1</tipPed>
+{sale_type_block}
           <fecPed>S</fecPed>
 {''.join(item_blocks)}
         </pedido>

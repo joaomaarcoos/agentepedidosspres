@@ -680,6 +680,98 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertIn("<observacao>Entregar pela manha</observacao>", payload["xml"])
         self.assertIn("***MASKED***", payload["xml"])
 
+    def test_senior_order_payload_sends_sale_type_as_tns_pro(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "SENIOR_BASE_URL": "https://senior.example.test",
+                "SENIOR_USER": "usuario",
+                "SENIOR_PASSWORD": "senha",
+                "SENIOR_ENCRYPTION": "0",
+                "SENIOR_COD_EMP": "1",
+                "SENIOR_COD_FIL": "1",
+            },
+            clear=False,
+        ):
+            client = senior_order_client.SeniorOrderClient()
+            payload = client.build_masked_payload(
+                {
+                    "customer_code": "28764",
+                    "sale_type_code": "BONIF4",
+                    "items_json": [
+                        {"cod_produto": "SANDBRIOC", "derivacao": "FRAN", "quantidade": 8},
+                    ],
+                }
+            )
+
+        self.assertIn("<tnsPro>BONIF4</tnsPro>", payload["xml"])
+        self.assertIn("<tipPed>1</tipPed>", payload["xml"])
+
+    def test_senior_order_payload_requires_sale_type(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "SENIOR_BASE_URL": "https://senior.example.test",
+                "SENIOR_USER": "usuario",
+                "SENIOR_PASSWORD": "senha",
+                "SENIOR_ENCRYPTION": "0",
+                "SENIOR_COD_EMP": "1",
+                "SENIOR_COD_FIL": "1",
+            },
+            clear=False,
+        ):
+            client = senior_order_client.SeniorOrderClient()
+            with self.assertRaisesRegex(ValueError, "Tipo de venda"):
+                client.build_masked_payload(
+                    {
+                        "customer_code": "28764",
+                        "items_json": [
+                            {"cod_produto": "SANDBRIOC", "derivacao": "FRAN", "quantidade": 8},
+                        ],
+                    }
+                )
+
+    def test_save_draft_requires_valid_sale_type(self):
+        db = _FakeDb({"secretary_orders": []})
+        with self.assertRaisesRegex(ValueError, "Tipo de venda"):
+            secretary_agent._save_draft(
+                db,
+                {"id": "conv-1", "instance_name": "secretaria", "representative_phone": "5516"},
+                {"cod_rep": 52},
+                {
+                    "customer": {"code": "28764", "name": "POSTO FLAMBOYANT"},
+                    "items": [
+                        {
+                            "nome": "SANDUICHE BRIOCHE",
+                            "cod_produto": "SANDBRIOC",
+                            "derivacao": "FRAN",
+                            "quantidade": 8,
+                            "subtotal": 76.08,
+                        }
+                    ],
+                },
+            )
+
+    def test_order_summary_displays_sale_type(self):
+        reply = secretary_agent._order_summary(
+            {"name": "POSTO FLAMBOYANT"},
+            [
+                {
+                    "nome": "SANDUICHE BRIOCHE",
+                    "cod_produto": "SANDBRIOC",
+                    "derivacao": "FRAN",
+                    "quantidade": 8,
+                    "unidade": "UN",
+                    "preco_unitario": 9.51,
+                    "subtotal": 76.08,
+                }
+            ],
+            "Troca por validade",
+            sale_type_code="BONIF4",
+        )
+
+        self.assertIn("Tipo: *bonificacao - acordo comercial*", reply)
+
     def test_parse_senior_observation_response(self):
         parsed = senior_order_client.parse_inserir_observacoes_response(
             """<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body>

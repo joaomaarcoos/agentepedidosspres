@@ -103,6 +103,7 @@ SALE_TYPE_LABELS = {
     "9010P": "pedido PDV",
     "BONIF4": "bonificacao - acordo comercial",
 }
+VALID_SALE_TYPE_CODES = set(SALE_TYPE_LABELS)
 
 
 def _sale_type_prompt() -> str:
@@ -111,6 +112,13 @@ def _sale_type_prompt() -> str:
 
 def _sale_type_label(code: Any) -> str:
     return SALE_TYPE_LABELS.get(str(code or ""), str(code or ""))
+
+
+def _validated_sale_type_code(value: Any) -> str:
+    code = str(value or "").strip()
+    if code not in VALID_SALE_TYPE_CODES:
+        raise ValueError("Tipo de venda nao definido. Informe *normal*, *PDV* ou *bonificacao* antes de enviar.")
+    return code
 
 
 def _sale_type_only_message(text: Any) -> bool:
@@ -177,6 +185,7 @@ def _after_observation_reply(state: dict) -> str:
             state["customer"],
             state.get("items") or [],
             state.get("observations") or "",
+            sale_type_code=state.get("sale_type_code"),
         )
     return "Certo. Agora me envie os produtos e quantidades do pedido."
 
@@ -1010,8 +1019,12 @@ def _order_summary(
     items: list[dict],
     observations: str = "",
     ask_confirmation: bool = True,
+    sale_type_code: Any = None,
 ) -> str:
-    lines = [f"Cliente: *{customer.get('name')}*", "", "Pedido:"]
+    lines = [f"Cliente: *{customer.get('name')}*"]
+    if sale_type_code:
+        lines += [f"Tipo: *{_sale_type_label(sale_type_code)}*"]
+    lines += ["", "Pedido:"]
     total = 0.0
     for index, item in enumerate(items, 1):
         subtotal = _safe_float(item.get("subtotal"))
@@ -1039,9 +1052,7 @@ def _save_draft(db, conversation: dict, representative: dict, state: dict) -> di
     items = state.get("items") or []
     total = round(sum(_safe_float(item.get("subtotal")) for item in items), 2)
     customer = state["customer"]
-    # O envio ativo ao Senior usa o payload minimo validado e nao envia tipo de venda.
-    # Mantemos a coluna preenchida apenas por compatibilidade com o schema legado.
-    sale_type_code = str(state.get("sale_type_code") or "SENIOR_MINIMAL").strip()
+    sale_type_code = _validated_sale_type_code(state.get("sale_type_code"))
     payload = {
         "conversation_id": conversation.get("id"),
         "instance_name": conversation.get("instance_name"),
