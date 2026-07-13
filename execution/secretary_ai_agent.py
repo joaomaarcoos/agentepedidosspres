@@ -17,7 +17,7 @@ from typing import Any
 SALE_TYPE_LABELS = {
     "90100": "pedido normal",
     "9010P": "pedido PDV",
-    "BONIF4": "bonificacao - acordo comercial",
+    "BONIF4": "bonificação",
 }
 
 INTENTS = {

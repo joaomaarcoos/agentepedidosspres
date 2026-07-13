@@ -901,7 +901,7 @@ class SecretaryAgentTests(unittest.TestCase):
             sale_type_code="BONIF4",
         )
 
-        self.assertIn("Tipo: *bonificacao - acordo comercial*", reply)
+        self.assertIn("Tipo: *bonificação*", reply)
 
     def test_parse_senior_observation_response(self):
         parsed = senior_order_client.parse_inserir_observacoes_response(

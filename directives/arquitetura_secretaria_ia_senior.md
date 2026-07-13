@@ -217,7 +217,7 @@ Tipos:
 |---|---|
 | Pedido normal | `90100` |
 | Pedido PDV | `9010P` |
-| Bonificação acordo comercial | `BONIF4` |
+| Bonificação | `BONIF4` |
 
 ### resolver_produtos_na_tabela
 

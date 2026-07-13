@@ -101,7 +101,7 @@ def _sale_type_code_from_text(text: Any) -> str | None:
 SALE_TYPE_LABELS = {
     "90100": "pedido normal",
     "9010P": "pedido PDV",
-    "BONIF4": "bonificacao - acordo comercial",
+    "BONIF4": "bonificação",
 }
 VALID_SALE_TYPE_CODES = set(SALE_TYPE_LABELS)
 
