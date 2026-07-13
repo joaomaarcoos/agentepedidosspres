@@ -38,12 +38,13 @@ export const pedidosApi = {
       `/api/pedidos/sync-logs${date ? `?date=${date}` : ""}`
     ),
   getSyncLog: (id: string) => api.get(`/api/pedidos/sync-logs/${id}`),
-  list: (params?: { cod_cli?: number; cod_rep?: number; dias?: number; page?: number }) => {
+  list: (params?: { cod_cli?: number; cod_rep?: number; dias?: number; page?: number; origin?: "all" | "ia_secretaria" }) => {
     const q = new URLSearchParams();
     if (params?.cod_cli) q.set("cod_cli", String(params.cod_cli));
     if (params?.cod_rep) q.set("cod_rep", String(params.cod_rep));
     if (params?.dias) q.set("dias", String(params.dias));
     if (params?.page) q.set("page", String(params.page));
+    if (params?.origin && params.origin !== "all") q.set("origin", params.origin);
     return api.get<{
       total: number;
       page: number;

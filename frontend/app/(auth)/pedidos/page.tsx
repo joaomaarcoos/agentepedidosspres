@@ -60,7 +60,7 @@ function PedidoDrawer({ pedido, onClose }: { pedido: Pedido; onClose: () => void
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 100, backdropFilter: "blur(2px)" }} />
-      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(660px, 94vw)", background: "var(--surface)", borderLeft: "1px solid var(--border)", zIndex: 101, display: "flex", flexDirection: "column", boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" }}>
+      <div className="order-drawer" style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(660px, 94vw)", background: "var(--surface)", borderLeft: "1px solid var(--border)", zIndex: 101, display: "flex", flexDirection: "column", boxShadow: "-8px 0 40px rgba(0,0,0,0.35)" }}>
 
         <div style={{ background: "linear-gradient(135deg, #0d1b3e 0%, #0a1628 100%)", padding: "24px 24px 20px", position: "relative", flexShrink: 0 }}>
           <button onClick={onClose} style={{ position: "absolute", top: 16, right: 16, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "rgba(255,255,255,0.7)", display: "flex", alignItems: "center" }}>
@@ -109,7 +109,7 @@ function PedidoDrawer({ pedido, onClose }: { pedido: Pedido; onClose: () => void
                 {itens.length} {itens.length === 1 ? "produto" : "produtos"}
               </div>
               {itens.map((item, idx) => (
-                <div key={idx} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+                <div className="order-drawer-item" key={idx} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14 }}>
                   <div style={{ width: 42, height: 42, borderRadius: 10, background: "rgba(99,102,241,0.12)", border: "1px solid rgba(99,102,241,0.2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: "#818cf8", lineHeight: 1 }}>{Number(item.qtdPed ?? 0).toLocaleString("pt-BR")}</span>
                     <span style={{ fontSize: 9, color: "#818cf8", opacity: 0.7, textTransform: "uppercase", letterSpacing: 0.3 }}>{item.uniMed || "un"}</span>
@@ -165,6 +165,7 @@ export default function PedidosPage() {
   const [pages, setPages] = useState(1);
   const [dias, setDias] = useState(0);
   const [codRep, setCodRep] = useState("");
+  const [origin, setOrigin] = useState<"all" | "ia_secretaria">("all");
   const [loadingPedidos, setLoadingPedidos] = useState(false);
   const [selectedPedido, setSelectedPedido] = useState<Pedido | null>(null);
   const [cronEnabled, setCronEnabled] = useState(false);
@@ -179,6 +180,7 @@ export default function PedidosPage() {
         dias,
         page: targetPage,
         cod_rep: canFilterRep && codRep ? Number(codRep) : undefined,
+        origin,
       });
       setPedidos(result.pedidos);
       setTotal(result.total);
@@ -193,7 +195,7 @@ export default function PedidosPage() {
     } finally {
       setLoadingPedidos(false);
     }
-  }, [dias, canFilterRep, codRep]);
+  }, [dias, canFilterRep, codRep, origin]);
 
   useEffect(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -259,14 +261,15 @@ export default function PedidosPage() {
 
   const totalValue = metrics?.total_value ?? pedidos.reduce((sum, p) => sum + (p.order_total_value || 0), 0);
   const uniqueClients = metrics?.unique_clients ?? new Set(pedidos.map((p) => p.cod_cli)).size;
-  const rangeLabel = dias === 0 ? "Toda a base local" : `Ultimos ${dias} dias`;
+  const originLabel = origin === "ia_secretaria" ? "IA - Secretaria" : "Todos os pedidos";
+  const rangeLabel = `${dias === 0 ? "Toda a base local" : `Ultimos ${dias} dias`} · ${originLabel}`;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <Header title="Pedidos" />
 
       <div style={{ flex: 1, overflow: "auto", padding: 28 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        <div className="orders-toolbar" style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
           <select
             value={dias}
             onChange={(e) => setDias(Number(e.target.value))}
@@ -280,6 +283,15 @@ export default function PedidosPage() {
               { value: 60, label: "Ultimos 60 dias" },
               { value: 90, label: "Ultimos 90 dias" },
             ].map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+
+          <select
+            value={origin}
+            onChange={(e) => setOrigin(e.target.value as "all" | "ia_secretaria")}
+            style={{ background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 12px", fontSize: 13 }}
+          >
+            <option value="all">Todos os pedidos</option>
+            <option value="ia_secretaria">IA - Secretaria</option>
           </select>
 
           {canFilterRep && (
@@ -351,7 +363,7 @@ export default function PedidosPage() {
           )}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+        <div className="orders-stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
           {[
             { label: "Pedidos na base", value: total, icon: ShoppingCart, color: "var(--accent)" },
             { label: "Clientes unicos", value: uniqueClients, icon: Users, color: "var(--success)" },
@@ -384,7 +396,7 @@ export default function PedidosPage() {
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table className="orders-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ background: "var(--surface2)" }}>
                     {["Pedido", "Cliente", "Data", "Situacao", "Valor", "Itens"].map((h) => (
@@ -405,18 +417,18 @@ export default function PedidosPage() {
                         onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "var(--surface2)"; }}
                         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = isSelected ? "var(--accent)18" : "transparent"; }}
                       >
-                        <td style={{ padding: "10px 16px", fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>#{pedido.num_ped}</td>
-                        <td style={{ padding: "10px 16px", fontSize: 13, color: "var(--text)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <td data-label="Pedido" style={{ padding: "10px 16px", fontSize: 13, color: "var(--accent)", fontWeight: 600 }}>#{pedido.num_ped}</td>
+                        <td data-label="Cliente" style={{ padding: "10px 16px", fontSize: 13, color: "var(--text)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {pedido.customer_name || String(pedido.cod_cli || "-")}
                         </td>
-                        <td style={{ padding: "10px 16px", fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap" }}>{pedido.dat_emi || "-"}</td>
-                        <td style={{ padding: "10px 16px" }}><SitBadge sit={pedido.sit_ped} /></td>
-                        <td style={{ padding: "10px 16px", fontSize: 13, color: "var(--text)", whiteSpace: "nowrap" }}>
+                        <td data-label="Data" style={{ padding: "10px 16px", fontSize: 13, color: "var(--muted)", whiteSpace: "nowrap" }}>{pedido.dat_emi || "-"}</td>
+                        <td data-label="Situacao" style={{ padding: "10px 16px" }}><SitBadge sit={pedido.sit_ped} /></td>
+                        <td data-label="Valor" style={{ padding: "10px 16px", fontSize: 13, color: "var(--text)", whiteSpace: "nowrap" }}>
                           {pedido.order_total_value != null
                             ? `R$ ${pedido.order_total_value.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
                             : "-"}
                         </td>
-                        <td style={{ padding: "10px 16px" }}>
+                        <td data-label="Itens" style={{ padding: "10px 16px" }}>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: (pedido.items_json?.length || 0) > 0 ? "var(--text)" : "var(--muted)", background: (pedido.items_json?.length || 0) > 0 ? "var(--accent)18" : "transparent", padding: "2px 8px", borderRadius: 12, border: (pedido.items_json?.length || 0) > 0 ? "1px solid var(--accent)44" : "none" }}>
                             <Package size={11} />
                             {pedido.items_json?.length || 0} {(pedido.items_json?.length || 0) === 1 ? "item" : "itens"}

@@ -117,6 +117,8 @@ export interface Pedido {
   items_json?: PedidoItem[];
   has_items?: boolean;
   source?: string;
+  origin_agent?: string | null;
+  origin_protocol?: string | null;
   erp_synced_at?: string;
 }
 

@@ -111,13 +111,14 @@ function LogRow({ log }: { log: DisparoLog }) {
   return (
     <>
       <tr
+        className="dispatch-log-row"
         onClick={() => setExpanded(v => !v)}
         style={{ borderTop: "1px solid var(--border)", cursor: "pointer" }}
         onMouseEnter={e => (e.currentTarget.style.background = "var(--surface2)")}
         onMouseLeave={e => (e.currentTarget.style.background = "")}
       >
         {/* Data/hora */}
-        <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
+        <td data-label="Data / Hora" style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
             {fmtDateTime(log.started_at)}
           </div>
@@ -129,17 +130,17 @@ function LogRow({ log }: { log: DisparoLog }) {
         </td>
 
         {/* Flow */}
-        <td style={{ padding: "12px 16px" }}>
+        <td data-label="Fluxo" style={{ padding: "12px 16px" }}>
           <FlowBadge flow={log.flow} />
         </td>
 
         {/* Status */}
-        <td style={{ padding: "12px 16px" }}>
+        <td data-label="Status" style={{ padding: "12px 16px" }}>
           <StatusBadge status={log.status} />
         </td>
 
         {/* Métricas */}
-        <td style={{ padding: "12px 16px" }}>
+        <td data-label="Metricas" style={{ padding: "12px 16px" }}>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
             <span style={{ fontSize: 12, color: "var(--muted)" }}>
               Processados: <strong style={{ color: "var(--text)" }}>{log.processed}</strong>
@@ -159,7 +160,7 @@ function LogRow({ log }: { log: DisparoLog }) {
         </td>
 
         {/* Origem */}
-        <td style={{ padding: "12px 16px" }}>
+        <td data-label="Origem" style={{ padding: "12px 16px" }}>
           <span style={{ fontSize: 12, color: "var(--muted)", textTransform: "capitalize" }}>
             {log.triggered_by}
           </span>
@@ -175,7 +176,7 @@ function LogRow({ log }: { log: DisparoLog }) {
         </td>
 
         {/* Expand toggle */}
-        <td style={{ padding: "12px 16px", textAlign: "right" }}>
+        <td data-label="" style={{ padding: "12px 16px", textAlign: "right" }}>
           {hasErrors ? (
             <button
               onClick={e => { e.stopPropagation(); setExpanded(v => !v); }}
@@ -198,7 +199,7 @@ function LogRow({ log }: { log: DisparoLog }) {
       </tr>
 
       {expanded && (
-        <tr style={{ background: "var(--surface2)" }}>
+        <tr className="dispatch-log-details" style={{ background: "var(--surface2)" }}>
           <td colSpan={6} style={{ padding: 0 }}>
             <ErrorsPanel log={log} />
           </td>
@@ -279,7 +280,7 @@ export default function LogsPage() {
       <div style={{ flex: 1, overflow: "auto", padding: 28 }}>
 
         {/* Barra de controles */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
+        <div className="dispatch-logs-toolbar" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
           <select value={flowFilter} onChange={e => { setFlowFilter(e.target.value); setPage(1); }} style={selectStyle}>
             {FLOW_OPTS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -308,7 +309,7 @@ export default function LogsPage() {
 
         {/* Cards de resumo */}
         {data && data.logs.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 14, marginBottom: 24 }}>
+          <div className="dispatch-logs-stats" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 14, marginBottom: 24 }}>
             {[
               { label: "Mensagens Enviadas",  value: totals?.dispatched ?? 0, icon: Send,         color: "var(--success)" },
               { label: "Erros de Envio",       value: totals?.errors ?? 0,    icon: XCircle,      color: "var(--error)"   },
@@ -374,7 +375,7 @@ export default function LogsPage() {
 
           {!loading && !error && data && data.logs.length > 0 && (
             <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table className="dispatch-logs-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ background: "var(--surface2)" }}>
                     {["Data / Hora", "Fluxo", "Status", "Métricas", "Origem", ""].map(h => (

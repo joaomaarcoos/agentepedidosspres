@@ -37,15 +37,16 @@ function LogRow({ log }: { log: SyncLog }) {
   return (
     <div style={{ borderTop: "1px solid var(--border)", transition: "background 0.1s" }}>
       <div
+        className="sync-log-row"
         style={{ display: "grid", gridTemplateColumns: "180px 1fr 100px 80px 80px 80px 100px 40px", alignItems: "center", padding: "12px 20px", cursor: "pointer", gap: 8 }}
         onClick={() => setExpanded((v) => !v)}
         onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "var(--surface2)")}
         onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "transparent")}
       >
-        <span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "monospace" }}>
+        <span className="sync-log-time" style={{ fontSize: 12, color: "var(--muted)", fontFamily: "monospace" }}>
           {new Date(log.triggered_at).toLocaleString("pt-BR")}
         </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="sync-log-status" style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <StatusIcon status={log.status} />
           <StatusBadge status={log.status} />
           {log.triggered_by && (
@@ -54,22 +55,22 @@ function LogRow({ log }: { log: SyncLog }) {
             </span>
           )}
         </div>
-        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>{log.total_fetched ?? 0}</span>
-        <span style={{ fontSize: 13, color: "var(--success)" }}>{log.total_upserted ?? 0}</span>
-        <span style={{ fontSize: 13, color: log.total_errors ? "var(--error)" : "var(--muted)" }}>{log.total_errors ?? 0}</span>
+        <span className="sync-log-metric" data-label="Buscados" style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>{log.total_fetched ?? 0}</span>
+        <span className="sync-log-metric" data-label="Salvos" style={{ fontSize: 13, color: "var(--success)" }}>{log.total_upserted ?? 0}</span>
+        <span className="sync-log-metric" data-label="Erros" style={{ fontSize: 13, color: log.total_errors ? "var(--error)" : "var(--muted)" }}>{log.total_errors ?? 0}</span>
         <span style={{ fontSize: 12, color: "var(--muted)" }}>{log.duration_ms ? `${(log.duration_ms / 1000).toFixed(1)}s` : "—"}</span>
         <span style={{ fontSize: 11, color: "var(--muted)" }}>{summary?.total_clientes ?? "—"}</span>
-        <span style={{ color: "var(--muted)" }}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
+        <span className="sync-log-toggle" style={{ color: "var(--muted)" }}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
       </div>
 
       {expanded && (
-        <div style={{ padding: "16px 24px", borderTop: "1px solid var(--border)", background: "rgba(0,0,0,0.15)" }}>
+        <div className="sync-log-expanded" style={{ padding: "16px 24px", borderTop: "1px solid var(--border)", background: "rgba(0,0,0,0.15)" }}>
           {log.error_message && (
             <div style={{ padding: "10px 14px", background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 8, color: "var(--error)", fontSize: 12, marginBottom: 12, fontFamily: "monospace" }}>
               {log.error_message}
             </div>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div className="sync-log-detail-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div>
               <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Parâmetros</div>
               <div style={{ fontSize: 12, color: "var(--text)" }}>
@@ -133,7 +134,7 @@ export default function MonitorPage() {
       <Header title="Pedidos — Monitor de Sincronizações" />
 
       <div style={{ flex: 1, overflow: "auto", padding: 28 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+        <div className="sync-monitor-toolbar" style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
           <Link href="/pedidos" style={{ fontSize: 13, color: "var(--muted)", textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
             ← Pedidos
           </Link>
@@ -150,7 +151,7 @@ export default function MonitorPage() {
           )}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+        <div className="sync-monitor-stats" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
           {[
             { label: "Syncs totais", value: logs.length, color: "var(--muted)" },
             { label: "Sucesso", value: successCount, color: "var(--success)" },
@@ -165,7 +166,7 @@ export default function MonitorPage() {
         </div>
 
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 100px 80px 80px 80px 100px 40px", padding: "10px 20px", borderBottom: "1px solid var(--border)", background: "var(--surface2)", gap: 8 }}>
+          <div className="sync-log-header" style={{ display: "grid", gridTemplateColumns: "180px 1fr 100px 80px 80px 80px 100px 40px", padding: "10px 20px", borderBottom: "1px solid var(--border)", background: "var(--surface2)", gap: 8 }}>
             {["Horário", "Status / Trigger", "Buscados", "Salvos", "Erros", "Duração", "Clientes", ""].map((h) => (
               <span key={h} style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>{h}</span>
             ))}

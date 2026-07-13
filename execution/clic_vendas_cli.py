@@ -532,11 +532,18 @@ def _db_direct():
     return create_client(url, key)
 
 
-def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int, cod_rep: int | None = None) -> dict:
+def list_pedidos(
+    cod_cli: int | None,
+    dias: int,
+    page: int,
+    page_size: int,
+    cod_rep: int | None = None,
+    origin: str = "all",
+) -> dict:
     """Lista pedidos sincronizados da tabela rep_order_base."""
     db = _db_direct()
 
-    select_fields = "id, num_ped, cod_cli, cod_rep, customer_name, rep_name, dat_emi, sit_ped, order_total_value, items_json, has_items, source"
+    select_fields = "id, num_ped, cod_cli, cod_rep, customer_name, rep_name, dat_emi, sit_ped, order_total_value, items_json, has_items, source, origin_agent, origin_protocol"
     fallback_select_fields = "id, num_ped, cod_cli, cod_rep, dat_emi, sit_ped, order_total_value, items_json, has_items, source"
 
     def filtered_query(fields: str, *, count: str | None = None):
@@ -552,6 +559,8 @@ def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int, cod_
             q = q.eq("cod_cli", cod_cli)
         if cod_rep is not None:
             q = q.eq("cod_rep", cod_rep)
+        if origin == "ia_secretaria":
+            q = q.eq("origin_agent", "marcela_secretaria")
         return q
 
     def execute_page(fields: str):
@@ -602,6 +611,8 @@ def list_pedidos(cod_cli: int | None, dias: int, page: int, page_size: int, cod_
             "items_json": r.get("items_json") or [],
             "has_items": bool(r.get("has_items")),
             "source": r.get("source") or "clic_vendas",
+            "origin_agent": r.get("origin_agent"),
+            "origin_protocol": r.get("origin_protocol"),
         })
 
     return {
@@ -912,6 +923,7 @@ def main() -> int:
     pedidos_parser.add_argument("--page", type=int, default=1)
     pedidos_parser.add_argument("--page-size", type=int, default=50)
     pedidos_parser.add_argument("--cod-rep", type=int, default=None)
+    pedidos_parser.add_argument("--origin", choices=["all", "ia_secretaria"], default="all")
 
     previsao_parser = subparsers.add_parser("previsao")
     previsao_parser.add_argument("--year", type=int, default=None)
@@ -938,7 +950,7 @@ def main() -> int:
         if args.command == "sync-log":
             return success(get_sync_log(args.log_id))
         if args.command == "pedidos":
-            return success(list_pedidos(args.cod_cli, args.dias, args.page, args.page_size, args.cod_rep))
+            return success(list_pedidos(args.cod_cli, args.dias, args.page, args.page_size, args.cod_rep, args.origin))
         if args.command == "previsao":
             return success(list_previsao(args.year, args.period_count, args.limit, args.cod_rep))
         return failure("Comando não suportado")

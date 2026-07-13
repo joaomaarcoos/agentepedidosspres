@@ -43,6 +43,7 @@ export function listPedidos(params: {
   dias?: number;
   page?: number;
   pageSize?: number;
+  origin?: string;
 }) {
   const args = ["pedidos"];
   if (params.codCli !== undefined) args.push("--cod-cli", String(params.codCli));
@@ -50,6 +51,7 @@ export function listPedidos(params: {
   if (params.dias !== undefined) args.push("--dias", String(params.dias));
   if (params.page !== undefined) args.push("--page", String(params.page));
   if (params.pageSize !== undefined) args.push("--page-size", String(params.pageSize));
+  if (params.origin && params.origin !== "all") args.push("--origin", params.origin);
   return callPedidos<{
     total: number;
     page: number;
