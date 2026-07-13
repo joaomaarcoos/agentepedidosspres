@@ -207,7 +207,7 @@ Saída:
 ```json
 {
   "tipo": "normal",
-  "codigo_tipo_venda": "9010O"
+  "codigo_tipo_venda": "90100"
 }
 ```
 
@@ -215,7 +215,7 @@ Tipos:
 
 | Tipo | Código |
 |---|---|
-| Pedido normal | `9010O` |
+| Pedido normal | `90100` |
 | Pedido PDV | `9010P` |
 | Bonificação acordo comercial | `BONIF4` |
 
@@ -257,7 +257,7 @@ Entrada:
 {
   "cliente_codigo": "16069",
   "representante_documento": "34501704810",
-  "tipo_venda": "9010O",
+  "tipo_venda": "90100",
   "itens": []
 }
 ```

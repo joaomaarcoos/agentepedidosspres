@@ -116,7 +116,7 @@ Itens:
 
 Nao falta outro codigo para reproduzir o payload do print.
 
-Os codigos de tipo de venda (`9010O`, `9010P`, `BONIF4` etc.) ficam fora do payload minimo. Eles so entram se descobrirmos, em teste, qual campo o Senior exige para diferenciar normal, PDV e bonificacao na gravacao direta. O principal candidato e `tnsPro`, mas o payload validado nao precisou dele.
+Os codigos de tipo de venda (`90100`, `9010P`, `BONIF4` etc.) ficam fora do payload minimo. Eles so entram se descobrirmos, em teste, qual campo o Senior exige para diferenciar normal, PDV e bonificacao na gravacao direta. O principal candidato e `tnsPro`, mas o payload validado nao precisou dele.
 
 ## Observacao do pedido
 
@@ -195,7 +195,7 @@ Obrigatorios pela documentacao ou pela regra comercial:
 
 Mapeamento de tipo de pedido:
 
-- Normal com nota: confirmar se o correto no Senior e `9010O`, `90100` ou outro codigo/transacao.
+- Normal com nota: transacao Senior confirmada como `90100` para `tnsPro`.
 - PDV sem nota: hoje mapeado como `9010P`; confirmar transacao Senior.
 - Bonificacao: hoje mapeado como `BONIF4`; confirmar se entra em `tnsPro` ou se exige outro campo/regra.
 - `tipPed`: usar `1` para pedido normal inicialmente. Bonificacao/PDV provavelmente continuam `1`; o diferencial deve ser `tnsPro`, mas falta confirmar.

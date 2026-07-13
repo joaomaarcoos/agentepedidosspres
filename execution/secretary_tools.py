@@ -45,7 +45,7 @@ def select_sale_type_tool(
         state["awaiting_observation"] = True
         reply = (
             f"Perfeito, pedido *{sale_type_label(state.get('sale_type_code'))}*. "
-            "Quer adicionar alguma observacao nesse pedido? Se nao quiser, responda *nao*."
+            "Quer adicionar alguma observação nesse pedido? Se não quiser, responda *não*."
         )
     return ToolResult("secretary_sale_type_selected", reply, state)
 
@@ -82,7 +82,7 @@ def resolve_products_tool(
     if not catalog:
         return ToolResult(
             "secretary_reply",
-            "Nao encontrei a tabela de precos desse cliente. O pedido nao pode ser enviado sem essa validacao.",
+            "Não encontrei a tabela de preços desse cliente. O pedido não pode ser enviado sem essa validação.",
             state,
         )
 
@@ -90,7 +90,7 @@ def resolve_products_tool(
     if not resolution:
         return ToolResult(
             "secretary_reply",
-            "Nao consegui identificar os produtos. Informe produto, formato, tamanho e quantidade.",
+            "Não consegui identificar os produtos. Informe produto, formato, tamanho e quantidade.",
             state,
         )
 
@@ -149,13 +149,13 @@ def submit_order_tool(
             return ToolResult("secretary_submitted", reply, state)
         return ToolResult(
             "secretary_reply",
-            "Nao ha pedido pronto para confirmacao. Informe primeiro o cliente e os itens.",
+            "Não há pedido pronto para confirmação. Informe primeiro o cliente e os itens.",
             state,
         )
 
     order = load_order(str(order_id))
     if not order:
-        return ToolResult("secretary_reply", "Nao encontrei o rascunho desse pedido.", state)
+        return ToolResult("secretary_reply", "Não encontrei o rascunho desse pedido.", state)
     submitted, reply = submit(order)
     if submitted:
         state = {}

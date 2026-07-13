@@ -15,7 +15,7 @@ from typing import Any
 
 
 SALE_TYPE_LABELS = {
-    "9010O": "pedido normal",
+    "90100": "pedido normal",
     "9010P": "pedido PDV",
     "BONIF4": "bonificacao - acordo comercial",
 }
@@ -46,7 +46,7 @@ O backend fara as validacoes e chamara tools seguras.
 Responda somente JSON valido com:
 {
   "intent": "uma_intencao",
-  "sale_type_code": "9010O|9010P|BONIF4|null",
+  "sale_type_code": "90100|9010P|BONIF4|null",
   "sale_type_only": true|false,
   "looks_like_product": true|false,
   "keep_current_customer": true|false,
@@ -56,7 +56,7 @@ Responda somente JSON valido com:
 }
 
 Codigos de tipo:
-- pedido normal/com nota: 9010O
+- pedido normal/com nota: 90100
 - pedido PDV/sem nota: 9010P
 - bonificacao: BONIF4
 
@@ -77,7 +77,7 @@ def _sale_type_code_from_text(text: Any) -> str | None:
     if re.search(r"\b(bonificacao|bonifica[cç][aã]o|bonif)\b", value):
         return "BONIF4"
     if re.search(r"\b(normal|nota fiscal|com nota)\b", value):
-        return "9010O"
+        return "90100"
     return None
 
 
@@ -201,7 +201,7 @@ def _sanitize_ai_decision(raw: dict, fallback: dict, text: str) -> dict:
     if intent not in INTENTS:
         intent = fallback.get("intent") or "unknown"
     sale_type_code = raw.get("sale_type_code") or fallback.get("sale_type_code")
-    if sale_type_code not in {"9010O", "9010P", "BONIF4", None, ""}:
+    if sale_type_code not in {"90100", "9010P", "BONIF4", None, ""}:
         sale_type_code = fallback.get("sale_type_code")
     product_text = str(raw.get("product_text") or "").strip()
     if not product_text and (raw.get("keep_current_customer") or fallback.get("keep_current_customer")):

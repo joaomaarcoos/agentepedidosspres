@@ -18,7 +18,7 @@ Existem tres tipos de pedido no fluxo atualmente mapeado:
 
 | Tipo falado pelo representante | Codigo Clic | Nome visto no Clic | Observacao obrigatoria |
 | --- | --- | --- | --- |
-| Normal com nota fiscal | `9010O` | `9010O - Entrada pedido normal` | Nao |
+| Normal com nota fiscal | `90100` | `90100 - Entrada pedido normal` | Nao |
 | PDV sem nota | `9010P` | `9010P - Entrada pedido PDV` | Sim |
 | Bonificacao | `BONIF4` | `BONIF4 - Bonificacao - Acordo Comercial` | Sim |
 
@@ -35,7 +35,7 @@ Tipos de venda ativos vistos no Clic:
 | `9010M` | `Entrada pedido RPMG` | `9010M` | `A` |
 | `BONIF1` | `Bonificacao - Vencimento` | `BONIF` | `A` |
 | `9010P` | `Entrada pedido PDV` | `9010P` | `A` |
-| `9010O` | `Entrada pedido normal` | `9010O` | `A` |
+| `90100` | `Entrada pedido normal` | `90100` | `A` |
 
 ## Regras gerais de preenchimento
 
@@ -244,7 +244,7 @@ Qual e o tipo do pedido: normal com nota, PDV sem nota ou bonificacao?
 
 Mapeamento:
 
-- normal com nota fiscal -> `9010O`
+- normal com nota fiscal -> `90100`
 - PDV sem nota -> `9010P`
 - bonificacao -> `BONIF4`
 
@@ -414,7 +414,7 @@ Campos que devem ser enviados quando confirmados:
   {
     "numeroDocumentoCliente": "DOCUMENTO_CLIENTE",
     "numeroDocumentoRepresentante": "34501704810",
-    "codigoTipoVenda": "9010O_OU_9010P_OU_BONIF4",
+    "codigoTipoVenda": "90100_OU_9010P_OU_BONIF4",
     "itens": [
       {
         "codigoProduto": "CODIGO_PRODUTO",

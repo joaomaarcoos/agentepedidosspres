@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dotenv import load_dotenv
 
@@ -94,12 +94,12 @@ def _sale_type_code_from_text(text: Any) -> str | None:
     if re.search(r"\b(bonificacao|bonifica[cç][aã]o|bonif)\b", value):
         return "BONIF4"
     if re.search(r"\b(normal|nota fiscal|com nota)\b", value):
-        return "9010O"
+        return "90100"
     return None
 
 
 SALE_TYPE_LABELS = {
-    "9010O": "pedido normal",
+    "90100": "pedido normal",
     "9010P": "pedido PDV",
     "BONIF4": "bonificacao - acordo comercial",
 }
@@ -107,7 +107,7 @@ VALID_SALE_TYPE_CODES = set(SALE_TYPE_LABELS)
 
 
 def _sale_type_prompt() -> str:
-    return "Qual e o tipo do pedido? Responda *normal*, *PDV* ou *bonificacao*."
+    return "Qual é o tipo do pedido? Responda *normal*, *PDV* ou *bonificação*."
 
 
 def _sale_type_label(code: Any) -> str:
@@ -116,8 +116,10 @@ def _sale_type_label(code: Any) -> str:
 
 def _validated_sale_type_code(value: Any) -> str:
     code = str(value or "").strip()
+    if code == "9010O":
+        code = "90100"
     if code not in VALID_SALE_TYPE_CODES:
-        raise ValueError("Tipo de venda nao definido. Informe *normal*, *PDV* ou *bonificacao* antes de enviar.")
+        raise ValueError("Tipo de venda não definido. Informe *normal*, *PDV* ou *bonificação* antes de enviar.")
     return code
 
 
@@ -190,20 +192,30 @@ def _after_observation_reply(state: dict) -> str:
     return "Certo. Agora me envie os produtos e quantidades do pedido."
 
 
-def _handle_observation_response(text: str, state: dict) -> tuple[str, str] | None:
+def _handle_observation_response(
+    text: str,
+    state: dict,
+    save_draft: Callable[[dict], dict] | None = None,
+) -> tuple[str, str] | None:
     if not (state.get("awaiting_observation") or state.get("awaiting_observation_text")):
         return None
     value = str(text or "").strip()
     if not value:
-        return ("Pode me dizer a observacao, ou responder *nao* para seguir sem observacao.", "secretary_ask_observation")
+        return ("Pode me dizer a observação, ou responder *não* para seguir sem observação.", "secretary_ask_observation")
     if state.get("awaiting_observation_text"):
         if OBSERVATION_NO_RE.search(value):
             state["observations"] = ""
         else:
             state["observations"] = value
+        editing_observation = bool(state.pop("editing_observation", None))
         state.pop("awaiting_observation_text", None)
         state.pop("awaiting_observation", None)
         state["observation_step_done"] = True
+        if editing_observation and state.get("customer") and state.get("items") and save_draft:
+            order = save_draft(state)
+            state["order_id"] = order.get("id")
+            state["protocol"] = order.get("protocol")
+            state["ready_to_submit"] = True
         return (_after_observation_reply(state), "secretary_observation_saved")
     if OBSERVATION_NO_RE.search(value):
         state["observations"] = ""
@@ -212,11 +224,63 @@ def _handle_observation_response(text: str, state: dict) -> tuple[str, str] | No
         return (_after_observation_reply(state), "secretary_observation_skipped")
     if OBSERVATION_YES_RE.search(value):
         state["awaiting_observation_text"] = True
-        return ("Qual observacao devo adicionar nesse pedido?", "secretary_ask_observation_text")
+        return ("Qual observação devo adicionar nesse pedido?", "secretary_ask_observation_text")
     state["observations"] = value
     state.pop("awaiting_observation", None)
     state["observation_step_done"] = True
     return (_after_observation_reply(state), "secretary_observation_saved")
+
+
+def _extract_observation_edit_text(text: str) -> str | None:
+    value = str(text or "").strip()
+    if not value:
+        return None
+    patterns = [
+        r"(?:mudar|trocar|alterar|corrigir|atualizar|editar)\s+(?:a\s+)?observa\S*\s*(?:para|pra|por|:|-)\s*(.+)$",
+        r"observa\S*\s*(?:para|pra|por|:|-)\s*(.+)$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, value, re.I | re.S)
+        if match:
+            extracted = str(match.group(1) or "").strip(" .,\n\t")
+            return extracted or None
+    return None
+
+
+def _handle_observation_edit_request(text: str, state: dict, save_draft: Callable[[dict], dict] | None = None) -> tuple[str, str] | None:
+    if not (state.get("customer") and state.get("items")):
+        return None
+    normalized = _norm(text)
+    if "observacao" not in normalized:
+        return None
+    wants_edit = any(
+        word in normalized
+        for word in ("mudar", "trocar", "alterar", "corrigir", "atualizar", "editar")
+    )
+    if not wants_edit and not re.search(r"\bobservacao\s*(para|pra|por)\b", normalized):
+        return None
+
+    new_observation = _extract_observation_edit_text(text)
+    if new_observation is None:
+        state["awaiting_observation_text"] = True
+        state["editing_observation"] = True
+        state.pop("awaiting_observation", None)
+        return ("Qual é a nova observação desse pedido?", "secretary_ask_observation_text")
+
+    if OBSERVATION_NO_RE.search(new_observation):
+        state["observations"] = ""
+    else:
+        state["observations"] = new_observation
+    state["observation_step_done"] = True
+    state.pop("editing_observation", None)
+    state.pop("awaiting_observation", None)
+    state.pop("awaiting_observation_text", None)
+    if save_draft:
+        order = save_draft(state)
+        state["order_id"] = order.get("id")
+        state["protocol"] = order.get("protocol")
+        state["ready_to_submit"] = True
+    return (_after_observation_reply(state), "secretary_observation_updated")
 
 
 def _representative_display_name(representative: dict | None) -> str:
@@ -235,13 +299,13 @@ def _start_conversation_reply(state: dict, representative: dict | None = None) -
     if state.get("sale_type_code"):
         return (
             f"Perfeito, vou montar como *{_sale_type_label(state.get('sale_type_code'))}*. "
-            "Me envie o codigo, nome ou documento do cliente para eu localizar na sua carteira."
+            "Me envie o código, nome ou documento do cliente para eu localizar na sua carteira."
         )
     first_name = _representative_first_name(representative)
     greeting = f"Oi, {first_name}, " if first_name else "Oi, "
     return (
         f"{greeting}sou a secretaria de pedidos. "
-        "Me envie o codigo, nome ou documento do cliente para comecarmos."
+        "Me envie o código, nome ou documento do cliente para começarmos."
     )
 
 
@@ -250,7 +314,7 @@ def _next_order_step_message(state: dict, product_wording: str = "Agora envie os
         return _sale_type_prompt()
     if not state.get("observation_step_done"):
         state["awaiting_observation"] = True
-        return "Quer adicionar alguma observacao nesse pedido? Se nao quiser, responda *nao*."
+        return "Quer adicionar alguma observação nesse pedido? Se não quiser, responda *não*."
     return product_wording
 
 
@@ -949,7 +1013,7 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
         item for item in (resolution or {}).get("itens") or [] if isinstance(item, dict)
     ]
     if not items:
-        return "Nao consegui identificar os produtos. Informe produto, formato, tamanho e quantidade."
+        return "Não consegui identificar os produtos. Informe produto, formato, tamanho e quantidade."
 
     found = [item for item in items if item.get("status") == "encontrado"]
     pending = [item for item in items if item.get("status") != "encontrado"]
@@ -979,7 +1043,7 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
 
     pending_lines = ["Pedido conferido:"]
     if pending:
-        pending_lines += ["", "Nao encontrados:"]
+        pending_lines += ["", "Não encontrados:"]
     for item in pending:
         product = str(item.get("produto") or item.get("nome_catalogo") or "Produto")
         requested = " ".join(
@@ -1002,9 +1066,9 @@ def _secretary_resolution_reply(resolution: dict | None) -> str:
                     pending_lines.append(f"  - {option}")
 
     if any(not item.get("quantidade") for item in found):
-        found_lines += ["", "Informe a quantidade dos itens que ainda estao sem quantidade."]
+        found_lines += ["", "Informe a quantidade dos itens que ainda estão sem quantidade."]
     if pending:
-        pending_lines += ["", "Me envie a correcao dos itens nao encontrados ou diga qual deles devo remover."]
+        pending_lines += ["", "Me envie a correção dos itens não encontrados ou diga qual deles devo remover."]
 
     sections = []
     if found:
@@ -1030,14 +1094,14 @@ def _order_summary(
         subtotal = _safe_float(item.get("subtotal"))
         total += subtotal
         lines.append(
-            f"{index}. {item.get('nome')} | codigo {item.get('cod_produto')} | "
+            f"{index}. {item.get('nome')} | código {item.get('cod_produto')} | "
             f"{item.get('formato') or ''} {item.get('derivacao')} | "
             f"{_safe_float(item.get('quantidade')):g} {item.get('unidade')} | "
             f"R$ {_safe_float(item.get('preco_unitario')):.2f} | subtotal R$ {subtotal:.2f}"
         )
     lines += ["", f"Total: *R$ {total:.2f}*"]
     if observations:
-        lines += ["", f"Observacoes: {observations}"]
+        lines += ["", f"Observações: {observations}"]
     if ask_confirmation:
         lines += ["", "Se estiver correto, responda *sim*, *confirmo* ou *pode enviar* para enviar ao Senior ERP."]
     return "\n".join(lines).replace(".", ",")
@@ -1316,7 +1380,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
         {"status": "submitting", "confirmed_at": now, "error_message": None, "updated_at": now}
     ).eq("id", order["id"]).in_("status", ["awaiting_confirmation", "failed"]).execute().data or []
     if not claimed:
-        return False, "O pedido ja esta sendo processado. Aguarde a confirmacao."
+        return False, "O pedido já está sendo processado. Aguarde a confirmação."
     order = claimed[0]
     try:
         senior_client = SeniorOrderClient()
@@ -1388,7 +1452,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
                     observation_error = (
                         obs_result.parsed.get("mensagemErro")
                         or obs_result.parsed.get("erroExecucao")
-                        or "Senior nao confirmou a observacao."
+                        or "Senior não confirmou a observação."
                     )
             except Exception as exc:
                 status, body, message = _clic_error_payload(exc)
@@ -1413,7 +1477,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
             db.table("secretary_orders").update(
                 {
                     "submit_response": response,
-                    "error_message": f"Pedido enviado, mas observacao nao foi gravada no Senior: {observation_error}"
+                    "error_message": f"Pedido enviado, mas observação não foi gravada no Senior: {observation_error}"
                     if observation_error
                     else None,
                     "updated_at": _now(),
@@ -1423,12 +1487,12 @@ def _submit(db, order: dict) -> tuple[bool, str]:
         if not mirrored:
             db.table("secretary_orders").update(
                 {
-                    "error_message": "Pedido enviado ao Senior, mas nao foi espelhado em rep_order_base.",
+                    "error_message": "Pedido enviado ao Senior, mas não foi espelhado em rep_order_base.",
                     "updated_at": _now(),
                 }
             ).eq("id", order["id"]).execute()
         if observation_error:
-            return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*. A observacao nao foi gravada: {observation_error}"
+            return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido número *{number}*. A observação não foi gravada: {observation_error}"
         if observation:
             return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*. Observacao enviada junto."
         return True, f"Pedido enviado ao Senior ERP com sucesso. Pedido numero *{number}*."
@@ -1452,7 +1516,7 @@ def _submit(db, order: dict) -> tuple[bool, str]:
                 "updated_at": _now(),
             }
         ).eq("id", order["id"]).execute()
-        return False, "Nao consegui enviar o pedido ao Senior ERP. Ele ficou salvo para uma nova tentativa."
+        return False, "Não consegui enviar o pedido ao Senior ERP. Ele ficou salvo para uma nova tentativa."
 
 
 def _latest_orders(db, cod_rep: int, limit: int = 5) -> str:
@@ -1467,7 +1531,7 @@ def _latest_orders(db, cod_rep: int, limit: int = 5) -> str:
         or []
     )
     if not rows:
-        return "Nao encontrei pedidos sincronizados para sua carteira."
+        return "Não encontrei pedidos sincronizados para sua carteira."
     profiles = _customer_profiles(db)
     lines = ["Pedidos mais recentes:"]
     for row in rows:
@@ -1501,7 +1565,7 @@ def process_secretary_message(
         return {
             "action": "secretary_unauthorized",
             "should_reply": True,
-            "reply": "Este numero nao esta cadastrado como representante autorizado. Solicite o vinculo do seu WhatsApp ao administrador.",
+            "reply": "Este número não está cadastrado como representante autorizado. Solicite o vínculo do seu WhatsApp ao administrador.",
         }
     conversation = _conversation(db, instance_name, phone, int(representative["cod_rep"]))
     if not _add_message(
@@ -1554,13 +1618,18 @@ def process_secretary_message(
         reply = "Pedido cancelado. Quando quiser, informe o cliente para iniciar outro."
         action = "secretary_cancelled"
     elif state.get("awaiting_observation") or state.get("awaiting_observation_text"):
-        observation_result = _handle_observation_response(text, state)
+        observation_result = _handle_observation_response(text, state, save_current_draft)
         if observation_result:
             reply, action = observation_result
         else:
-            reply = "Pode me dizer a observacao, ou responder *nao* para seguir sem observacao."
+            reply = "Pode me dizer a observação, ou responder *não* para seguir sem observação."
             action = "secretary_ask_observation"
-    elif state.get("pending_action"):
+    else:
+        observation_edit_result = _handle_observation_edit_request(text, state, save_current_draft)
+        if observation_edit_result:
+            reply, action = observation_edit_result
+
+    if not reply and state.get("pending_action"):
         pending = state.get("pending_action") or {}
         if pending.get("type") == "change_customer_pending_code" and not KEEP_CURRENT_RE.search(text):
             customers = _portfolio_customers(db, int(representative["cod_rep"]))
@@ -1593,7 +1662,7 @@ def process_secretary_message(
                     for index, customer in enumerate(matches, 1)
                 )
             else:
-                reply = "Nao encontrei esse cliente na sua carteira. Informe codigo, nome, documento ou cidade."
+                reply = "Não encontrei esse cliente na sua carteira. Informe código, nome, documento ou cidade."
         elif KEEP_CURRENT_RE.search(text):
             state.pop("pending_action", None)
             reply = "Certo, mantive o pedido atual. Pode continuar com os itens ou ajustes desse pedido."
@@ -1614,10 +1683,10 @@ def process_secretary_message(
                 action = "secretary_customer_changed"
             else:
                 state.pop("pending_action", None)
-                reply = "Certo. Informe o codigo, nome ou documento do cliente correto."
+                reply = "Certo. Informe o código, nome ou documento do cliente correto."
         else:
             reply = pending.get("prompt") or "Confirme se quer continuar com essa mudanca ou manter o pedido atual."
-    elif CONFIRM_RE.search(text):
+    if not reply and CONFIRM_RE.search(text):
         try:
             tool_result = submit_order_tool(
                 state=state,
@@ -1630,7 +1699,7 @@ def process_secretary_message(
             action = tool_result.action
         except ValueError as exc:
             reply = str(exc)
-    else:
+    if not reply:
         sale_type_code = _sale_type_code_from_text(text)
         if sale_type_code:
             state["sale_type_code"] = sale_type_code
@@ -1675,7 +1744,7 @@ def process_secretary_message(
                     "type": "change_customer",
                     "customer": candidate,
                     "prompt": (
-                        f"Entendi que talvez voce queira trocar o cliente para *{candidate.get('name')}*. "
+                        f"Entendi que talvez você queira trocar o cliente para *{candidate.get('name')}*. "
                         "Se trocar, eu limpo os itens do pedido atual. Responda *confirmo* para trocar ou *continuar* para manter o pedido atual."
                     ),
                 }
@@ -1684,7 +1753,7 @@ def process_secretary_message(
             elif not reply and CHANGE_CUSTOMER_RE.search(text):
                 state["pending_action"] = {
                     "type": "change_customer_pending_code",
-                    "prompt": "Qual e o codigo, nome ou documento do cliente correto?",
+                    "prompt": "Qual é o código, nome ou documento do cliente correto?",
                 }
                 reply = state["pending_action"]["prompt"]
                 action = "secretary_ask_new_customer"
@@ -1717,8 +1786,8 @@ def process_secretary_message(
                     )
                 else:
                     reply = (
-                        "Ainda nao consegui localizar esse cliente na sua carteira. "
-                        "Me envie o codigo do cliente, CNPJ/CPF, nome ou cidade que eu procuro de novo."
+                        "Ainda não consegui localizar esse cliente na sua carteira. "
+                        "Me envie o código do cliente, CNPJ/CPF, nome ou cidade que eu procuro de novo."
                     )
         elif not reply:
             customer = state["customer"]

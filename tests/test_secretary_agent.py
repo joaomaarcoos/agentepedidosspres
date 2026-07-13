@@ -400,7 +400,7 @@ class SecretaryAgentTests(unittest.TestCase):
         payload = secretary_agent._build_clic_order_payload(
             {
                 "customer_document": "05482507000142",
-                "sale_type_code": "9010O",
+                "sale_type_code": "90100",
                 "price_table_code": "205",
                 "items_json": [
                     {"cod_produto": "SGRSSLAR", "derivacao": "900ml", "quantidade": 12, "preco_unitario": 5.92},
@@ -476,7 +476,7 @@ class SecretaryAgentTests(unittest.TestCase):
             secretary_agent._build_clic_order_payload(
                 {
                     "customer_document": "05482507000142",
-                    "sale_type_code": "9010O",
+                    "sale_type_code": "90100",
                     "price_table_code": "205",
                     "items_json": [
                         {"cod_produto": "SGRSSLAR", "derivacao": "900", "quantidade": 12, "preco_unitario": 5.92},
@@ -487,7 +487,7 @@ class SecretaryAgentTests(unittest.TestCase):
     def test_sale_type_code_from_text(self):
         self.assertEqual(secretary_agent._sale_type_code_from_text("pedido pdv"), "9010P")
         self.assertEqual(secretary_agent._sale_type_code_from_text("bonificacao acordo"), "BONIF4")
-        self.assertEqual(secretary_agent._sale_type_code_from_text("normal com nota"), "9010O")
+        self.assertEqual(secretary_agent._sale_type_code_from_text("normal com nota"), "90100")
         self.assertTrue(secretary_agent._sale_type_only_message("pedido normal"))
         self.assertTrue(secretary_agent._sale_type_only_message("entrada pedido normal."))
 
@@ -508,7 +508,7 @@ class SecretaryAgentTests(unittest.TestCase):
 
         self.assertEqual(result["action"], "secretary_greeting")
         self.assertIn("sou a secretaria de pedidos", result["reply"])
-        self.assertIn("codigo, nome ou documento do cliente", result["reply"])
+        self.assertIn("código, nome ou documento do cliente", result["reply"])
         portfolio.assert_not_called()
 
     def test_sale_type_without_customer_is_not_treated_as_product_or_customer(self):
@@ -530,7 +530,7 @@ class SecretaryAgentTests(unittest.TestCase):
 
         self.assertEqual(result["action"], "secretary_sale_type_selected")
         self.assertIn("pedido normal", result["reply"])
-        self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
+        self.assertEqual(saved_states[-1]["sale_type_code"], "90100")
         portfolio.assert_not_called()
         resolve_products.assert_not_called()
 
@@ -555,8 +555,8 @@ class SecretaryAgentTests(unittest.TestCase):
             result = secretary_agent.process_secretary_message("5598981522794", "pedido normal", "secretaria")
 
         self.assertEqual(result["action"], "secretary_sale_type_selected")
-        self.assertIn("Quer adicionar alguma observacao", result["reply"])
-        self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
+        self.assertIn("Quer adicionar alguma observação", result["reply"])
+        self.assertEqual(saved_states[-1]["sale_type_code"], "90100")
         self.assertTrue(saved_states[-1]["awaiting_observation"])
         resolve_products.assert_not_called()
 
@@ -582,7 +582,7 @@ class SecretaryAgentTests(unittest.TestCase):
 
         self.assertEqual(result["action"], "secretary_sale_type_selected")
         self.assertIn("pedido normal", result["reply"])
-        self.assertEqual(saved_states[-1]["sale_type_code"], "9010O")
+        self.assertEqual(saved_states[-1]["sale_type_code"], "90100")
         self.assertTrue(saved_states[-1]["awaiting_observation"])
         resolve_products.assert_not_called()
 
@@ -598,7 +598,7 @@ class SecretaryAgentTests(unittest.TestCase):
                 "id": "conv-1",
                 "state_json": {
                     "customer": customer,
-                    "sale_type_code": "9010O",
+                    "sale_type_code": "90100",
                     "awaiting_observation": True,
                 },
             },
@@ -626,7 +626,7 @@ class SecretaryAgentTests(unittest.TestCase):
                 "id": "conv-1",
                 "state_json": {
                     "customer": customer,
-                    "sale_type_code": "9010O",
+                    "sale_type_code": "90100",
                     "awaiting_observation": True,
                 },
             },
@@ -644,6 +644,110 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(result["action"], "secretary_observation_saved")
         self.assertEqual(saved_states[-1]["observations"], "entregar pela manhã")
         self.assertIn("Agora me envie os produtos", result["reply"])
+
+    def test_observation_edit_updates_ready_order_without_resolving_products(self):
+        customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        item = {
+            "nome": "SUCO GARRAFA LARANJA",
+            "cod_produto": "SGRSSLAR",
+            "derivacao": "900",
+            "quantidade": 2,
+            "unidade": "UN",
+            "preco_unitario": 8.0,
+            "subtotal": 16.0,
+        }
+        saved_states = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": customer,
+                    "sale_type_code": "90100",
+                    "items": [item],
+                    "observations": "e e so",
+                    "order_id": "order-1",
+                    "ready_to_submit": True,
+                    "observation_step_done": True,
+                },
+            },
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_save_draft", return_value={"id": "order-1", "protocol": "MSE-1"}
+        ) as save_draft, patch.object(
+            secretary_agent, "_resolve_products_with_sales_subagent"
+        ) as resolve_products, patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message(
+                "5598981522794",
+                "mudar observacao para favor abastecer",
+                "secretaria",
+            )
+
+        self.assertEqual(result["action"], "secretary_observation_updated")
+        self.assertEqual(saved_states[-1]["observations"], "favor abastecer")
+        self.assertIn("Observações: favor abastecer", result["reply"])
+        save_draft.assert_called_once()
+        resolve_products.assert_not_called()
+
+    def test_observation_edit_can_ask_for_new_text_then_save(self):
+        customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
+        item = {
+            "nome": "SUCO GARRAFA LARANJA",
+            "cod_produto": "SGRSSLAR",
+            "derivacao": "900",
+            "quantidade": 2,
+            "unidade": "UN",
+            "preco_unitario": 8.0,
+            "subtotal": 16.0,
+        }
+        saved_states = []
+        base_state = {
+            "customer": customer,
+            "sale_type_code": "90100",
+            "items": [item],
+            "observations": "antiga",
+            "order_id": "order-1",
+            "ready_to_submit": True,
+            "observation_step_done": True,
+        }
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent, "_conversation", return_value={"id": "conv-1", "state_json": base_state}
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5598981522794", "mudar observacao", "secretaria")
+
+        self.assertEqual(result["action"], "secretary_ask_observation_text")
+        self.assertTrue(saved_states[-1]["awaiting_observation_text"])
+        self.assertTrue(saved_states[-1]["editing_observation"])
+
+        saved_second = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 52, "name": "ELIEZER"}
+        ), patch.object(
+            secretary_agent, "_conversation", return_value={"id": "conv-1", "state_json": saved_states[-1]}
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_save_draft", return_value={"id": "order-1", "protocol": "MSE-1"}
+        ) as save_draft, patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_second.append(state)
+        ):
+            second = secretary_agent.process_secretary_message("5598981522794", "entregar ate 10h", "secretaria")
+
+        self.assertEqual(second["action"], "secretary_observation_saved")
+        self.assertEqual(saved_second[-1]["observations"], "entregar ate 10h")
+        save_draft.assert_called_once()
 
     def test_created_order_number_reads_nested_clic_response(self):
         response = {
@@ -706,6 +810,33 @@ class SecretaryAgentTests(unittest.TestCase):
 
         self.assertIn("<tnsPro>BONIF4</tnsPro>", payload["xml"])
         self.assertIn("<tipPed>1</tipPed>", payload["xml"])
+
+    def test_senior_order_payload_maps_legacy_normal_sale_type_to_numeric_code(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "SENIOR_BASE_URL": "https://senior.example.test",
+                "SENIOR_USER": "usuario",
+                "SENIOR_PASSWORD": "senha",
+                "SENIOR_ENCRYPTION": "0",
+                "SENIOR_COD_EMP": "1",
+                "SENIOR_COD_FIL": "1",
+            },
+            clear=False,
+        ):
+            client = senior_order_client.SeniorOrderClient()
+            payload = client.build_masked_payload(
+                {
+                    "customer_code": "28764",
+                    "sale_type_code": "9010O",
+                    "items_json": [
+                        {"cod_produto": "SANDBRIOC", "derivacao": "FRAN", "quantidade": 8},
+                    ],
+                }
+            )
+
+        self.assertIn("<tnsPro>90100</tnsPro>", payload["xml"])
+        self.assertNotIn("<tnsPro>9010O</tnsPro>", payload["xml"])
 
     def test_senior_order_payload_requires_sale_type(self):
         with patch.dict(
@@ -833,11 +964,11 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertIn("Encontrados:", reply)
         self.assertIn("SGPSSLAR - SUCO GALAO LARANJA PET | 5L | 20 un", reply)
         self.assertIn("Total parcial encontrado: R$ 577,60", reply)
-        self.assertIn("Nao encontrados:", reply)
+        self.assertIn("Não encontrados:", reply)
         self.assertIn("- uva | bag 5L", reply)
         self.assertIn("Sugestoes na tabela:", reply)
         self.assertIn("Uva bolsa 5L", reply)
-        self.assertIn("correcao dos itens nao encontrados", reply)
+        self.assertIn("correção dos itens não encontrados", reply)
 
     def test_later_found_product_replaces_pending_equivalent(self):
         resolution = {
@@ -891,7 +1022,7 @@ class SecretaryAgentTests(unittest.TestCase):
         cleaned = secretary_agent._drop_resolved_pending_items(resolution)
         self.assertEqual(len(cleaned["itens"]), 2)
         reply = secretary_agent._secretary_resolution_reply(cleaned)
-        self.assertIn("Nao encontrados", reply)
+        self.assertIn("Não encontrados", reply)
         self.assertIn("laranja composto", reply)
         self.assertIn("Composto De Laranja: bolsa 5L", reply)
 
@@ -1032,7 +1163,7 @@ class SecretaryAgentTests(unittest.TestCase):
                 "id": "conv-1",
                 "state_json": {
                     "customer": current_customer,
-                    "sale_type_code": "9010O",
+                    "sale_type_code": "90100",
                     "items": [{"cod_produto": "A"}],
                     "product_history": [],
                 },
@@ -1080,7 +1211,7 @@ class SecretaryAgentTests(unittest.TestCase):
                 "id": "conv-1",
                 "state_json": {
                     "customer": current_customer,
-                    "sale_type_code": "9010O",
+                    "sale_type_code": "90100",
                     "items": [{"cod_produto": "A"}],
                     "product_history": [],
                     "pending_action": {"type": "change_customer", "customer": new_customer},

@@ -40,6 +40,11 @@ def _strip_ns(tag: str) -> str:
     return re.sub(r"\{[^}]*\}", "", tag)
 
 
+def _sale_type_code(value: Any) -> str:
+    code = _text(value)
+    return "90100" if code == "9010O" else code
+
+
 @dataclass
 class SeniorOrderResult:
     http_status: int
@@ -114,7 +119,7 @@ class SeniorOrderClient:
         customer_code = escape(_text(order.get("customer_code")))
         if not customer_code:
             raise ValueError("Codigo do cliente Senior nao definido.")
-        sale_type_code = _text(order.get("sale_type_code"))
+        sale_type_code = _sale_type_code(order.get("sale_type_code"))
         if not sale_type_code:
             raise ValueError("Tipo de venda nao definido para envio ao Senior.")
         sale_type_block = f"\n          <tnsPro>{escape(sale_type_code)}</tnsPro>"
