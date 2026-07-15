@@ -809,6 +809,7 @@ def _resolve_products_with_sales_subagent(
     if not resolution:
         return None
     reconciled = _reconcile_catalog_resolution(resolution, catalog)
+    reconciled = _promote_safe_catalog_matches(reconciled, catalog) or reconciled
     state["catalog_resolution"] = reconciled
     state["product_history"] = history
     return reconciled
@@ -869,6 +870,104 @@ def _catalog_option_text(row: dict) -> str:
     price = _safe_float(row.get("preco") or row.get("preco_unitario"))
     parts = [part for part in (f"{code} - {name}".strip(" -"), variation, _money_br(price) if price else "") if part]
     return " | ".join(parts)
+
+
+def _catalog_product_key(row: dict) -> str:
+    return " ".join(
+        str(row.get(key) or "")
+        for key in ("cod_produto", "nome_produto", "nome", "variacao", "derivacao")
+    )
+
+
+def _requested_variation_aliases(item: dict) -> set[str]:
+    text = _norm(
+        " ".join(
+            str(item.get(key) or "")
+            for key in ("produto", "nome_catalogo", "texto_original", "tamanho", "derivacao", "formato")
+        )
+    )
+    aliases = {_norm_size(item.get("tamanho") or item.get("derivacao") or item.get("codigo_variacao"))}
+    if re.search(r"\b(frango|fran)\b", text):
+        aliases.add("fran")
+    if re.search(r"\b(atum)\b", text):
+        aliases.add("atum")
+    if re.search(r"\b(peperoni|pepperoni|pepe)\b", text):
+        aliases.add("pepe")
+    if re.search(r"\b(salpicao|salp)\b", text):
+        aliases.add("salp")
+    return {alias for alias in aliases if alias}
+
+
+def _row_matches_requested_variation(row: dict, item: dict) -> bool:
+    aliases = _requested_variation_aliases(item)
+    if not aliases:
+        return False
+    row_variation = _norm_size(row.get("variacao") or row.get("derivacao"))
+    return bool(row_variation and row_variation in aliases)
+
+
+def _promote_safe_catalog_matches(resolution: dict | None, catalog: list[dict]) -> dict | None:
+    if not isinstance(resolution, dict) or not catalog:
+        return resolution
+    promoted_items = []
+    for item in resolution.get("itens") or []:
+        if not isinstance(item, dict) or item.get("status") == "encontrado":
+            promoted_items.append(item)
+            continue
+
+        requested_words = _product_words(
+            " ".join(str(item.get(key) or "") for key in ("produto", "nome_catalogo", "texto_original"))
+        )
+        option_text = _norm(" ".join(str(option or "") for option in item.get("alternativas") or []))
+        candidates = []
+        for row in catalog:
+            if not _row_matches_requested_variation(row, item):
+                continue
+            row_words = _product_words(_catalog_product_key(row))
+            if requested_words and not (requested_words & row_words):
+                continue
+            row_norm = _norm(_catalog_product_key(row))
+            mentioned_in_options = bool(option_text and (str(row.get("cod_produto") or "").lower() in option_text or _norm(row.get("nome_produto") or row.get("nome")) in option_text))
+            score = len(requested_words & row_words) * 5
+            if mentioned_in_options:
+                score += 8
+            if "mini" in row_words and "mini" not in requested_words:
+                score -= 6
+            if "cremoso" in requested_words and "cremoso" in row_words:
+                score += 4
+            if "brioche" in row_words and "brioche" not in requested_words:
+                score -= 8
+            if "salada" in row_words and "salada" not in requested_words:
+                score -= 8
+            candidates.append((score, row_norm, row))
+
+        candidates.sort(key=lambda pair: pair[0], reverse=True)
+        if not candidates or candidates[0][0] <= 0:
+            promoted_items.append(item)
+            continue
+        if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
+            promoted_items.append(item)
+            continue
+
+        row = candidates[0][2]
+        quantity = _safe_float(item.get("quantidade"))
+        price = _safe_float(row.get("preco") or row.get("preco_unitario") or row.get("preco_base"))
+        promoted_items.append(
+            {
+                **item,
+                "status": "encontrado",
+                "cod_produto": str(row.get("cod_produto") or ""),
+                "codigo_variacao": str(row.get("variacao") or row.get("derivacao") or ""),
+                "nome_catalogo": str(row.get("nome_produto") or row.get("nome") or ""),
+                "produto": str(row.get("nome_produto") or row.get("nome") or item.get("produto") or ""),
+                "tamanho": str(row.get("variacao") or row.get("derivacao") or item.get("tamanho") or ""),
+                "preco_unitario": price,
+                "subtotal": round(quantity * price, 2) if quantity and price else 0,
+                "faltando": [],
+                "alternativas": [],
+            }
+        )
+    return {**resolution, "itens": promoted_items}
 
 
 def _augment_resolution_suggestions(resolution: dict | None, catalog: list[dict], limit: int = 6) -> dict | None:

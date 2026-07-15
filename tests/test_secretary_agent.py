@@ -1093,6 +1093,72 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(item["quantidade"], 120)
         self.assertAlmostEqual(item["subtotal"], 159.6)
 
+    def test_secretary_promotes_cremoso_frango_suggestion_to_catalog_item(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "cremoso frango",
+                    "texto_original": "7 cremoso frango",
+                    "quantidade": 7,
+                    "alternativas": [
+                        "Sanduiche Cremoso Cr00001:  ATUM",
+                        "Sanduiche Cremoso Cr00002:  FRAN",
+                        "Sanduiche Cremoso Cr00004:  PEPE",
+                        "Sanduiche Cremoso Cr00010:  SALP",
+                    ],
+                }
+            ]
+        }
+        catalog = [
+            {"cod_produto": "SANDCREMO", "nome_produto": "SANDUICHE CREMOSO CR00001", "variacao": "ATUM", "preco": 7.82},
+            {"cod_produto": "SANDCREMO", "nome_produto": "SANDUICHE CREMOSO CR00002", "variacao": "FRAN", "preco": 7.82},
+            {"cod_produto": "SANDCREMO", "nome_produto": "SANDUICHE CREMOSO CR00004", "variacao": "PEPE", "preco": 7.82},
+            {"cod_produto": "SANDCREMO", "nome_produto": "SANDUICHE CREMOSO CR00010", "variacao": "SALP", "preco": 7.82},
+        ]
+
+        promoted = secretary_agent._promote_safe_catalog_matches(resolution, catalog)
+        item = promoted["itens"][0]
+
+        self.assertEqual(item["status"], "encontrado")
+        self.assertEqual(item["cod_produto"], "SANDCREMO")
+        self.assertEqual(item["codigo_variacao"], "FRAN")
+        self.assertEqual(item["quantidade"], 7)
+        self.assertAlmostEqual(item["subtotal"], 54.74)
+
+    def test_secretary_promotes_cremoso_fran_without_matching_mini(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "sanduíche cremoso fran",
+                    "texto_original": "4 sanduíche cremoso fran",
+                    "tamanho": "FRAN",
+                    "quantidade": 4,
+                    "alternativas": [
+                        "Sanduiche Cremoso Cr00002:  FRAN",
+                        "SANDCREMO - SANDUICHE CREMOSO CR00002 | FRAN | R$ 7,82",
+                        "Sanduiche Cremoso Mini:  FRAN",
+                        "Sanduiche Brioche:  FRAN",
+                    ],
+                }
+            ]
+        }
+        catalog = [
+            {"cod_produto": "SANDCMINI", "nome_produto": "SANDUICHE CREMOSO MINI", "variacao": "FRAN", "preco": 6.48},
+            {"cod_produto": "SANDCREMO", "nome_produto": "SANDUICHE CREMOSO CR00002", "variacao": "FRAN", "preco": 7.82},
+            {"cod_produto": "SANDBRIOC", "nome_produto": "SANDUICHE BRIOCHE", "variacao": "FRAN", "preco": 9.51},
+        ]
+
+        promoted = secretary_agent._promote_safe_catalog_matches(resolution, catalog)
+        item = promoted["itens"][0]
+
+        self.assertEqual(item["status"], "encontrado")
+        self.assertEqual(item["cod_produto"], "SANDCREMO")
+        self.assertEqual(item["codigo_variacao"], "FRAN")
+        self.assertEqual(item["quantidade"], 4)
+        self.assertAlmostEqual(item["subtotal"], 31.28)
+
     def test_short_size_reply_replaces_generic_pending_equivalent(self):
         resolution = {
             "itens": [
