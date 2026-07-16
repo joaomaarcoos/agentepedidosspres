@@ -9,6 +9,7 @@ Hoje o fluxo real do projeto usa estas chamadas:
 1. `POST /login` no servidor de autenticacao
 2. `POST /refresh` no servidor de autenticacao
 3. `GET /extpedidos` na API principal
+4. `GET /extpessoas` na API principal
 
 Arquivos envolvidos:
 
@@ -198,6 +199,115 @@ O codigo espera algo neste formato:
 
 ## 4. Reautenticacao automatica em caso de 401
 
+## 4. Buscar pessoas
+
+### O que e
+Consulta de pessoas no endpoint externo do ClicVendas. Serve para buscar tanto
+clientes quanto representantes. Esta chamada e do ClicVendas, nao do Senior.
+
+### Como e feita
+
+- Metodo: `GET`
+- URL:
+  - `{CLIC_VENDAS_URL}/extpessoas`
+- Headers:
+  - `Accept: application/json`
+  - `subdominio: {CLIC_VENDAS_SUBDOMAIN ou sucosspres}`
+  - `Authorization: Bearer {accessToken}`
+- Query params principais:
+  - `codigoExterno`: codigo do cliente/representante no backoffice
+  - `numeroDocumento`: CPF/CNPJ sem mascara
+  - `tagIdentificacao`: `CLIENTE`, `REPRESENTANTE` ou `TRANSPORTADORA`
+  - `perfil`: `CLIENTE`, `REPRESENTANTE` ou `TRANSPORTADORA`
+  - `nome`
+  - `situacao`: `A` ou `I`
+  - `sortBy`: campo de ordenacao, exemplo `fantasia`
+  - `sortDescAsc`: `ASC` ou `DESC`
+  - `fetch`: quantidade de registros a retornar, maximo 100
+  - `skip`: quantidade de registros a pular
+
+### Comportamento validado
+
+Embora a documentacao visual mostre um objeto de consulta no body do `GET`,
+o comportamento validado em 2026-07-16 foi:
+
+- enviar filtros em `Params`
+- nao enviar `body`
+- usar `GET`
+- usar `codigoExterno=29232` para buscar o cliente ELDI LOJA 07
+
+Tentar enviar o objeto como `POST` retornou erro do Clic informando que o corpo
+da requisicao deveria ser um array de objetos, portanto `POST /extpessoas` nao
+deve ser usado para consulta.
+
+### Exemplo funcional validado
+
+Headers:
+
+```text
+Accept: application/json
+subdominio: sucosspres
+Authorization: Bearer {ACCESS_TOKEN}
+```
+
+Params:
+
+```text
+codigoExterno=29232
+fetch=10
+skip=0
+tagIdentificacao=CLIENTE
+```
+
+Equivalente em `curl`:
+
+```bash
+curl --request GET \
+  --url "https://sucosspres.clictecnologia.com.br/api/extpessoas?codigoExterno=29232&fetch=10&skip=0&tagIdentificacao=CLIENTE" \
+  --header "Accept: application/json" \
+  --header "subdominio: sucosspres" \
+  --header "Authorization: Bearer {ACCESS_TOKEN_OBTIDO_NO_LOGIN}"
+```
+
+### Estrutura esperada da resposta
+
+```json
+{
+  "codigo": 1,
+  "totalPagina": 1,
+  "totalGeral": 1,
+  "dados": [
+    {
+      "_id": "...",
+      "tagIdentificacao": "CLIENTE",
+      "numeroDocumento": "20813167000774",
+      "backoffice": {
+        "idConexao": "senior",
+        "codigo": "29232"
+      },
+      "razaoSocial": "ELDI SUPERMERCADO LTDA",
+      "fantasia": "ELDI LOJA 07",
+      "inscricaoEstadual": "160417993114",
+      "tabelasPreco": [
+        {
+          "codigoTabela": "201",
+          "nomeTabela": "201"
+        }
+      ],
+      "superiores": [
+        {
+          "numeroDocumento": "27197054893",
+          "tagIdentificacao": "REPRESENTANTE",
+          "razaoSocial": "ALEXANDRE LUIS BORTOLIERO"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## 5. Reautenticacao automatica em caso de 401
+
 ### O que e
 Comportamento automatico do cliente quando uma chamada autenticada retorna `401`.
 
@@ -212,7 +322,7 @@ Comportamento automatico do cliente quando uma chamada autenticada retorna `401`
 - `execution/clic_vendas_client.py`
 - Vale tanto para `get()` quanto para `post()`
 
-## 5. Metodo POST generico do cliente
+## 6. Metodo POST generico do cliente
 
 ### O que e
 O cliente tambem possui um metodo `post(endpoint, data)` para chamadas autenticadas.
@@ -235,7 +345,7 @@ O cliente tambem possui um metodo `post(endpoint, data)` para chamadas autentica
 - Body:
   - JSON enviado em `data`
 
-## 6. Resumo rapido
+## 7. Resumo rapido
 
 - Autenticar:
   - `POST {CLIC_VENDAS_AUTH_URL}/login`
@@ -243,8 +353,10 @@ O cliente tambem possui um metodo `post(endpoint, data)` para chamadas autentica
   - `POST {CLIC_VENDAS_AUTH_URL}/refresh`
 - Puxar pedidos:
   - `GET {CLIC_VENDAS_URL}/extpedidos` com filtros em `Params`
+- Puxar pessoas:
+  - `GET {CLIC_VENDAS_URL}/extpessoas` com filtros em `Params`
 
-## 7. Requisicao montada para puxar pedidos
+## 8. Requisicao montada para puxar pedidos
 
 Sem executar a API, o projeto montaria a chamada assim:
 

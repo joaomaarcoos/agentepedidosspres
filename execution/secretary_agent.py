@@ -618,6 +618,27 @@ def _portfolio_customers(db, cod_rep: int) -> list[dict]:
             documents.append(document)
         latest[cod_cli] = {**row, "_profile": profile, "_document": document}
 
+    for cod_cli, profile in profiles.items():
+        if not isinstance(profile, dict) or str(cod_cli) in latest:
+            continue
+        try:
+            profile_rep = int(str(profile.get("cod_rep") or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if profile_rep != cod_rep:
+            continue
+        document = _digits(profile.get("documento"))
+        if document:
+            documents.append(document)
+        latest[str(cod_cli)] = {
+            "cod_cli": profile.get("cod_cli") or cod_cli,
+            "cod_rep": cod_rep,
+            "customer_document": document,
+            "customer_name": profile.get("nome") or profile.get("razao_social") or profile.get("fantasia"),
+            "_profile": profile,
+            "_document": document,
+        }
+
     metrics = _customer_metrics(db, documents)
     customers: list[dict] = []
     for cod_cli, row in latest.items():

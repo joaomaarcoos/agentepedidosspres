@@ -154,6 +154,47 @@ def _build_row_from_order(order: dict, metricas: dict, profile: dict | None = No
     }
 
 
+def _build_row_from_profile(profile: dict, metricas: dict | None = None) -> dict:
+    metricas = metricas or {}
+    cod_cli = profile.get("cod_cli")
+    document = re.sub(r"\D", "", str(profile.get("documento") or ""))
+    name = (
+        profile.get("nome")
+        or profile.get("razao_social")
+        or profile.get("fantasia")
+        or f"Cliente {cod_cli or document}"
+    )
+    return {
+        "external_id": document or str(cod_cli or ""),
+        "cod_cli": cod_cli,
+        "documento": document or str(cod_cli or ""),
+        "source": profile.get("source") or "clic_vendas_profile",
+        "synced_at": profile.get("updated_at"),
+        "nome": name,
+        "razao_social": profile.get("razao_social") or name,
+        "fantasia": profile.get("fantasia") or name,
+        "email": profile.get("email") or "",
+        "telefone": profile.get("telefone") or metricas.get("telefone") or "",
+        "cidade": profile.get("cidade") or "",
+        "uf": profile.get("uf") or "",
+        "ativo": profile.get("situacao") != "I",
+        "tabela_preco_codigo": profile.get("tabela_preco_codigo") or metricas.get("tabela_preco_codigo"),
+        "tabela_preco_nome": profile.get("tabela_preco_nome") or metricas.get("tabela_preco_nome"),
+        "tabelas_especiais_json": metricas.get("tabelas_especiais_json"),
+        "total_pedidos": metricas.get("total_pedidos") or 0,
+        "valor_total_acumulado": float(metricas.get("valor_total_acumulado") or 0),
+        "ultimo_pedido_em": str(metricas.get("ultimo_pedido_em") or ""),
+        "ultimo_pedido_valor": 0,
+        "ultimo_pedido_numero": None,
+        "ultimo_pedido_status": None,
+        "primeiro_pedido_em": str(metricas.get("primeiro_pedido_em") or ""),
+        "dias_entre_pedidos_media": float(metricas.get("dias_entre_pedidos_media") or 0) if metricas.get("dias_entre_pedidos_media") is not None else None,
+        "proximo_pedido_estimado_em": str(metricas.get("proximo_pedido_estimado_em") or ""),
+        "top_produtos_json": metricas.get("top_produtos_json"),
+        "historico_situacoes_json": metricas.get("historico_situacoes_json"),
+    }
+
+
 def _extract_rep_code(raw_json: dict) -> int | None:
     representante = (raw_json or {}).get("representante") or (raw_json or {}).get("autor") or {}
     candidates = (
@@ -268,6 +309,18 @@ def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | 
     profiles = _profiles_map(db)
 
     rows = list(latest.items())
+    order_codes = {str((order or {}).get("cod_cli") or "") for _, order in rows}
+    for code, profile in profiles.items():
+        if not isinstance(profile, dict) or str(code) in order_codes:
+            continue
+        if cod_rep is not None:
+            try:
+                profile_rep = int(str(profile.get("cod_rep") or "").strip())
+            except (TypeError, ValueError):
+                continue
+            if profile_rep != cod_rep:
+                continue
+        rows.append((str(code), {"cod_cli": profile.get("cod_cli") or code, "_profile_only": True}))
 
     if query:
         q = query.strip().lower()
@@ -303,21 +356,31 @@ def list_customers(query: str | None, page: int, page_size: int, cod_rep: int | 
     metricas = _metricas_map(db, cpfs)
 
     clientes = [
-        _build_row_from_order(
-            order,
-            metricas.get(
-                re.sub(
-                    r"\D",
-                    "",
-                    str(
-                        (profiles.get(str(order.get("cod_cli") or "")) or {}).get("documento")
-                        or order.get("customer_document")
-                        or ""
-                    ),
+        (
+            _build_row_from_profile(
+                profiles.get(str(order.get("cod_cli") or "")) or {},
+                metricas.get(
+                    re.sub(r"\D", "", str((profiles.get(str(order.get("cod_cli") or "")) or {}).get("documento") or "")),
+                    {},
                 ),
-                {},
-            ),
-            profiles.get(str(order.get("cod_cli") or "")),
+            )
+            if order.get("_profile_only")
+            else _build_row_from_order(
+                order,
+                metricas.get(
+                    re.sub(
+                        r"\D",
+                        "",
+                        str(
+                            (profiles.get(str(order.get("cod_cli") or "")) or {}).get("documento")
+                            or order.get("customer_document")
+                            or ""
+                        ),
+                    ),
+                    {},
+                ),
+                profiles.get(str(order.get("cod_cli") or "")),
+            )
         )
         for _, order in page_rows
     ]
@@ -378,7 +441,19 @@ def get_customer(cod_cli: int, cod_rep: int | None = None) -> dict:
         res = execute(fallback_select_fields)
     row = (res.data or [None])[0]
     if not row:
-        raise ValueError(f"Cliente {cod_cli} nÃ£o encontrado")
+        profile = _profiles_map(db).get(str(cod_cli)) or {}
+        if not profile:
+            raise ValueError(f"Cliente {cod_cli} nÃ£o encontrado")
+        if cod_rep is not None:
+            try:
+                profile_rep = int(str(profile.get("cod_rep") or "").strip())
+            except (TypeError, ValueError):
+                profile_rep = None
+            if profile_rep != cod_rep:
+                raise ValueError(f"Cliente {cod_cli} nÃ£o encontrado")
+        document = re.sub(r"\D", "", str(profile.get("documento") or ""))
+        metricas = _metricas_map(db, [document]) if document else {}
+        return _build_row_from_profile(profile, metricas.get(document, {}))
     profile = _profiles_map(db).get(str(cod_cli)) or {}
     document = re.sub(r"\D", "", str(profile.get("documento") or row.get("customer_document") or ""))
     metricas = _metricas_map(db, [document]) if document else {}

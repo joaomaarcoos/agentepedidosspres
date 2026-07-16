@@ -1428,6 +1428,42 @@ class SecretaryAgentTests(unittest.TestCase):
         matches = secretary_agent._search_customers(customers, "Código 16069")
         self.assertEqual(matches[0]["code"], "16069")
 
+    def test_portfolio_includes_profile_only_customer_for_representative(self):
+        db = _FakeDb(
+            {
+                "rep_order_base": [],
+                "system_settings": [
+                    {
+                        "value": {
+                            "29232": {
+                                "cod_cli": 29232,
+                                "cod_rep": 106,
+                                "documento": "20813167000774",
+                                "nome": "ELDI SUPERMERCADO LTDA",
+                                "fantasia": "ELDI LOJA 07",
+                                "telefone": "1632114455",
+                                "tabela_preco_codigo": "201",
+                                "cidade": "RIBEIRAO PRETO",
+                                "uf": "SP",
+                            }
+                        }
+                    }
+                ],
+                "clic_clientes": [
+                    {
+                        "cpf_cnpj": "20813167000774",
+                        "telefone": "1632114455",
+                        "tabela_preco_codigo": "201",
+                    }
+                ],
+            }
+        )
+        customers = secretary_agent._portfolio_customers(db, 106)
+        self.assertEqual(customers[0]["code"], "29232")
+        self.assertEqual(customers[0]["document"], "20813167000774")
+        self.assertEqual(customers[0]["name"], "ELDI SUPERMERCADO LTDA")
+        self.assertEqual(customers[0]["price_table_code"], "201")
+
     def test_reconciliation_prefers_order_number(self):
         number_origin = {"id": "by-number", "protocol": "MSE-260615-AAAAAA"}
         protocol_origin = {"id": "by-protocol", "protocol": "MSE-260615-BBBBBB"}
