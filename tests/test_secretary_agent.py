@@ -995,6 +995,60 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(len(cleaned["itens"]), 1)
         self.assertEqual(cleaned["itens"][0]["cod_produto"], "SGPSSLAR")
 
+    def test_promotes_simple_orange_gallon_without_explicit_size(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "suco laranja",
+                    "formato": "galao",
+                    "texto_original": "5 suco galao laranja",
+                    "quantidade": 5,
+                    "alternativas": [
+                        "Galao Laranja Pet: galao 5L",
+                        "SGPSSLAR - SUCO GALAO LARANJA PET | 05L | R$ 42,37",
+                        "SGPSSCLA - SUCO GALÃO PET LARANJA ADOCADO | 05L | R$ 31,25",
+                    ],
+                }
+            ]
+        }
+        catalog = [
+            {"cod_produto": "SGPSSLAR", "nome_produto": "SUCO GALAO LARANJA PET", "variacao": "05L", "preco": 42.37},
+            {"cod_produto": "SGPSSCLA", "nome_produto": "SUCO GALÃO PET LARANJA ADOCADO", "variacao": "05L", "preco": 31.25},
+        ]
+        promoted = secretary_agent._promote_safe_catalog_matches(resolution, catalog)
+        item = promoted["itens"][0]
+        self.assertEqual(item["status"], "encontrado")
+        self.assertEqual(item["cod_produto"], "SGPSSLAR")
+        self.assertEqual(item["codigo_variacao"], "05L")
+        self.assertAlmostEqual(item["subtotal"], 211.85)
+
+    def test_promotes_orange_pet_gallon_from_correction_reply(self):
+        resolution = {
+            "itens": [
+                {
+                    "status": "nao_encontrado",
+                    "produto": "laranja",
+                    "formato": "galao",
+                    "texto_original": "Galao laranja pet",
+                    "quantidade": 5,
+                    "alternativas": [
+                        "Galao Laranja Pet: galao 5L",
+                        "SGPSSLAR - SUCO GALAO LARANJA PET | 05L | R$ 42,37",
+                        "SGPSSCLA - SUCO GALÃO PET LARANJA ADOCADO | 05L | R$ 31,25",
+                    ],
+                }
+            ]
+        }
+        catalog = [
+            {"cod_produto": "SGPSSLAR", "nome_produto": "SUCO GALAO LARANJA PET", "variacao": "05L", "preco": 42.37},
+            {"cod_produto": "SGPSSCLA", "nome_produto": "SUCO GALÃO PET LARANJA ADOCADO", "variacao": "05L", "preco": 31.25},
+        ]
+        promoted = secretary_agent._promote_safe_catalog_matches(resolution, catalog)
+        item = promoted["itens"][0]
+        self.assertEqual(item["status"], "encontrado")
+        self.assertEqual(item["cod_produto"], "SGPSSLAR")
+
     def test_pending_compound_product_is_not_dropped_as_plain_orange(self):
         resolution = {
             "itens": [

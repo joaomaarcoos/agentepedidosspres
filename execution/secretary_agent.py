@@ -845,6 +845,14 @@ def _product_words(value: Any) -> set[str]:
     }
 
 
+def _requested_packaging_words(value: Any) -> set[str]:
+    text = _norm(value)
+    words = set()
+    if "pet" in re.findall(r"[a-z0-9]+", text):
+        words.add("pet")
+    return words
+
+
 def _suggestion_score(option: str, item: dict) -> int:
     option_norm = _norm(option)
     option_size = _norm_size(option)
@@ -908,6 +916,8 @@ def _requested_variation_aliases(item: dict) -> set[str]:
         )
     )
     aliases = {_norm_size(item.get("tamanho") or item.get("derivacao") or item.get("codigo_variacao"))}
+    if re.search(r"\b(galao|galoes|gal[aã]o|gal[oõ]es)\b", text) and not any(aliases):
+        aliases.add("5l")
     if re.search(r"\b(frango|fran)\b", text):
         aliases.add("fran")
     if re.search(r"\b(atum)\b", text):
@@ -939,6 +949,9 @@ def _promote_safe_catalog_matches(resolution: dict | None, catalog: list[dict]) 
         requested_words = _product_words(
             " ".join(str(item.get(key) or "") for key in ("produto", "nome_catalogo", "texto_original"))
         )
+        requested_packaging = _requested_packaging_words(
+            " ".join(str(item.get(key) or "") for key in ("produto", "nome_catalogo", "texto_original", "formato"))
+        )
         option_text = _norm(" ".join(str(option or "") for option in item.get("alternativas") or []))
         candidates = []
         for row in catalog:
@@ -948,10 +961,24 @@ def _promote_safe_catalog_matches(resolution: dict | None, catalog: list[dict]) 
             if requested_words and not (requested_words & row_words):
                 continue
             row_norm = _norm(_catalog_product_key(row))
+            row_packaging = _requested_packaging_words(row_norm)
+            if "adocado" in requested_words and "adocado" not in row_words:
+                continue
+            if "composto" in requested_words and "composto" not in row_words:
+                continue
             mentioned_in_options = bool(option_text and (str(row.get("cod_produto") or "").lower() in option_text or _norm(row.get("nome_produto") or row.get("nome")) in option_text))
             score = len(requested_words & row_words) * 5
             if mentioned_in_options:
                 score += 8
+            if requested_packaging:
+                if requested_packaging <= row_packaging:
+                    score += 3
+                else:
+                    score -= 3
+            if "adocado" in row_words and "adocado" not in requested_words:
+                score -= 5
+            if "composto" in row_words and "composto" not in requested_words:
+                score -= 8
             if "mini" in row_words and "mini" not in requested_words:
                 score -= 6
             if "cremoso" in requested_words and "cremoso" in row_words:
