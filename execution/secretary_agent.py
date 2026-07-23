@@ -231,6 +231,20 @@ def _handle_observation_response(
     return (_after_observation_reply(state), "secretary_observation_saved")
 
 
+def _looks_like_observation_text(text: Any) -> bool:
+    value = _norm(text)
+    if not value:
+        return False
+    return bool(
+        re.search(
+            r"\b(entregar|entrega|levar|deixar|retirar|trocar|troca|vencimento|validade|"
+            r"cliente|observacao|obs|ate|as|horario|manha|tarde|endereco|rua|avenida|av)\b",
+            value,
+        )
+        or re.search(r"\b\d{1,2}[:h]\d{0,2}\b", value)
+    )
+
+
 def _extract_observation_edit_text(text: str) -> str | None:
     value = str(text or "").strip()
     if not value:
@@ -1732,6 +1746,7 @@ def process_secretary_message(
     if (
         (state.get("awaiting_observation") or state.get("awaiting_observation_text"))
         and brain.get("looks_like_product")
+        and not _looks_like_observation_text(text)
     ):
         state.pop("awaiting_observation", None)
         state.pop("awaiting_observation_text", None)

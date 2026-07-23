@@ -645,6 +645,39 @@ class SecretaryAgentTests(unittest.TestCase):
         self.assertEqual(saved_states[-1]["observations"], "entregar pela manhã")
         self.assertIn("Agora me envie os produtos", result["reply"])
 
+    def test_observation_with_product_words_is_not_resolved_as_order_item(self):
+        customer = {"code": "16069", "name": "AIS SUZUKI RESTAURANTE MAISABOR", "document": "1", "price_table_code": "205"}
+        text = "Entregar ate as 10:30\nLevar uma cx copo laranja 200ml para trocar (Vander cliente)"
+        saved_states = []
+        with patch.object(secretary_agent, "_db", return_value=object()), patch.object(
+            secretary_agent, "_representative", return_value={"cod_rep": 106, "name": "ALEXANDRE"}
+        ), patch.object(
+            secretary_agent,
+            "_conversation",
+            return_value={
+                "id": "conv-1",
+                "state_json": {
+                    "customer": customer,
+                    "sale_type_code": "90100",
+                    "awaiting_observation": True,
+                },
+            },
+        ), patch.object(
+            secretary_agent, "_add_message", return_value=True
+        ), patch.object(
+            secretary_agent, "_resolve_products_with_sales_subagent"
+        ) as resolve_products, patch.object(
+            secretary_agent, "_save_state", side_effect=lambda _db, _id, state: saved_states.append(state)
+        ):
+            result = secretary_agent.process_secretary_message("5516991045043", text, "secretaria")
+
+        self.assertEqual(result["action"], "secretary_observation_saved")
+        self.assertEqual(saved_states[-1]["observations"], text)
+        self.assertTrue(saved_states[-1]["observation_step_done"])
+        self.assertNotIn("awaiting_observation", saved_states[-1])
+        self.assertIn("Agora me envie os produtos", result["reply"])
+        resolve_products.assert_not_called()
+
     def test_observation_edit_updates_ready_order_without_resolving_products(self):
         customer = {"code": "16069", "name": "IGOR MIRANDA BORGES", "document": "42423525818", "price_table_code": "205"}
         item = {
